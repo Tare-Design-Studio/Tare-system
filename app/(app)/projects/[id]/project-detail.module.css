@@ -1,0 +1,581 @@
+.shell {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 6px 32px 64px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 32px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.headerMain {
+  min-width: 0;
+  flex: 1;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.backLink {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--bg-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  text-decoration: none;
+  color: var(--color-ink);
+}
+
+.title {
+  margin: 0;
+  font-size: 48px;
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.metaBar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: var(--color-tan);
+  font-size: 14px;
+  padding-left: 48px;
+  flex-wrap: wrap;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.actionLink {
+  padding: 10px 16px;
+  background: var(--bg-2);
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  color: var(--color-ink);
+}
+
+.driveLink {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.holdBanner {
+  padding: 12px 18px;
+  border-radius: 12px;
+  background: #e2a64b18;
+  border-left: 3px solid var(--color-amber);
+  margin-bottom: 24px;
+  font-size: 14px;
+  color: var(--color-ink);
+}
+
+.mainGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 20px;
+  align-items: start;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.card {
+  background: var(--color-paper-light);
+  border-radius: 22px;
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--color-line);
+  padding: 24px;
+  min-width: 0;
+}
+
+.executionSection {
+  margin-top: 32px;
+}
+
+.executionSectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.executionSectionHeader > button {
+  margin-left: auto;
+}
+
+.executionSectionTitle {
+  font-size: 28px;
+  line-height: 1;
+  font-weight: 400;
+}
+
+.executionStack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.executionCard {
+  background: var(--color-paper-light);
+  border-radius: 22px;
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--color-line);
+  padding: 20px;
+  min-width: 0;
+}
+
+.executionTableHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.executionTableTitle {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.executionTableSubtitle {
+  font-size: 12px;
+  color: var(--color-tan);
+  margin-top: 3px;
+}
+
+.executionActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.executionProgressTrack {
+  width: 100px;
+  height: 6px;
+  background: var(--color-line);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.executionProgressFill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width .3s ease;
+}
+
+.executionProgressText,
+.executionMono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-tan);
+}
+
+.executionProgressText {
+  width: 34px;
+}
+
+.executionGhostBtn,
+.executionPrimaryBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.executionGhostBtn {
+  border: 1px solid var(--line-2);
+  background: var(--bg-2);
+  color: var(--ink-2);
+}
+
+.executionGhostBtnActive {
+  border-color: var(--color-forest);
+  background: var(--accent-soft);
+  color: var(--color-forest);
+}
+
+.executionPrimaryBtn {
+  border: 0;
+  background: var(--color-ink);
+  color: #f3efe7;
+}
+
+.executionConfigPanel {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.executionTableFrame {
+  overflow: hidden;
+}
+
+.executionTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.executionTable thead tr {
+  border-bottom: 2px solid var(--color-line);
+}
+
+.executionTable th {
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 11px;
+  color: var(--color-tan);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+
+.executionTable td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-line);
+  vertical-align: middle;
+}
+
+.executionTable tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.executionSectionRow {
+  padding: 8px 12px !important;
+  background: var(--bg-2);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-tan);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.executionIndexCell {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-tan);
+}
+
+.executionEmptyCell {
+  padding: 18px 12px !important;
+  text-align: center;
+  color: var(--color-tan);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.siteEngineerCell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.siteEngineerName {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.siteEngineerRole {
+  font-size: 11px;
+  color: var(--color-tan);
+  margin-top: 1px;
+}
+
+.executionTextLink {
+  color: var(--color-teal);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.sectionTitle {
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.cardHeading {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.timeline {
+  display: flex;
+  justify-content: space-between;
+  position: relative;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.hoursHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.splitHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.teamRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--bg-2);
+}
+
+.milestoneHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.progressSummary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.infoRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 13px;
+}
+
+.infoValue {
+  font-weight: 500;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.expenseHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.expenseRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.checkInRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+@media (max-width: 767px) {
+  .shell {
+    max-width: none;
+    padding: 20px 16px 120px;
+  }
+
+  .header {
+    display: block;
+    margin-bottom: 24px;
+  }
+
+  .titleRow {
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .backLink {
+    width: 40px;
+    height: 40px;
+  }
+
+  .title {
+    font-size: 34px;
+    line-height: 1.04;
+  }
+
+  .titleRow>span {
+    margin-top: 7px;
+    flex-shrink: 0;
+  }
+
+  .metaBar {
+    padding-left: 50px;
+    gap: 8px 12px;
+    font-size: 13px;
+    align-items: flex-start;
+  }
+
+  .actions {
+    margin-top: 18px;
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .actionLink {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .mainGrid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .column {
+    gap: 16px;
+  }
+
+  .card {
+    border-radius: 16px;
+    padding: 18px;
+  }
+
+  .executionSection {
+    margin-top: 24px;
+  }
+
+  .executionSectionTitle {
+    font-size: 24px;
+  }
+
+  .executionCard {
+    border-radius: 16px;
+    padding: 16px;
+  }
+
+  .executionTableHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .executionActions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+
+  .executionSectionHeader > button {
+    margin-left: 0;
+  }
+
+  .sectionTitle {
+    font-size: 17px;
+  }
+
+  .timeline {
+    justify-content: flex-start;
+    gap: 4px;
+    margin: 0 -18px;
+    padding: 0 18px 8px;
+  }
+
+  .splitHeader,
+  .expenseHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .teamRow {
+    align-items: flex-start;
+  }
+
+  .milestoneHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .progressSummary {
+    align-items: flex-start;
+  }
+
+  .infoRow {
+    flex-direction: column;
+    gap: 2px;
+    padding: 2px 0;
+  }
+
+  .infoValue {
+    text-align: left;
+  }
+
+  .expenseRow {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .expenseRow> :nth-child(2) {
+    min-width: calc(100% - 40px);
+  }
+
+  .checkInRow {
+    align-items: flex-start;
+  }
+
+  .imageGrid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  .tableScrollWrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}

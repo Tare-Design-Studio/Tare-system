@@ -1,0 +1,48 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+
+type Ctx = { params: Promise<{ id: string }> };
+
+export async function PATCH(req: Request, { params }: Ctx) {
+  const { id } = await params;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = await createClient() as any;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const body = await req.json();
+  const update: Record<string, unknown> = {};
+  if (typeof body.is_done === "boolean") update.is_done = body.is_done;
+  if (typeof body.title === "string") update.title = body.title.trim();
+  if (body.reminder_at) update.reminder_at = body.reminder_at;
+  if (body.type) update.type = body.type;
+
+  const { data, error } = await supabase
+    .from("personal_reminders")
+    .update(update)
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .select()
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!data) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  return NextResponse.json(data);
+}
+
+export async function DELETE(_req: Request, { params }: Ctx) {
+  const { id } = await params;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = await createClient() as any;
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { error } = await supabase
+    .from("personal_reminders")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", user.id);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return new NextResponse(null, { status: 204 });
+}
