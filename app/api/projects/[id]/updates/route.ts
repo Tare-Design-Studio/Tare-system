@@ -27,7 +27,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
 
   let query = supabase
     .from("updates")
-    .select(`id, update_type, body, author_role_on_project, created_at,
+    .select(`id, update_type, body, author_role_on_project, created_at, edited_at,
       users:author_id (id, full_name, role),
       media_assets:media_assets!linked_update_id (id, storage_path, bucket, drive_sync_status)`)
     .eq("project_id", project_id)

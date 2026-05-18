@@ -103,9 +103,10 @@ function CheckpointTimeline({ checkpoints }: { checkpoints: Checkpoint[] }) {
   const completedItems = checkpoints.reduce((n, cp) => n + cp.completed_items, 0)
   const overallPct = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : null
 
-  const chipStyle = (cp: Checkpoint) => {
+  const chipStyle = (cp: Checkpoint, isActive: boolean) => {
     if (cp.status === 'complete') return { bg: 'rgba(107,138,110,.12)', color: 'var(--mint)', label: 'Complete', dot: true }
     if (cp.status === 'overdue')  return { bg: 'rgba(197,84,59,.08)',   color: 'var(--rust)', label: 'Overdue',  dot: true }
+    if (isActive)                 return { bg: 'rgba(45,106,79,.1)',    color: 'var(--accent)', label: 'Active', dot: true }
     return { bg: 'var(--bg-2)', color: 'var(--muted)', label: 'Upcoming', dot: false }
   }
 
@@ -124,8 +125,8 @@ function CheckpointTimeline({ checkpoints }: { checkpoints: Checkpoint[] }) {
       </div>
       <div style={{ background: 'var(--paper)', borderRadius: 20, padding: 24, boxShadow: '0 1px 0 #FFF inset, 0 8px 24px -16px rgba(30,28,24,.14)', border: '1px solid rgba(30,28,24,.04)' }}>
         {checkpoints.map((cp, i) => {
-          const chip = chipStyle(cp)
           const isActive = cp.status !== 'complete' && (i === 0 || checkpoints[i - 1].status === 'complete')
+          const chip = chipStyle(cp, isActive)
           return (
             <div key={cp.id} style={{ display: 'grid', gridTemplateColumns: '24px 1fr auto', gap: 14, alignItems: 'flex-start', padding: '14px 0', borderBottom: i < checkpoints.length - 1 ? '1px solid var(--line)' : 'none', position: 'relative' }}>
               {i < checkpoints.length - 1 && (
@@ -468,11 +469,11 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
           </div>
         )}
 
-        {/* Checkpoints */}
-        {data.checkpoints.length > 0 && <CheckpointTimeline checkpoints={data.checkpoints} />}
-
         {/* Payments */}
         {data.payments.length > 0 && <PaymentSchedule payments={data.payments} />}
+
+        {/* Checkpoints */}
+        {data.checkpoints.length > 0 && <CheckpointTimeline checkpoints={data.checkpoints} />}
 
         {/* Images */}
         <ImageGallery images={data.images} />

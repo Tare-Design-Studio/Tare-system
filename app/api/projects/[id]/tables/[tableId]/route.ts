@@ -50,12 +50,18 @@ export async function DELETE(
   const { data: cap } = await supabase.rpc('has_capability', { p_capability: 'project_table:edit' })
   if (!cap) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const { error } = await supabase
-    .from('project_tables')
-    .update({ deleted_at: new Date().toISOString() })
-    .eq('id', tableId)
-    .eq('project_id', id)
+  // Soft-delete via SECURITY DEFINER fn: a direct UPDATE setting deleted_at
+  // fails RLS because the post-update row no longer satisfies the SELECT
+  // policy (deleted_at IS NULL). See migration 064.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any).rpc('soft_delete_project_table', {
+    p_project_id: id,
+    p_table_id: tableId,
+  })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!data) {
+    return NextResponse.json({ error: 'Table not found or already deleted' }, { status: 404 })
+  }
   return new NextResponse(null, { status: 204 })
 }

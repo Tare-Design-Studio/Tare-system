@@ -231,7 +231,7 @@
 
 .memberStats {
   display: grid;
-  grid-template-columns: repeat(2, minmax(72px, auto)) minmax(140px, 1fr);
+  grid-template-columns: repeat(3, minmax(64px, auto)) minmax(140px, 1fr);
   gap: 10px;
   align-items: stretch;
   min-width: 0;
@@ -268,6 +268,32 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.memberTaskList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.memberTaskItem {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.memberTaskItem strong {
+  flex: 1;
+}
+
+.memberTaskItem em {
+  flex-shrink: 0;
+  font-style: normal;
+  font-size: 10px;
+  color: var(--aos-muted);
+  font-family: var(--font-mono, monospace);
 }
 
 .inlineChips {

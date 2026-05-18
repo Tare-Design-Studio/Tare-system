@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { type ComponentProps } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { enrichAuditRows } from "@/lib/audit/summarize";
 import AuditClient from "./AuditClient";
 
 export default async function AuditPage() {
@@ -31,9 +32,12 @@ export default async function AuditPage() {
     .eq("is_active", true)
     .order("full_name");
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const enrichedRows = await enrichAuditRows(supabase, (rows ?? []) as any[]);
+
   return (
     <AuditClient
-      initialRows={(rows ?? []) as unknown as ComponentProps<typeof AuditClient>["initialRows"]}
+      initialRows={enrichedRows as unknown as ComponentProps<typeof AuditClient>["initialRows"]}
       totalCount={count ?? 0}
       users={users ?? []}
       canExport={!!canExport.data}

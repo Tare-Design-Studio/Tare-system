@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Avatar } from "@/components/atoms";
+import { Avatar, ConfirmPopover } from "@/components/atoms";
 
 export type FeedImage = {
   id: string;
@@ -14,6 +14,7 @@ export type FeedUpdate = {
   update_type: string;
   body: string | null;
   created_at: string;
+  edited_at?: string | null;
   users: { id: string; full_name: string; role: string } | { id: string; full_name: string; role: string }[] | null;
   images?: FeedImage[];
 };
@@ -86,13 +87,95 @@ export function FeedImageTile({
   );
 }
 
+const ghostBtnStyle: React.CSSProperties = {
+  padding: "3px 8px", borderRadius: 8, border: "1px solid var(--color-line)",
+  background: "transparent", fontSize: 11, fontWeight: 600, fontFamily: "inherit",
+  cursor: "pointer", color: "var(--color-tan)",
+};
+
+// Inline edit/delete controls for an update owned by the current user.
+function UpdateActions({
+  update, projectId, onChanged,
+}: { update: FeedUpdate; projectId: string; onChanged?: () => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(update.body ?? "");
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    if (!draft.trim() || busy) return;
+    setBusy(true);
+    const res = await fetch(`/api/projects/${projectId}/updates/${update.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body: draft.trim() }),
+    });
+    setBusy(false);
+    if (res.ok) {
+      setEditing(false);
+      onChanged?.();
+    }
+  }
+
+  async function remove() {
+    const res = await fetch(`/api/projects/${projectId}/updates/${update.id}`, { method: "DELETE" });
+    if (res.ok) onChanged?.();
+  }
+
+  if (editing) {
+    return (
+      <div style={{ marginTop: 8 }}>
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={3}
+          style={{
+            width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 10,
+            border: "1px solid var(--color-line)", fontSize: 13, fontFamily: "inherit", resize: "vertical",
+          }}
+        />
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 6 }}>
+          <button onClick={() => { setEditing(false); setDraft(update.body ?? ""); }} disabled={busy} style={ghostBtnStyle}>
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={busy}
+            style={{ ...ghostBtnStyle, border: "none", background: "var(--color-ink)", color: "#F3EFE7" }}
+          >
+            {busy ? "…" : "Save"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", marginTop: 8 }}>
+      <button onClick={() => setEditing(true)} style={ghostBtnStyle}>Edit</button>
+      <ConfirmPopover
+        title="Delete update?"
+        message="This update will be removed. This cannot be undone."
+        onConfirm={remove}
+      >
+        {(open) => (
+          <button onClick={open} style={{ ...ghostBtnStyle, color: "var(--color-rust)" }}>Delete</button>
+        )}
+      </ConfirmPopover>
+    </div>
+  );
+}
+
 interface UpdatesFeedProps {
   updates: FeedUpdate[];
   emptyText?: string;
   projectId?: string;
+  /** When set, updates authored by this user get inline edit/delete controls. */
+  currentUserId?: string;
+  /** Called after an update is edited or deleted, so the caller can refresh. */
+  onChanged?: () => void;
 }
 
-export function UpdatesFeed({ updates, emptyText = "No updates yet.", projectId }: UpdatesFeedProps) {
+export function UpdatesFeed({ updates, emptyText = "No updates yet.", projectId, currentUserId, onChanged }: UpdatesFeedProps) {
   if (updates.length === 0) {
     return (
       <div style={{ fontSize: 13, color: "var(--color-tan)", fontStyle: "italic", padding: "16px 0", textAlign: "center" }}>
@@ -109,6 +192,7 @@ export function UpdatesFeed({ updates, emptyText = "No updates yet.", projectId 
           .split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
         const typeColor = TYPE_COLORS[u.update_type] ?? "#6B7280";
         const imgs = (u.images ?? []).filter((i) => i.url);
+        const isMine = !!currentUserId && !!projectId && author?.id === currentUserId;
 
         return (
           <div
@@ -130,7 +214,7 @@ export function UpdatesFeed({ updates, emptyText = "No updates yet.", projectId 
                 </span>
               </div>
               <span style={{ fontSize: 10, color: "var(--color-tan)", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
-                {fmt(u.created_at)}
+                {fmt(u.created_at)}{u.edited_at ? " · edited" : ""}
               </span>
             </div>
 
@@ -146,6 +230,10 @@ export function UpdatesFeed({ updates, emptyText = "No updates yet.", projectId 
                   <FeedImageTile key={img.id} img={img} projectId={projectId} />
                 ))}
               </div>
+            )}
+
+            {isMine && projectId && (
+              <UpdateActions update={u} projectId={projectId} onChanged={onChanged} />
             )}
           </div>
         );

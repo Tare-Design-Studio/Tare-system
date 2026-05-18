@@ -135,33 +135,31 @@ export const TEAM_MEMBER_CAPABILITIES: Capability[] = [
   "personal_reminders:write_own",
 ];
 
+// Finance / payments capabilities — hidden from the Admin tag.
+export const FINANCE_CAPABILITIES: Capability[] = [
+  "finance:view_dashboard",
+  "finance:export",
+  "expenses:create",
+  "expenses:view",
+  "expenses:approve",
+  "customer_payments:view",
+  "customer_payments:edit",
+  "customer_payments:create_schedule",
+];
+
+// Every capability except access_control:manage (non-delegable, Owner only).
+const ALL_DELEGABLE_CAPABILITIES: Capability[] = CAPABILITIES.filter(
+  (c) => c !== "access_control:manage"
+);
+
 // Extra capabilities granted per tag (owner assigns these via team_member_tags)
 export const TAG_CAPABILITIES: Record<string, Capability[]> = {
-  accountant: [
-    "finance:view_dashboard",
-    "finance:export",
-    "customer_payments:view",
-    "customer_payments:edit",
-    "customer_payments:create_schedule",
-    "customer:view",
-  ],
-  admin: [
-    "customer:view",
-    "customer_payments:view",
-    "finance:view_dashboard",
-    "enquiry:view",
-    "enquiry:create",
-    "enquiry:edit",
-    "enquiry:add_remark",
-    "enquiry:set_reminder",
-    "team:create_user",
-    "team:edit_user",
-    "team:assign_to_project",
-    "daily_tasks:view_all",
-    "office_attendance:view_all",
-    "audit_log:view",
-    "member_tasks:view_all",
-  ],
+  // Accountant — full access (every navbar page + capability), like the Owner view.
+  accountant: ALL_DELEGABLE_CAPABILITIES,
+  // Admin — same as accountant but all finance / payments capabilities hidden.
+  admin: ALL_DELEGABLE_CAPABILITIES.filter(
+    (c) => !FINANCE_CAPABILITIES.includes(c)
+  ),
   project_manager: [
     "project:create",
     "project:edit",

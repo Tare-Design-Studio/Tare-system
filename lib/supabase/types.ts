@@ -32,6 +32,7 @@ export type Database = {
       attendance_logs: {
         Row: {
           check_in_at: string | null
+          check_in_count: number
           check_in_lat: number | null
           check_in_lng: number | null
           check_in_within_geofence: boolean | null
@@ -49,6 +50,7 @@ export type Database = {
         }
         Insert: {
           check_in_at?: string | null
+          check_in_count?: number
           check_in_lat?: number | null
           check_in_lng?: number | null
           check_in_within_geofence?: boolean | null
@@ -66,6 +68,7 @@ export type Database = {
         }
         Update: {
           check_in_at?: string | null
+          check_in_count?: number
           check_in_lat?: number | null
           check_in_lng?: number | null
           check_in_within_geofence?: boolean | null
@@ -1670,6 +1673,7 @@ export type Database = {
           author_id: string
           body: string
           created_at: string
+          edited_at: string | null
           id: string
           tenant_id: string
         }
@@ -1678,6 +1682,7 @@ export type Database = {
           author_id: string
           body: string
           created_at?: string
+          edited_at?: string | null
           id?: string
           tenant_id: string
         }
@@ -1686,6 +1691,7 @@ export type Database = {
           author_id?: string
           body?: string
           created_at?: string
+          edited_at?: string | null
           id?: string
           tenant_id?: string
         }
@@ -3233,6 +3239,8 @@ export type Database = {
           author_role_on_project: string
           body: string | null
           created_at: string
+          deleted_at: string | null
+          edited_at: string | null
           id: string
           project_id: string
           tenant_id: string
@@ -3243,6 +3251,8 @@ export type Database = {
           author_role_on_project: string
           body?: string | null
           created_at?: string
+          deleted_at?: string | null
+          edited_at?: string | null
           id?: string
           project_id: string
           tenant_id: string
@@ -3253,6 +3263,8 @@ export type Database = {
           author_role_on_project?: string
           body?: string | null
           created_at?: string
+          deleted_at?: string | null
+          edited_at?: string | null
           id?: string
           project_id?: string
           tenant_id?: string
@@ -3297,6 +3309,7 @@ export type Database = {
           granted_by: string | null
           id: string
           scope_project_id: string | null
+          source: string
           tenant_id: string
           user_id: string
         }
@@ -3307,6 +3320,7 @@ export type Database = {
           granted_by?: string | null
           id?: string
           scope_project_id?: string | null
+          source?: string
           tenant_id: string
           user_id: string
         }
@@ -3317,6 +3331,7 @@ export type Database = {
           granted_by?: string | null
           id?: string
           scope_project_id?: string | null
+          source?: string
           tenant_id?: string
           user_id?: string
         }

@@ -7,7 +7,7 @@ type IconName =
   | "check" | "chev" | "dots" | "sparkle" | "eye" | "layers" | "trend"
   | "mail" | "compass" | "shield" | "bridge" | "clipboard" | "image"
   | "dollar" | "x" | "folder" | "camera" | "hardhat" | "logout"
-  | "download" | "file" | "star";
+  | "download" | "file" | "star" | "pencil";
 
 interface IconProps extends SVGProps<SVGSVGElement> {
   name: IconName;
@@ -56,6 +56,7 @@ const PATHS: Record<IconName, string | string[]> = {
   download: "M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z",
   file: "M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.89 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z",
   star: "M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z",
+  pencil: "M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34a.9959.9959 0 00-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z",
 };
 
 export function Icon({ name, size = 24, style, ...props }: IconProps) {

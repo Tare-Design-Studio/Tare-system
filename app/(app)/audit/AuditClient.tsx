@@ -20,6 +20,9 @@ type AuditRow = {
   row_hash: string | null;
   occurred_at: string;
   actor: unknown;
+  label: string;
+  resource_label: string;
+  project_name: string | null;
 };
 
 type User = { id: string; full_name: string };
@@ -67,6 +70,25 @@ function actorName(actor: unknown): string | null {
 
 function jsonStr(val: unknown): string {
   return JSON.stringify(val, null, 2);
+}
+
+const ACTION_VERBS: Record<string, string> = {
+  insert: "created",
+  update: "updated",
+  soft_delete: "deleted",
+  delete: "deleted",
+  hard_purge: "purged",
+  session_revoke: "revoked a session",
+};
+
+// Human-readable line, e.g. "Nayan deleted table 'Drawing Register' in Sharma Villa".
+function summary(row: AuditRow): string {
+  const actor = actorName(row.actor) ?? "System";
+  const verb = ACTION_VERBS[row.action] ?? row.action.replace(/_/g, " ");
+  if (row.action === "session_revoke") return `${actor} ${verb}`;
+  let line = `${actor} ${verb} ${row.resource_label} “${row.label}”`;
+  if (row.project_name) line += ` in ${row.project_name}`;
+  return line;
 }
 
 function SurfaceButton({
@@ -321,7 +343,7 @@ export default function AuditClient({ initialRows, totalCount, users, canExport 
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ borderBottom: "1px solid var(--color-line)" }}>
-                {["Timestamp", "Actor", "Action", "Resource", "Detail", "IP"].map((h, index, arr) => (
+                {["Timestamp", "Action", "Summary", "IP"].map((h, index, arr) => (
                   <th
                     key={h}
                     style={{
@@ -356,18 +378,13 @@ export default function AuditClient({ initialRows, totalCount, users, canExport 
                       <td style={{ padding: "16px", fontSize: 11, color: "var(--color-tan)", whiteSpace: "nowrap", fontFamily: "var(--font-mono)" }}>
                         {fmtDate(row.occurred_at)}
                       </td>
-                      <td style={{ padding: "16px", fontWeight: 500, whiteSpace: "nowrap" }}>
-                        {actorName(row.actor) ?? <span style={{ color: "var(--color-tan)" }}>system</span>}
-                      </td>
                       <td style={{ padding: "16px" }}>
                         <Chip size="sm" tone={ACTION_TONES[row.action] ?? "sand"} label={row.action.replace(/_/g, " ").toUpperCase()} />
                       </td>
-                      <td style={{ padding: "16px" }}>
-                        <Chip size="sm" tone="sand" label={row.resource_type} />
-                      </td>
-                      <td style={{ padding: "16px", fontSize: 12, color: "var(--ink-2)" }}>
-                        <span style={{ display: "block", maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {row.resource_id ? `${row.resource_id.slice(0, 8)}...` : "No resource id"} · hash {hashShort(row.row_hash)}
+                      <td style={{ padding: "16px", fontSize: 13, color: "var(--color-ink)" }}>
+                        <span style={{ display: "block", fontWeight: 500 }}>{summary(row)}</span>
+                        <span style={{ display: "block", fontSize: 10, color: "var(--color-tan)", fontFamily: "var(--font-mono)", marginTop: 2 }}>
+                          hash {hashShort(row.row_hash)}
                         </span>
                       </td>
                       <td style={{ padding: "16px", fontSize: 11, color: "var(--color-tan)", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
@@ -376,7 +393,7 @@ export default function AuditClient({ initialRows, totalCount, users, canExport 
                     </tr>
                     {isExpanded && (
                       <tr style={{ background: "var(--bg-2)", borderBottom: index < rows.length - 1 ? "1px solid var(--color-line)" : "none" }}>
-                        <td colSpan={6} style={{ padding: "16px 18px 18px" }}>
+                        <td colSpan={4} style={{ padding: "16px 18px 18px" }}>
                           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
                             {row.before != null && (
                               <div>
@@ -409,7 +426,7 @@ export default function AuditClient({ initialRows, totalCount, users, canExport 
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: "center", padding: 48, color: "var(--color-tan)", fontSize: 13 }}>
+                  <td colSpan={4} style={{ textAlign: "center", padding: 48, color: "var(--color-tan)", fontSize: 13 }}>
                     No audit entries found.
                   </td>
                 </tr>

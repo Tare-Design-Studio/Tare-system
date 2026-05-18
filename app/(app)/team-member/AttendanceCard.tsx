@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef } from "react";
+import { ConfirmPopover, Icon } from "@/components/atoms";
 
 type AttendanceLog = {
   id: string;
@@ -8,6 +9,7 @@ type AttendanceLog = {
   check_in_at: string | null;
   check_out_at: string | null;
   total_minutes: number | null;
+  check_in_count: number;
 };
 
 function fmt(iso: string | null) {
@@ -85,10 +87,36 @@ export default function AttendanceCard({ todayAttendance }: { todayAttendance: A
     setPhase("idle");
   }
 
+  // The "+" lets a returning member log attendance again on the same day:
+  // check out if currently in, otherwise start another check-in.
+  const reLogAction: "check_in" | "check_out" = isCheckedIn && !isCheckedOut ? "check_out" : "check_in";
+
   return (
     <div style={{ ...C }}>
-      <div style={{ fontSize: 16, fontFamily: "'Instrument Serif', serif", fontWeight: 400, marginBottom: 14 }}>
-        Attendance
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+        <div style={{ fontSize: 16, fontFamily: "'Instrument Serif', serif", fontWeight: 400 }}>
+          Attendance
+        </div>
+        {isCheckedIn && (
+          <ConfirmPopover
+            title="Log attendance again?"
+            message="Are you sure?"
+            confirmLabel="Yes, log it"
+            onConfirm={() => confirm(reLogAction)}
+          >
+            {(open) => (
+              <button
+                onClick={open}
+                aria-label="Log attendance again"
+                title="Log attendance again"
+                disabled={phase === "loading"}
+                style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 9, border: "1px solid var(--color-line)", background: "transparent", cursor: "pointer", color: "var(--color-ink)" }}
+              >
+                <Icon name="plus" size={14} />
+              </button>
+            )}
+          </ConfirmPopover>
+        )}
       </div>
 
       {/* Status row */}
@@ -109,6 +137,12 @@ export default function AttendanceCard({ todayAttendance }: { todayAttendance: A
           <div style={{ flex: 1, padding: "10px 12px", borderRadius: 12, background: "var(--color-bg)" }}>
             <div style={{ fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Total</div>
             <div style={{ fontSize: 14, fontWeight: 600 }}>{fmtMinutes(log.total_minutes)}</div>
+          </div>
+        )}
+        {isCheckedIn && (
+          <div style={{ flex: 1, padding: "10px 12px", borderRadius: 12, background: "var(--color-bg)" }}>
+            <div style={{ fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Check-ins</div>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>{log?.check_in_count ?? 1}</div>
           </div>
         )}
       </div>

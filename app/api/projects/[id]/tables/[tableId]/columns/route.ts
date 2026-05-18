@@ -32,6 +32,16 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     ? insertAfterOrder + 1
     : (existing?.display_order ?? 0) + 1
 
+  // Open a slot: shift later columns up so display_order stays unique.
+  if (insertAfterOrder !== undefined) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error: shiftError } = await (supabase as any).rpc('shift_table_columns_after', {
+      p_table_id: tableId,
+      p_after_order: insertAfterOrder,
+    })
+    if (shiftError) return NextResponse.json({ error: shiftError.message }, { status: 500 })
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (supabase as any)
     .from('project_table_columns')

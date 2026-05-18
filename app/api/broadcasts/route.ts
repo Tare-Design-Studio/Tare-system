@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   const { data, error } = await supabase
     .from("owner_broadcasts")
     .select(`
-      id, body, attachment_url, created_at,
+      id, body, attachment_url, created_at, edited_at,
       users:author_id (id, full_name),
       owner_broadcast_recipients (user_id, is_acknowledged, acknowledged_at,
         users:user_id (id, full_name))

@@ -1,5 +1,51 @@
 # PROJECT_STATE.md
-(Updated: 2026-05-17 — Google Drive image sync)
+(Updated: 2026-05-18 — audit retention, table columns, table-delete fix)
+
+### Table soft-delete fix (2026-05-18)
+
+**Built:**
+- Migration 064 — APPLIED to cloud Supabase. Fixes table deletion: a deleted table stayed visible because the DELETE route's direct `UPDATE ... SET deleted_at` was rejected by RLS. Root cause: Postgres enforces the SELECT policy's `USING (deleted_at IS NULL)` against the post-update row, so setting `deleted_at` makes the new row fail the SELECT policy ("new row violates RLS policy"). Migration 058 only fixed the UPDATE policy's WITH CHECK, not this. Fix: `soft_delete_project_table()` SECURITY DEFINER fn (capability-checked) + DELETE route calls it via RPC.
+- Project detail page: Material Plan card moved back to the left column (after the UpdateComposer card) — its original position.
+
+### Audit retention + table columns + project page (2026-05-18)
+
+**Built:**
+- Migration 062: pg_cron `audit-log-retention` job — daily hard-delete of `audit_log` rows older than 30 days. **APPLIED to cloud Supabase.**
+- Migration 063: `project_table_columns` unique constraint made DEFERRABLE; `shift_table_columns_after()` + `delete_table_column()` SQL functions. **APPLIED to cloud Supabase.**
+- Fixed insert-column-between bug: `columns` POST route now calls `shift_table_columns_after` before insert so `display_order` stays unique (was a silent UNIQUE-constraint 500 → column never appeared).
+- New DELETE `/api/projects/[id]/tables/[tableId]/columns/[columnId]` — hard-deletes a column via `delete_table_column`, `project_table:edit` gated.
+- ProjectTablesSection: per-column Delete button in the table header (edit mode, ConfirmPopover, non-serial columns only).
+- TeamStreamCard activity feed is now an independently scrollable region (`maxHeight: 420`).
+
+### Customer portal redesign (2026-05-17)
+
+**Built:**
+- Migration 061: `get_customer_portal_summary` now also returns per-checkpoint progress (`id`, `total_items`, `completed_items`, `progress_pct`). **NOT YET APPLIED to cloud Supabase.**
+- `/c/customer/[hash]/page.tsx` rewritten to match `ArchitectOS copy/CustomerPortal.html` mock — paper cards, serif headings, gradient bg, brand top bar; one card per project with milestone progress bars + per-milestone completion %
+- `/c/[hash]/page.tsx` reordered to mock layout (Payment Schedule before Project Milestones); milestone chips gain an "Active" state for the in-progress checkpoint
+
+### Post-build fixes batch 2 (2026-05-17)
+
+**Built:**
+- `Icon` atom: new `pencil` icon
+- Team Stream (`TeamStreamCard.tsx`): the author's Edit/Delete actions on an update are now hidden behind a pencil-icon menu (click-away + Esc close); Delete still routes through `ConfirmPopover`
+- Team & Access Members card (`team/page.tsx`): rows ordered owner → team members → site engineers (`ROLE_RANK`); each team member shows their active (unchecked) `member_tasks` with date added, else last completed task, else "No tasks"; new monthly "Check-ins" stat
+- Migration 060: `attendance_logs.check_in_count`. **APPLIED 2026-05-17.** Team members can re-log attendance the same day — one row stays, keeps first check-in / last check-out, increments the count
+- Attendance API (`api/attendance/route.ts`): `check_in` reads-then-inserts-or-increments (no longer overwrites the first check-in); `check_out` unchanged (last wins)
+- `AttendanceCard.tsx`: a "+" icon (in a `ConfirmPopover` — "Are you sure?") lets a member log attendance again; new "Check-ins" metric tile
+- `team-access.module.css`: member-task list layout + 3-stat grid
+
+### Post-build fixes batch (2026-05-17)
+
+**Built:**
+- Migration 058: fixes `project_tables` UPDATE RLS so soft-delete (DELETE table route) actually persists — was silently affecting 0 rows because the policy had no explicit `WITH CHECK`. APPLIED to cloud Supabase 2026-05-17.
+- Migration 059: `updates.edited_at/deleted_at`, `owner_broadcasts.edited_at` + RLS for author edit/soft-delete. APPLIED 2026-05-17.
+- DELETE `/api/projects/[id]/tables/[tableId]` now returns 404 when no row matched (no more fake 204)
+- New `/calendar/schedule` route (`page.tsx` + `ScheduleClient.tsx`) — all upcoming events grouped by date with source-type filters; shared helpers in `app/(app)/calendar/eventUtils.ts`. Calendar "View full schedule" button now links there
+- New API routes: `PATCH/DELETE /api/projects/[id]/updates/[updateId]` (author edit/soft-delete), `PATCH /api/broadcasts/[id]` (author edit)
+- `UpdatesFeed` + `TeamStreamCard` show inline Edit/Delete on the current user's own updates; `BroadcastsPanel` shows Edit on the owner's own broadcasts; "· edited" marker when `edited_at` set
+- Audit log: `lib/audit/summarize.ts` enriches rows server-side (entity label, friendly resource noun, project name); `AuditClient` renders a human-readable sentence ("Nayan deleted table "Drawing Register" in Sharma Villa") instead of raw JSON — raw before/after kept in the expand row
+- App rebranded to "Tare": PWA `name`/`short_name` (`app/manifest.ts`), `appleWebApp.title` and browser-tab `metadata.title` (`app/layout.tsx`)
 
 ### Google Drive image auto-sync (2026-05-17)
 
@@ -70,6 +116,8 @@ Migrations 043–050 applied to cloud Supabase. Types regenerated.
 - 048 `customers.customer_portal_hash` + `customer_portal_hash_generated_at` + `customer_portal_enabled` columns + `get_customer_portal_summary()` SECURITY DEFINER function (anon-callable, rate-limited)
 - 049 `material_plan.linked_project_table_id` + `linked_project_table_row_id` + `expenses.linked_material_plan_id`
 - 050 `checkpoint:progress` capability declared (Owner + project_manager tag)
+- 065 tag-capability sync: `user_capabilities.source` column + `tag_capability_set()` helper + `apply/revoke_tag_capabilities()` triggers — assigning a tag now writes `user_capabilities` rows so tags drive `has_capability()`/RLS. `TAG_CAPABILITIES` redefined: accountant = full access, admin = full minus finance/payments.
+- `GET/PATCH /api/access-matrix` — Owner-only; editable access matrix (tags + per-capability overrides)
 - `PATCH /api/projects/[id]/checkpoints/[checkpointId]` — start / complete / reset (capability: checkpoint:progress)
 - `POST /api/projects/[id]/payments/from-preset` — apply preset to project
 - Per-table role gating on row APIs: Team Member edits Drawing Register only, Site Engineer edits Site Execution only, Owner/PM edit all
@@ -127,7 +175,6 @@ Migrations 043–050 applied to cloud Supabase. Types regenerated.
 
 **Pending (Phase 10 finish list):**
 - Remove "Edit Preset" button + introduce pencil-mode pattern across `ProjectTablesSection`
-- Owner UI: assign tags (Admin/Accountant/PM) to team members on team page
 - `/settings/payment-presets` CRUD page
 - `/projects/[id]/expenses` detailed breakdown page (week/month/custom filter)
 - Customer-level portal: `POST /api/customers/[id]/portal` + `/c/customer/[hash]` page + "Generate Link" button on customers page
@@ -210,7 +257,8 @@ Migrations 043–050 applied to cloud Supabase. Types regenerated.
 | `app/(app)/AppNav.tsx` | (Deprecated sidebar — kept, no longer used) |
 | `app/(app)/page.tsx` | Dashboard — desktop: HeroStrip + 12-col grid; mobile: MobileHome |
 | `app/(app)/team/page.tsx` | Team member list + invite form (Owner-gated) |
-| `app/(app)/settings/access-matrix/page.tsx` | Read-only capability matrix for current user |
+| `app/(app)/settings/access-matrix/page.tsx` | Owner: editable matrix (assign tags + per-capability overrides, `AccessMatrixEditor`); others: read-only capability view |
+| `app/api/access-matrix/route.ts` | GET members/tags/caps + PATCH tag/capability changes (Owner-only) |
 
 ### App Route Groups
 | Route | Status |

@@ -469,7 +469,7 @@ function ExpensesTab({ project, plans, expenses, onAdded, nowMs }: { project: Pr
   );
 }
 
-function UpdatesTab({ project, updates, onPosted }: { project: Project; updates: FeedUpdate[]; onPosted: () => void; }) {
+function UpdatesTab({ project, updates, onPosted, engineerId }: { project: Project; updates: FeedUpdate[]; onPosted: () => void; engineerId: string; }) {
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
@@ -477,7 +477,7 @@ function UpdatesTab({ project, updates, onPosted }: { project: Project; updates:
       </div>
       <div style={{ background: "var(--color-paper-light)", borderRadius: 20, boxShadow: "var(--shadow-card)", border: "1px solid rgba(30,28,24,.04)", padding: "20px 24px" }}>
         <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>Project Updates</div>
-        <UpdatesFeed updates={updates} projectId={project.id} emptyText="No updates yet — post the first one above." />
+        <UpdatesFeed updates={updates} projectId={project.id} currentUserId={engineerId} onChanged={onPosted} emptyText="No updates yet — post the first one above." />
       </div>
     </div>
   );
@@ -578,7 +578,7 @@ export function DesktopSiteEngineer({
           )}
 
           {tab === "today"     && <TodayTab     project={project} checkIns={checkIns} onCheckin={refresh} nowMs={nowMs} />}
-          {tab === "updates"   && <UpdatesTab   project={project} updates={updates}   onPosted={refresh} />}
+          {tab === "updates"   && <UpdatesTab   project={project} updates={updates}   onPosted={refresh} engineerId={engineer.id} />}
           {tab === "materials" && <MaterialsTab project={project} plans={plans}       onLogged={refresh} />}
           {tab === "progress"  && <ProgressTab  project={project} />}
           {tab === "expenses"  && <ExpensesTab  project={project} plans={plans} expenses={expenses} onAdded={refresh} nowMs={nowMs} />}

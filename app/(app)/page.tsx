@@ -533,7 +533,7 @@ export default async function DashboardPage() {
         .limit(50),
       db
         .from("attendance_logs")
-        .select("id, work_date, check_in_at, check_out_at, check_in_within_geofence, check_out_within_geofence, total_minutes")
+        .select("id, work_date, check_in_at, check_out_at, check_in_within_geofence, check_out_within_geofence, total_minutes, check_in_count")
         .eq("user_id", user.id)
         .eq("work_date", today)
         .maybeSingle(),

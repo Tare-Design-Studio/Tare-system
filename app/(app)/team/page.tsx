@@ -20,6 +20,9 @@ const ROLE_CHIP: Record<string, { label: string; tone: "forest" | "indigo" | "am
 const roleTone = (role: string): "forest" | "amber" | "indigo" =>
   role === "owner" ? "forest" : role === "site_engineer" ? "amber" : "indigo";
 
+// Members card order: owner → team members → site engineers, then by name.
+const ROLE_RANK: Record<string, number> = { owner: 0, team_member: 1, site_engineer: 2 };
+
 const TAG_LABELS: Record<string, string> = {
   accountant: "Accountant",
   admin: "Admin",
@@ -35,6 +38,11 @@ function formatHours(minutes: number) {
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
   return mins ? `${hours}h ${mins}m` : `${hours}h`;
+}
+
+// Pinned timezone keeps server/client render identical (no hydration drift).
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
 }
 
 export default async function TeamPage() {
@@ -67,7 +75,7 @@ export default async function TeamPage() {
 
     supabase
       .from("owner_broadcasts")
-      .select(`id, body, created_at,
+      .select(`id, body, created_at, edited_at,
         users:author_id (id, full_name),
         owner_broadcast_recipients (user_id, is_acknowledged, users:user_id (id, full_name))`)
       .order("created_at", { ascending: false })
@@ -84,7 +92,7 @@ export default async function TeamPage() {
     canManage
       ? db
         .from("attendance_logs")
-        .select("user_id, work_date, check_in_at, total_minutes, users!user_id(full_name)")
+        .select("user_id, work_date, check_in_at, total_minutes, check_in_count, users!user_id(full_name)")
         .gte("work_date", currentMonthStart)
         .lte("work_date", todayStr)
         .not("check_in_at", "is", null)
@@ -94,7 +102,7 @@ export default async function TeamPage() {
     canManage
       ? db
         .from("member_tasks")
-        .select("user_id, title, completed, created_at, users!user_id(full_name)")
+        .select("user_id, title, completed, created_at, completed_at, users!user_id(full_name)")
         .order("created_at", { ascending: false })
       : Promise.resolve({ data: null, error: null }),
 
@@ -112,35 +120,49 @@ export default async function TeamPage() {
       : Promise.resolve({ data: null, error: null }),
   ]);
 
-  const rows = membersRes.data ?? [];
+  // Already name-ordered by the query; re-rank owner → team members → site engineers.
+  type MemberRow = { id: string; full_name: string; role: string; role_label: string | null; is_active: boolean; last_login_at: string | null };
+  const rows = [...((membersRes.data ?? []) as MemberRow[])].sort(
+    (a, b) => (ROLE_RANK[a.role] ?? 99) - (ROLE_RANK[b.role] ?? 99)
+  );
   const broadcasts = broadcastsRes.data ?? [];
   const dailyTasks = dailyTasksRes.data ?? [];
 
   // Aggregate attendance per user for current month
-  type AttRow = { user_id: string; work_date: string; check_in_at: string | null; total_minutes: number | null; users: { full_name: string } | null };
+  type AttRow = { user_id: string; work_date: string; check_in_at: string | null; total_minutes: number | null; check_in_count: number | null; users: { full_name: string } | null };
   const attendanceRows = (attendanceRes.data ?? []) as AttRow[];
-  const attendanceByUser = new Map<string, { full_name: string; days: number; total_minutes: number }>();
+  const attendanceByUser = new Map<string, { full_name: string; days: number; total_minutes: number; check_ins: number }>();
   for (const row of attendanceRows) {
     const name = row.users?.full_name ?? "Unknown";
-    const existing = attendanceByUser.get(row.user_id) ?? { full_name: name, days: 0, total_minutes: 0 };
+    const existing = attendanceByUser.get(row.user_id) ?? { full_name: name, days: 0, total_minutes: 0, check_ins: 0 };
     existing.days += 1;
     existing.total_minutes += row.total_minutes ?? 0;
+    existing.check_ins += row.check_in_count ?? 1;
     attendanceByUser.set(row.user_id, existing);
   }
-  // Aggregate member tasks per user
-  type TaskRow = { user_id: string; title: string; completed: boolean; created_at: string; users: { full_name: string } | null };
+  // Aggregate member tasks per user: active (unchecked) tasks + latest completed.
+  type TaskRow = { user_id: string; title: string; completed: boolean; created_at: string; completed_at: string | null; users: { full_name: string } | null };
+  type MemberTaskSummary = {
+    activeTasks: { title: string; created_at: string }[];
+    latestCompleted: { title: string; at: string } | null;
+  };
   const taskRows = (memberTasksRes.data ?? []) as TaskRow[];
-  const tasksByUser = new Map<string, { full_name: string; total: number; completed: number; latestTask: string | null; latestTaskAt: string | null }>();
+  const tasksByUser = new Map<string, MemberTaskSummary>();
   for (const row of taskRows) {
-    const name = row.users?.full_name ?? "Unknown";
-    const existing = tasksByUser.get(row.user_id) ?? { full_name: name, total: 0, completed: 0, latestTask: null, latestTaskAt: null };
-    existing.total += 1;
-    if (row.completed) existing.completed += 1;
-    if (!existing.latestTaskAt || new Date(row.created_at).getTime() > new Date(existing.latestTaskAt).getTime()) {
-      existing.latestTask = row.title;
-      existing.latestTaskAt = row.created_at;
+    const existing = tasksByUser.get(row.user_id) ?? { activeTasks: [], latestCompleted: null };
+    if (!row.completed) {
+      existing.activeTasks.push({ title: row.title, created_at: row.created_at });
+    } else {
+      const at = row.completed_at ?? row.created_at;
+      if (!existing.latestCompleted || new Date(at).getTime() > new Date(existing.latestCompleted.at).getTime()) {
+        existing.latestCompleted = { title: row.title, at };
+      }
     }
     tasksByUser.set(row.user_id, existing);
+  }
+  // taskRows arrive newest-first; show active tasks oldest-first (date added order).
+  for (const summary of tasksByUser.values()) {
+    summary.activeTasks.reverse();
   }
 
   type TagRow = { user_id: string; tag: string };
@@ -206,7 +228,8 @@ export default async function TeamPage() {
                 const attendance = attendanceByUser.get(m.id);
                 const taskSummary = tasksByUser.get(m.id);
                 const memberTags = tagsByUser.get(m.id) ?? [];
-                const latestTask = taskSummary?.latestTask ?? "No task added";
+                const activeTasks = taskSummary?.activeTasks ?? [];
+                const latestCompleted = taskSummary?.latestCompleted ?? null;
                 const siteCheckIns = siteCheckInsByUser.get(m.id) ?? 0;
                 const isLinkable = m.role !== "owner" && m.id !== user.id;
                 return (
@@ -253,9 +276,34 @@ export default async function TeamPage() {
                             <span>Hours</span>
                             <strong>{formatHours(attendance?.total_minutes ?? 0)}</strong>
                           </div>
+                          <div className={styles.memberStat}>
+                            <span>Check-ins</span>
+                            <strong>{attendance?.check_ins ?? 0}</strong>
+                          </div>
                           <div className={styles.memberTask}>
-                            <span>Latest task</span>
-                            <strong>{latestTask}</strong>
+                            {activeTasks.length > 0 ? (
+                              <>
+                                <span>Active tasks</span>
+                                <div className={styles.memberTaskList}>
+                                  {activeTasks.map((t, i) => (
+                                    <div key={i} className={styles.memberTaskItem}>
+                                      <strong>{t.title}</strong>
+                                      <em>{formatDate(t.created_at)}</em>
+                                    </div>
+                                  ))}
+                                </div>
+                              </>
+                            ) : latestCompleted ? (
+                              <>
+                                <span>Last completed</span>
+                                <strong>{latestCompleted.title}</strong>
+                              </>
+                            ) : (
+                              <>
+                                <span>Tasks</span>
+                                <strong>No tasks</strong>
+                              </>
+                            )}
                           </div>
                         </>
                       )}

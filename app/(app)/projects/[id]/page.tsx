@@ -218,7 +218,7 @@ export default async function ProjectDetailPage({ params }: Ctx) {
 
     supabase
       .from("updates")
-      .select(`id, update_type, body, created_at, author_id,
+      .select(`id, update_type, body, created_at, edited_at, author_id,
         users:author_id (id, full_name, role),
         media_assets:media_assets!linked_update_id (id, storage_path, bucket, drive_sync_status)`)
       .eq("project_id", id)
@@ -570,7 +570,7 @@ export default async function ProjectDetailPage({ params }: Ctx) {
 
           {/* Team Stream — directly below Project Pipelines */}
           <div className={styles.card}>
-            <TeamStreamCard assignments={p.project_assignments} updates={projectUpdates} projectId={id} />
+            <TeamStreamCard assignments={p.project_assignments} updates={projectUpdates} projectId={id} currentUserId={user.id} />
           </div>
 
           {/* Post an update — assigned team members / site engineers */}
@@ -679,8 +679,6 @@ export default async function ProjectDetailPage({ params }: Ctx) {
               </button>
             )}
           </div>
-
-
 
         </div>
       </div>

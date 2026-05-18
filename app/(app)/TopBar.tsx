@@ -104,24 +104,25 @@ const ALL_NAV: NavItem[] = [
     href: "/finance", label: "Finance",
     icon: <Svg><path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v2" /><path d="M3 7v11a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-8H5a2 2 0 0 1-2-2z" /><circle cx="17" cy="14" r="1" /></Svg>,
     roles: ["owner"],
-    tags: ["accountant", "admin"],
+    tags: ["accountant"],
   },
   {
     href: "/enquiries", label: "Enquiries",
     icon: <Svg><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 7 9 6 9-6" /></Svg>,
     roles: ["owner"],
-    tags: ["admin"],
+    tags: ["accountant", "admin"],
   },
   {
     href: "/team", label: "Team & Access",
     icon: <Svg><path d="M12 3 4 7v5c0 5 3.5 9.7 8 11 4.5-1.3 8-6 8-11V7z" /></Svg>,
     roles: ["owner"],
+    tags: ["accountant", "admin"],
   },
   {
     href: "/audit", label: "Audit Log",
     icon: <Svg><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 3h6v2H9z" /><path d="M9 10h6M9 14h4" /></Svg>,
     roles: ["owner"],
-    tags: ["admin"],
+    tags: ["accountant", "admin"],
   },
 ];
 

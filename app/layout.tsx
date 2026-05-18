@@ -14,10 +14,10 @@ const instrumentSerif = Instrument_Serif({
 });
 
 export const metadata: Metadata = {
-  title: "ArchitectOS",
+  title: "Tare",
   description: "Architecture practice management system",
   manifest: "/manifest.webmanifest",
-  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "ArchitectOS" },
+  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Tare" },
   icons: {
     icon: [
       { url: "/favicon-32.png", sizes: "32x32", type: "image/png" },

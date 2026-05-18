@@ -582,9 +582,9 @@ export default function CalendarClient({ initial, initialUpdates, initialYear, i
                     );
                   })}
                 </div>
-                <button style={{ marginTop: 14, width: "100%", padding: "10px", borderRadius: 12, border: "1px dashed var(--color-line)", color: "var(--color-tan)", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "none", cursor: "pointer" }}>
+                <Link href="/calendar/schedule" style={{ marginTop: 14, width: "100%", padding: "10px", borderRadius: 12, border: "1px dashed var(--color-line)", color: "var(--color-tan)", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "none", cursor: "pointer", textDecoration: "none", boxSizing: "border-box" }}>
                   View full schedule
-                </button>
+                </Link>
               </div>
             </Card>
           )}

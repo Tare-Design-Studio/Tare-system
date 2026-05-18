@@ -17,10 +17,10 @@ const ALL_NAV_DEFS: NavItemDef[] = [
   { href: "/tasks",      label: "My Tasks",     roles: ["team_member"] },
   { href: "/bridge",     label: "Bridge" },
   { href: "/customers",  label: "Customers",    roles: ["owner"], tags: ["accountant", "admin", "project_manager"] },
-  { href: "/finance",    label: "Finance",      roles: ["owner"], tags: ["accountant", "admin"] },
-  { href: "/enquiries",  label: "Enquiries",    roles: ["owner"], tags: ["admin"] },
-  { href: "/team",       label: "Team",         roles: ["owner"] },
-  { href: "/audit",      label: "Audit",        roles: ["owner"], tags: ["admin"] },
+  { href: "/finance",    label: "Finance",      roles: ["owner"], tags: ["accountant"] },
+  { href: "/enquiries",  label: "Enquiries",    roles: ["owner"], tags: ["accountant", "admin"] },
+  { href: "/team",       label: "Team",         roles: ["owner"], tags: ["accountant", "admin"] },
+  { href: "/audit",      label: "Audit",        roles: ["owner"], tags: ["accountant", "admin"] },
   { href: "/settings",   label: "Settings" },
 ];
 

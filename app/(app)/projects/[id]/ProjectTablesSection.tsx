@@ -190,6 +190,15 @@ function TableView({
     await onTableUpdated()
   }
 
+  async function deleteColumn(columnId: string) {
+    setSaving(true)
+    await fetch(`/api/projects/${projectId}/tables/${table.id}/columns/${columnId}`, {
+      method: 'DELETE',
+    })
+    setSaving(false)
+    await onTableUpdated()
+  }
+
   async function addSection() {
     if (!newSectionName.trim()) return
     setSaving(true)
@@ -321,6 +330,23 @@ function TableView({
                           >
                             <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                           </button>
+                        )}
+                        {showEdit && col.column_kind !== 'serial' && (
+                          <ConfirmPopover
+                            title="Delete column?"
+                            message={`"${col.name}" will be removed from this table. Existing cell data in this column is lost. This cannot be undone.`}
+                            onConfirm={() => deleteColumn(col.id)}
+                          >
+                            {(open) => (
+                              <button
+                                onClick={open}
+                                style={{ padding: '1px 3px', borderRadius: 4, border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--color-rust)', fontSize: 10, lineHeight: 1, flexShrink: 0 }}
+                                title={`Delete column "${col.name}"`}
+                              >
+                                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                              </button>
+                            )}
+                          </ConfirmPopover>
                         )}
                       </span>
                     </th>
@@ -538,7 +564,7 @@ export default function ProjectTablesSection({ projectId, initialTables, canEdit
 
   const deleteTable = useCallback(async (tableId: string) => {
     const res = await fetch(`/api/projects/${projectId}/tables/${tableId}`, { method: 'DELETE' })
-    if (res.ok || res.status === 204) {
+    if (res.ok) {
       setTables(prev => prev.filter(t => t.id !== tableId))
     }
   }, [projectId])

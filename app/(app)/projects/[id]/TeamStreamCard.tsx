@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Avatar } from "@/components/atoms";
+import { useEffect, useRef, useState } from "react";
+import { Avatar, ConfirmPopover, Icon } from "@/components/atoms";
 import { FeedImageTile } from "@/components/updates/UpdatesFeed";
 
 type Assignment = {
@@ -16,6 +16,7 @@ type Update = {
   update_type: string;
   body: string | null;
   created_at: string;
+  edited_at?: string | null;
   author_id: string;
   users: { id: string; full_name: string; role: string } | null;
   images?: { id: string; url: string | null; drive_sync_status?: string }[];
@@ -41,11 +42,57 @@ interface Props {
   assignments: Assignment[];
   updates: Update[];
   projectId: string;
+  currentUserId: string;
 }
 
-export default function TeamStreamCard({ assignments, updates, projectId }: Props) {
+export default function TeamStreamCard({ assignments, updates: initialUpdates, projectId, currentUserId }: Props) {
   const teamMembers = assignments.filter(a => !SITE_ROLES.has(a.role_on_project));
   const siteEngineers = assignments.filter(a => SITE_ROLES.has(a.role_on_project));
+
+  const [updates, setUpdates] = useState(initialUpdates);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const menuRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!openMenuId) return;
+    function onDocClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpenMenuId(null);
+    }
+    function onEsc(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpenMenuId(null);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [openMenuId]);
+
+  async function saveEdit(id: string) {
+    if (!editDraft.trim() || busy) return;
+    setBusy(true);
+    const res = await fetch(`/api/projects/${projectId}/updates/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body: editDraft.trim() }),
+    });
+    setBusy(false);
+    if (res.ok) {
+      setUpdates(prev => prev.map(u =>
+        u.id === id ? { ...u, body: editDraft.trim(), edited_at: new Date().toISOString() } : u
+      ));
+      setEditingId(null);
+    }
+  }
+
+  async function removeUpdate(id: string) {
+    const res = await fetch(`/api/projects/${projectId}/updates/${id}`, { method: "DELETE" });
+    if (res.ok) setUpdates(prev => prev.filter(u => u.id !== id));
+  }
 
   const [tab, setTab] = useState<"Team Member" | "Site Engineer">("Team Member");
   const displayed = tab === "Team Member" ? teamMembers : siteEngineers;
@@ -116,7 +163,7 @@ export default function TeamStreamCard({ assignments, updates, projectId }: Prop
           </div>
 
           {/* Activity feed */}
-          <div style={{ display: "flex", flexDirection: "column" }}>
+          <div style={{ display: "flex", flexDirection: "column", maxHeight: 420, overflowY: "auto" }}>
             {filteredUpdates.length === 0 ? (
               <p style={{ color: "var(--color-tan)", fontSize: 13, fontStyle: "italic" }}>No updates logged.</p>
             ) : (
@@ -141,10 +188,26 @@ export default function TeamStreamCard({ assignments, updates, projectId }: Prop
                           {u.update_type}
                         </span>
                         <span style={{ fontSize: 10, color: "var(--color-tan)", marginLeft: "auto", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
-                          {fmtDate(u.created_at)}
+                          {fmtDate(u.created_at)}{u.edited_at ? " · edited" : ""}
                         </span>
                       </div>
-                      {u.body && (
+                      {editingId === u.id ? (
+                        <div>
+                          <textarea
+                            value={editDraft}
+                            onChange={(e) => setEditDraft(e.target.value)}
+                            rows={3}
+                            style={{
+                              width: "100%", boxSizing: "border-box", padding: "6px 8px", borderRadius: 8,
+                              border: "1px solid var(--color-line)", fontSize: 12, fontFamily: "inherit", resize: "vertical",
+                            }}
+                          />
+                          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", marginTop: 5 }}>
+                            <button onClick={() => setEditingId(null)} disabled={busy} style={{ padding: "3px 8px", borderRadius: 7, border: "1px solid var(--color-line)", background: "transparent", fontSize: 10, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}>Cancel</button>
+                            <button onClick={() => saveEdit(u.id)} disabled={busy} style={{ padding: "3px 8px", borderRadius: 7, border: "none", background: "var(--color-ink)", color: "#F3EFE7", fontSize: 10, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}>{busy ? "…" : "Save"}</button>
+                          </div>
+                        </div>
+                      ) : u.body && (
                         <div style={{ fontSize: 12, lineHeight: 1.5, color: "var(--color-ink)", whiteSpace: "pre-wrap" }}>
                           {u.body}
                         </div>
@@ -156,8 +219,56 @@ export default function TeamStreamCard({ assignments, updates, projectId }: Prop
                           ))}
                         </div>
                       )}
-                      <div style={{ fontSize: 11, color: "var(--color-tan)", marginTop: 2 }}>
-                        {cap(authorAssignment?.role_on_project ?? author?.role ?? "")}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
+                        <span style={{ fontSize: 11, color: "var(--color-tan)" }}>
+                          {cap(authorAssignment?.role_on_project ?? author?.role ?? "")}
+                        </span>
+                        {u.author_id === currentUserId && editingId !== u.id && (
+                          <span
+                            ref={openMenuId === u.id ? menuRef : null}
+                            style={{ position: "relative", display: "inline-flex", marginLeft: "auto" }}
+                          >
+                            <button
+                              onClick={() => setOpenMenuId(openMenuId === u.id ? null : u.id)}
+                              aria-label="Update actions"
+                              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, borderRadius: 6, border: "1px solid var(--color-line)", background: openMenuId === u.id ? "rgba(30,28,24,.06)" : "transparent", cursor: "pointer", color: "var(--color-tan)" }}
+                            >
+                              <Icon name="pencil" size={12} />
+                            </button>
+                            {openMenuId === u.id && (
+                              <div
+                                role="menu"
+                                style={{
+                                  position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 50,
+                                  minWidth: 120, padding: 4, borderRadius: 10,
+                                  background: "var(--color-paper-light)", border: "1px solid var(--color-line)",
+                                  boxShadow: "0 8px 28px -8px rgba(30,28,24,.28)", display: "flex", flexDirection: "column", gap: 2,
+                                }}
+                              >
+                                <button
+                                  onClick={() => { setEditingId(u.id); setEditDraft(u.body ?? ""); setOpenMenuId(null); }}
+                                  style={{ padding: "6px 10px", borderRadius: 7, border: "none", background: "transparent", fontSize: 12, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", color: "var(--color-ink)", textAlign: "left" }}
+                                >
+                                  Edit
+                                </button>
+                                <ConfirmPopover
+                                  title="Delete update?"
+                                  message="This update will be removed. This cannot be undone."
+                                  onConfirm={() => removeUpdate(u.id)}
+                                >
+                                  {(open) => (
+                                    <button
+                                      onClick={open}
+                                      style={{ padding: "6px 10px", borderRadius: 7, border: "none", background: "transparent", fontSize: 12, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", color: "var(--color-rust)", textAlign: "left" }}
+                                    >
+                                      Delete
+                                    </button>
+                                  )}
+                                </ConfirmPopover>
+                              </div>
+                            )}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>

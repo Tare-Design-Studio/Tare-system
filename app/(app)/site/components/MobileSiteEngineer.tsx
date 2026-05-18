@@ -438,7 +438,7 @@ function ExpensesScreen({ project, expenses, onAdded, nowMs }: { project: Projec
   );
 }
 
-function UpdatesScreen({ project, updates, onPosted }: { project: Project; updates: FeedUpdate[]; onPosted: () => void; }) {
+function UpdatesScreen({ project, updates, onPosted, engineerId }: { project: Project; updates: FeedUpdate[]; onPosted: () => void; engineerId: string; }) {
   return (
     <div style={{ padding: "8px 20px 32px" }}>
       <div style={{ paddingTop: 8, marginBottom: 18 }}>
@@ -450,7 +450,7 @@ function UpdatesScreen({ project, updates, onPosted }: { project: Project; updat
         <UpdateComposer projectId={project.id} onPosted={onPosted} compact />
       </div>
 
-      <UpdatesFeed updates={updates} projectId={project.id} emptyText="No updates yet — post the first one above." />
+      <UpdatesFeed updates={updates} projectId={project.id} currentUserId={engineerId} onChanged={onPosted} emptyText="No updates yet — post the first one above." />
     </div>
   );
 }
@@ -473,7 +473,7 @@ type Props = {
 };
 
 export function MobileSiteEngineer({
-  project, projects, projectId, tab, plans, expenses, checkIns, updates, nowMs, switchProject, setTab, refresh
+  engineer, project, projects, projectId, tab, plans, expenses, checkIns, updates, nowMs, switchProject, setTab, refresh
 }: Props) {
   if (projects.length === 0) {
     return (
@@ -506,7 +506,7 @@ export function MobileSiteEngineer({
       {project && (
         <div style={{ animation: "fadeIn 0.3s ease-out" }}>
           {tab === "today"     && <SiteCheckInScreen project={project} checkIns={checkIns} onCheckin={refresh} nowMs={nowMs} />}
-          {tab === "updates"   && <UpdatesScreen     project={project} updates={updates}   onPosted={refresh} />}
+          {tab === "updates"   && <UpdatesScreen     project={project} updates={updates}   onPosted={refresh} engineerId={engineer.id} />}
           {tab === "materials" && <MaterialsScreen   project={project} plans={plans}       onLogged={refresh} />}
           {tab === "progress"  && <ProgressScreen    project={project} />}
           {tab === "expenses"  && <ExpensesScreen    project={project} expenses={expenses} onAdded={refresh} nowMs={nowMs} />}

@@ -1,7 +1,37 @@
 # SCHEMA.md
-(Updated: 2026-05-17 — migration 057 applied)
+(Updated: 2026-05-18 — migrations 062–064 applied)
 
-## Status: Phase 10 migrations (043–050) + 051–057 + 999_add + 999_zz applied to cloud Supabase.
+## Status: Phase 10 migrations (043–050) + 051–064 + 999_add + 999_zz applied to cloud Supabase.
+
+### Migration 064 — fix project_tables soft-delete (applied 2026-05-18)
+- Root cause: a direct `UPDATE ... SET deleted_at` fails RLS — Postgres also enforces the SELECT policy's `USING (deleted_at IS NULL)` against the post-update row, so the new row violates the SELECT policy ("new row violates row-level security policy"). Migration 058 fixed the UPDATE policy's WITH CHECK but not this.
+- Fix: `soft_delete_project_table(p_project_id, p_table_id)` — SECURITY DEFINER, checks `project_table:edit`, sets `deleted_at`, returns the id (NULL when nothing matched). DELETE table route calls it via RPC.
+
+### Migration 063 — project table column insert/delete (applied 2026-05-18)
+- `project_table_columns` UNIQUE (project_table_id, display_order) now `DEFERRABLE INITIALLY IMMEDIATE` so bulk renumbering does not transiently collide. (Applied 2026-05-18)
+- `shift_table_columns_after(p_table_id, p_after_order)` — opens a slot by `display_order + 1` for columns after the given order (used when inserting a column between two columns).
+- `delete_table_column(p_table_id, p_column_id)` — hard-deletes a column and shifts later columns `display_order - 1`. Orphaned cell values keyed by the column id remain in row JSONB, never rendered.
+
+### Migration 062 — audit log retention (applied 2026-05-18)
+- pg_cron job `audit-log-retention` (`30 3 * * *`): `DELETE FROM audit_log WHERE occurred_at < now() - interval '30 days'`.
+- Hard-delete only, no archive. Hash chain stays valid for surviving rows.
+
+### Migration 060 — attendance re-check-in (applied 2026-05-17)
+- Adds `attendance_logs.check_in_count` (int, NOT NULL, default 1)
+- Behaviour: a team member can log attendance again the same day. One row per day stays; the row keeps the FIRST `check_in_at` and the LAST `check_out_at`; each re-check-in increments `check_in_count`. `total_minutes` (GENERATED) recomputes from first-in → last-out.
+- Apply: `DATABASE_URL=... npx tsx scripts/migrate.ts`
+
+### Migration 059 — comms edit/delete (applied 2026-05-17)
+- Adds `updates.edited_at` (timestamptz), `updates.deleted_at` (timestamptz) — in-place edit + soft delete by the authoring user
+- Adds `owner_broadcasts.edited_at` (timestamptz) — in-place edit by the authoring owner
+- RLS: `updates_select` now excludes `deleted_at IS NOT NULL`; new `updates_update` policy (`author_id = auth.uid()`); new `broadcasts_update` policy (`author_id = auth.uid() AND has_capability('broadcast:create')`)
+- Grants `UPDATE` on `updates` and `owner_broadcasts` to `authenticated`
+- Apply: `DATABASE_URL=... npx tsx scripts/migrate.ts`
+
+### Migration 058 — fix project_tables soft-delete (applied 2026-05-17)
+- Recreates the `project_tables` UPDATE policy with an explicit `WITH CHECK` (without `deleted_at IS NULL`)
+- Root cause: the policy had only `USING`, which Postgres reused as the check — so soft-deleting (setting `deleted_at`) failed silently and the DELETE route affected 0 rows
+- Apply: `DATABASE_URL=... npx tsx scripts/migrate.ts`
 
 ### Migration 057 — media_assets Google Drive sync columns (applied 2026-05-17)
 - Adds to `media_assets`: `drive_file_id` (text), `drive_sync_status` (text, CHECK `pending`/`synced`/`failed`/`skipped`, default `pending`), `drive_sync_error` (text), `drive_synced_at` (timestamptz)
@@ -78,7 +108,7 @@
 
 ### New functions / triggers
 - `enforce_checkpoint_progression()` — BEFORE UPDATE on `project_checkpoints`; 3 rules: cannot start already-approved, cannot start if earlier checkpoint unapproved, cannot approve without starting first (043)
-- `get_customer_portal_summary(p_hash, p_ip, p_user_agent, p_request_id)` — SECURITY DEFINER, anon-callable, returns all projects + payment status for a customer; rate-limited (60/min/IP); abuse-logged (048)
+- `get_customer_portal_summary(p_hash, p_ip, p_user_agent, p_request_id)` — SECURITY DEFINER, anon-callable, returns all projects + payment status + checkpoint progress (total/completed items, progress_pct) for a customer; rate-limited (60/min/IP); abuse-logged (048, 061)
 - `set_tenant_from_enquiry()` — denormalises tenant_id on `enquiry_phones` insert (047)
 
 ### Updated views
@@ -160,9 +190,13 @@ Access matrix — **source of truth for all permission checks**.
 | capability | text | see `lib/auth/capabilities.ts` |
 | granted | boolean | DEFAULT true |
 | scope_project_id | uuid | null = all projects |
+| source | text | DEFAULT 'manual'; CHECK IN ('manual','tag') — distinguishes Owner-granted rows from tag-derived ones |
 | UNIQUE | — | (user_id, capability, scope_project_id) |
 
 **Trigger:** `enforce_access_control_manage` — blocks INSERT/UPDATE of `access_control:manage` for any non-owner. Non-bypassable.
+
+**Trigger:** `trg_apply_tag_capabilities` / `trg_revoke_tag_capabilities` (065) — on `team_member_tags` INSERT/DELETE, sync `source='tag'` capability rows. Tag grants follow the tag; `source='manual'` rows are never touched by them.
+**Helper:** `tag_capability_set(p_tag text)` — returns the capability set for a tag. **Mirrors `TAG_CAPABILITIES` in `lib/auth/capabilities.ts` — keep both in sync.** (Updated: 2026-05-18)
 
 ### `notifications`
 | Column | Type | Notes |
@@ -193,7 +227,7 @@ Append-only. No UPDATE or DELETE RLS policies exist.
 
 **Chain mechanics:** Per-tenant `pg_advisory_xact_lock` taken inside `audit_trigger()` before reading `prev_hash`. After monthly archive truncation, first new row anchors to `audit_export_log.last_row_hash`. Zero-hash for very first row.
 
-**Retention:** 30 days live → monthly compressed archive to Google Drive → truncate.
+**Retention:** pg_cron job `audit-log-retention` hard-deletes rows older than 30 days daily at 03:30 UTC (migration 062). No archive.
 
 ### `audit_export_log`
 Records each monthly Drive archive: `first_row_hash`, `last_row_hash`, `export_sha256`, `drive_file_id`.
@@ -234,7 +268,7 @@ Internal table created by `scripts/migrate.ts` to track applied files. Not part 
 ## Phase 3 Tables (020_phase3_comms.sql, 021_phase3_rls.sql)
 
 ### `updates`
-Append-only activity feed per project. Authors = assigned users.
+Activity feed per project. Authors = assigned users; author may edit/soft-delete own (migration 059).
 | Column | Type | Notes |
 |--------|------|-------|
 | id | uuid | PK |
@@ -245,6 +279,8 @@ Append-only activity feed per project. Authors = assigned users.
 | update_type | text | note / image / drawing / progress / remark / material / expense |
 | body | text | |
 | created_at | timestamptz | |
+| edited_at | timestamptz | set on author in-place edit (migration 059) |
+| deleted_at | timestamptz | soft delete; hidden by `updates_select` RLS (migration 059) |
 
 ### `media_assets`
 Uploaded files (site images, drawings, receipts). All uploads start `scan_status='pending'`.
@@ -307,6 +343,7 @@ One-to-many announcements from capability-gated author to named recipients.
 | body | text | NOT NULL |
 | attachment_url | text | optional |
 | created_at | timestamptz | |
+| edited_at | timestamptz | set on author in-place edit (migration 059) |
 
 ### `owner_broadcast_recipients`
 Per-recipient acknowledgement tracking.
@@ -527,6 +564,7 @@ Sub-role tags for team members granting additional capabilities.
 | UNIQUE | — | (user_id, tag) |
 
 **Helper:** `has_member_tag(p_tag text)` — STABLE SECURITY DEFINER, checks current user's tags.
+**Note:** assigning a tag writes its capability set into `user_capabilities` (`source='tag'`) via migration 065 triggers — tags now drive `has_capability()` / RLS, not just navbar visibility. (Updated: 2026-05-18)
 
 ### `member_tasks` (038_member_tasks.sql)
 Persistent personal tasks for team members (not date-scoped; carry over until done).
@@ -573,6 +611,7 @@ Office check-in/out per team member per day with GPS validation.
 | check_out_lat / check_out_lng | double precision | |
 | check_out_within_geofence | boolean | |
 | total_minutes | int | GENERATED ALWAYS AS STORED (check_out − check_in) |
+| check_in_count | int | NOT NULL DEFAULT 1 — times the member checked in this day (migration 060) |
 | UNIQUE | — | (user_id, work_date) |
 
 **View:** `v_attendance_monthly` — days_present, total_minutes, avg_minutes_per_day per user per month.

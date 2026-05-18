@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "ArchitectOS",
-    short_name: "ArchitectOS",
+    name: "Tare",
+    short_name: "Tare",
     description: "Architecture practice management system",
     start_url: "/",
     scope: "/",

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { enrichAuditRows } from "@/lib/audit/summarize";
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient();
@@ -39,8 +40,11 @@ export async function GET(req: NextRequest) {
   const { data, error, count } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const enriched = await enrichAuditRows(supabase, (data ?? []) as any[]);
+
   return NextResponse.json({
-    data: data ?? [],
+    data: enriched,
     meta: { total: count ?? 0, page, limit },
   });
 }

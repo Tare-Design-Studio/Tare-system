@@ -13,6 +13,7 @@ type Broadcast = {
   id: string;
   body: string;
   created_at: string;
+  edited_at?: string | null;
   users: { id: string; full_name: string } | null;
   owner_broadcast_recipients: Recipient[];
 };
@@ -46,6 +47,31 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, canCompose, 
   const [selected, setSelected] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  function startEdit(b: Broadcast) {
+    setEditingId(b.id);
+    setEditDraft(b.body);
+  }
+
+  async function saveEdit(id: string) {
+    if (!editDraft.trim() || savingEdit) return;
+    setSavingEdit(true);
+    const res = await fetch(`/api/broadcasts/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body: editDraft.trim() }),
+    });
+    setSavingEdit(false);
+    if (res.ok) {
+      setBroadcasts(prev => prev.map(b =>
+        b.id === id ? { ...b, body: editDraft.trim(), edited_at: new Date().toISOString() } : b
+      ));
+      setEditingId(null);
+    }
+  }
 
   function toggleMember(id: string) {
     setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
@@ -168,14 +194,55 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, canCompose, 
           const acked = b.owner_broadcast_recipients.filter(r => r.is_acknowledged).length;
           const total = b.owner_broadcast_recipients.length;
           const myRow = b.owner_broadcast_recipients.find(r => r.user_id === currentUserId);
+          const isMine = b.users?.id === currentUserId;
+          const isEditing = editingId === b.id;
           return (
             <div key={b.id} style={{ padding: "10px 12px", borderRadius: 10, border: "1px solid var(--color-line)" }}>
-              <div style={{ fontSize: 13, marginBottom: 6, fontWeight: 500 }}>{b.body}</div>
+              {isEditing ? (
+                <div style={{ marginBottom: 6 }}>
+                  <textarea
+                    value={editDraft}
+                    onChange={e => setEditDraft(e.target.value)}
+                    rows={2}
+                    style={{
+                      width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 8,
+                      border: "1px solid var(--color-line)", fontSize: 13, fontFamily: "inherit",
+                      resize: "vertical", lineHeight: 1.5,
+                    }}
+                  />
+                  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 6 }}>
+                    <button
+                      onClick={() => setEditingId(null)}
+                      disabled={savingEdit}
+                      style={{ padding: "4px 10px", borderRadius: 7, border: "1px solid var(--color-line)", background: "transparent", fontSize: 11, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => saveEdit(b.id)}
+                      disabled={savingEdit}
+                      style={{ padding: "4px 10px", borderRadius: 7, border: "none", background: "var(--color-ink)", color: "#F3EFE7", fontSize: 11, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}
+                    >
+                      {savingEdit ? "…" : "Save"}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, marginBottom: 6, fontWeight: 500 }}>{b.body}</div>
+              )}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
                 <span style={{ fontSize: 11, color: "var(--color-tan)", fontFamily: "var(--font-mono)" }}>
-                  {timeAgo(b.created_at, nowMs)}
+                  {timeAgo(b.created_at, nowMs)}{b.edited_at ? " · edited" : ""}
                 </span>
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  {isMine && !isEditing && (
+                    <button
+                      onClick={() => startEdit(b)}
+                      style={{ padding: "3px 8px", borderRadius: 7, border: "1px solid var(--color-line)", background: "transparent", fontSize: 10, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", color: "var(--color-tan)" }}
+                    >
+                      Edit
+                    </button>
+                  )}
                   {myRow && !myRow.is_acknowledged && !canCompose && (
                     <button
                       onClick={() => ack(b.id)}

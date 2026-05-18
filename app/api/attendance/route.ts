@@ -35,7 +35,7 @@ export async function GET(req: Request) {
 
   let query = supabase
     .from("attendance_logs")
-    .select("id, work_date, check_in_at, check_out_at, check_in_within_geofence, check_out_within_geofence, total_minutes")
+    .select("id, work_date, check_in_at, check_out_at, check_in_within_geofence, check_out_within_geofence, total_minutes, check_in_count")
     .eq("user_id", targetUserId)
     .order("work_date", { ascending: false });
 
@@ -88,11 +88,18 @@ export async function POST(req: Request) {
   const now = new Date().toISOString();
 
   if (action === "check_in") {
-    // Upsert today's row with check_in
-    const { data, error } = await supabase
+    // One row per day: keep the FIRST check-in, just bump the count on re-check-in.
+    const { data: existing } = await supabase
       .from("attendance_logs")
-      .upsert(
-        {
+      .select("id, check_in_at, check_in_count")
+      .eq("user_id", user.id)
+      .eq("work_date", today)
+      .maybeSingle();
+
+    if (!existing) {
+      const { data, error } = await supabase
+        .from("attendance_logs")
+        .insert({
           user_id: user.id,
           tenant_id: profile.tenant_id,
           work_date: today,
@@ -100,9 +107,20 @@ export async function POST(req: Request) {
           check_in_lat: lat ?? null,
           check_in_lng: lng ?? null,
           check_in_within_geofence: withinGeofence,
-        },
-        { onConflict: "user_id,work_date", ignoreDuplicates: false }
-      )
+          check_in_count: 1,
+        })
+        .select()
+        .single();
+
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ ...data, within_geofence: withinGeofence }, { status: 200 });
+    }
+
+    // Re-check-in: keep first check-in time/coords, only increment the count.
+    const { data, error } = await supabase
+      .from("attendance_logs")
+      .update({ check_in_count: (existing.check_in_count ?? 1) + 1 })
+      .eq("id", existing.id)
       .select()
       .single();
 
