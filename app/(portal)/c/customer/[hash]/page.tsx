@@ -124,11 +124,8 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
         {/* Top bar */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 40, paddingBottom: 20, borderBottom: "1px solid var(--line)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 30, height: 30, borderRadius: 10, background: "var(--ink)", color: "#F3EFE7", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 20V8l8-5 8 5v12"/><path d="M4 20h16"/></svg>
-            </div>
+            <img src="/tare-logo.png" alt="Tare Logo" style={{ width: 80, height: 35, borderRadius: 8, objectFit: "contain", flexShrink: 0 }} />
             <div>
-              <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: -.2 }}>ArchitectOS</div>
               <div style={{ fontSize: 10, letterSpacing: 1.5, color: "var(--muted)", textTransform: "uppercase", marginTop: 1 }}>Client Portal</div>
             </div>
           </div>
@@ -172,7 +169,7 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
 
         {/* Footer */}
         <div style={{ borderTop: "1px solid var(--line)", paddingTop: 24, display: "flex", alignItems: "center", justifyContent: "space-between", color: "var(--muted)", fontSize: 11 }}>
-          <span>Powered by <b style={{ color: "var(--ink)" }}>ArchitectOS</b></span>
+          <span>Powered by <a href="https://ascension-ten.vercel.app/" target="_blank" rel="noopener noreferrer" style={{ color: "var(--ink)", fontWeight: 700, textDecoration: "none" }}>ascension</a></span>
           <span className="mono">/c/customer/{hash}</span>
         </div>
 

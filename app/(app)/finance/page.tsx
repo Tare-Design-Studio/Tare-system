@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Chip } from "@/components/atoms";
 import { PageHeader } from "../PageHeader";
 import { DailyExpensesCard } from "./DailyExpensesCard";
+import { ProjectExpensesPicker } from "./ProjectExpensesPicker";
 
 function fmtAmount(n: number) {
   return new Intl.NumberFormat("en-IN", {
@@ -276,6 +277,11 @@ export default async function FinancePage() {
         subtitle={`${fyLabel} · All Projects`}
         actions={
           <>
+            <ProjectExpensesPicker
+              projects={[...projectRows]
+                .sort((a, b) => a.name.localeCompare(b.name))
+                .map((p) => ({ id: p.id, name: p.name }))}
+            />
             <SurfaceButton href="/api/finance?format=csv">Export CSV</SurfaceButton>
             <SurfaceButton href="/api/finance?format=csv" primary>Generate Report</SurfaceButton>
           </>

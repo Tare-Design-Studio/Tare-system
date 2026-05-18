@@ -4288,6 +4288,10 @@ export type Database = {
       }
       compact_old_notifications: { Args: never; Returns: undefined }
       current_user_tenant_id: { Args: never; Returns: string }
+      delete_table_column: {
+        Args: { p_column_id: string; p_table_id: string }
+        Returns: undefined
+      }
       emit_notification: {
         Args: {
           p_body?: string
@@ -4358,8 +4362,16 @@ export type Database = {
         }
         Returns: number
       }
+      shift_table_columns_after: {
+        Args: { p_after_order: number; p_table_id: string }
+        Returns: undefined
+      }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
+      soft_delete_project_table: {
+        Args: { p_project_id: string; p_table_id: string }
+        Returns: string
+      }
       submit_public_enquiry: {
         Args: {
           p_email: string
@@ -4368,14 +4380,15 @@ export type Database = {
           p_message: string
           p_name: string
           p_phone_display: string
-          p_phone_normalized: string
+          p_phone_normalized?: string
           p_referrer_url: string
           p_request_id?: string
-          p_source: string
+          p_source?: string
           p_user_agent?: string
         }
         Returns: string
       }
+      tag_capability_set: { Args: { p_tag: string }; Returns: string[] }
     }
     Enums: {
       app_role: "owner" | "team_member" | "site_engineer"

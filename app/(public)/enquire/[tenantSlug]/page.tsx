@@ -101,6 +101,7 @@ export default function PublicEnquiryPage({ params }: { params: Promise<{ tenant
       <div style={{ width: "100%", maxWidth: 520 }}>
         {/* Brand */}
         <div style={{ marginBottom: 32, textAlign: "center" }}>
+          <img src="/tare-logo.png" alt="Tare Logo" style={{ width: 150, height: 98, objectFit: "contain", margin: "0 auto 16px", display: "block" }} />
           <h1 style={{
             fontFamily: "'Instrument Serif', serif", fontWeight: 400,
             fontSize: 38, letterSpacing: -0.5, color: "#1B1A17", margin: "0 0 8px",

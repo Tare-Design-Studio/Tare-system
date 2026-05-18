@@ -296,16 +296,14 @@ function CashFlowCard({ finance }: { finance: { due: number; received: number; o
           </button>
         </div>
 
-        <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 4 }}>
-          <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 44, lineHeight: 1, letterSpacing: -1.2 }}>{fmtLakhs(finance.received)}</div>
-        </div>
-        <div style={{ fontSize: 10, color: "rgba(243,239,231,.55)", letterSpacing: 1, textTransform: "uppercase", marginTop: 2 }}>Total Received</div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 14, fontSize: 11, color: "rgba(243,239,231,.55)", letterSpacing: 0.5 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#C5543B", flexShrink: 0 }} />
-            <span style={{ textTransform: "uppercase", letterSpacing: 1 }}>Total Expenses</span>
-            <b style={{ fontFamily: "var(--font-mono)", color: "#F3EFE7", fontWeight: 600, marginLeft: "auto" }}>{fmtLakhs(finance.expenses)}</b>
+        <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
+          <div>
+            <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 44, lineHeight: 1, letterSpacing: -1.2 }}>{fmtLakhs(finance.received)}</div>
+            <div style={{ fontSize: 10, color: "rgba(243,239,231,.55)", letterSpacing: 1, textTransform: "uppercase", marginTop: 6 }}>Total Received</div>
+          </div>
+          <div>
+            <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 44, lineHeight: 1, letterSpacing: -1.2, color: "#E9B76A" }}>{fmtLakhs(finance.expenses)}</div>
+            <div style={{ fontSize: 10, color: "rgba(243,239,231,.55)", letterSpacing: 1, textTransform: "uppercase", marginTop: 6 }}>Total Expenses</div>
           </div>
         </div>
 
@@ -608,7 +606,7 @@ export default async function DashboardPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any;
 
-  const [projectsRes, scheduleRes, expensesRes, calendarRes, membersRes, attendanceRes, memberTasksRes, tagsRes, siteCheckInsRes, dashUpdatesRes] = await Promise.all([
+  const [projectsRes, scheduleRes, expensesRes, calendarRes, membersRes, attendanceRes, memberTasksRes, tagsRes, siteCheckInsRes, dashUpdatesRes, enquiriesCountRes, updatesTodayCountRes, activeProjectsCountRes] = await Promise.all([
     supabase
       .from("projects")
       .select("id, name, slug, project_type, status, current_stage, site_location, project_checkpoints(completed_at)")
@@ -658,6 +656,19 @@ export default async function DashboardPage() {
         projects:project_id (id, name)`)
       .order("created_at", { ascending: false })
       .limit(20),
+    supabase
+      .from("enquiries")
+      .select("id", { count: "exact", head: true }),
+    supabase
+      .from("updates")
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", todayStart)
+      .lte("created_at", todayEnd),
+    supabase
+      .from("projects")
+      .select("id", { count: "exact", head: true })
+      .is("deleted_at", null)
+      .eq("status", "active"),
   ]);
 
   const projects: DashProject[] = (projectsRes.data ?? []) as DashProject[];
@@ -680,6 +691,10 @@ export default async function DashboardPage() {
     outstanding: grandDue - grandReceived,
     expenses: grandExpenses,
   };
+
+  const activeProjectsCount = activeProjectsCountRes.count ?? 0;
+  const totalEnquiriesCount = enquiriesCountRes.count ?? 0;
+  const updatesTodayCount = updatesTodayCountRes.count ?? 0;
 
   type MemberRow = { id: string; full_name: string; role: string; is_active: boolean };
   type AttendanceRow = { user_id: string; work_date: string; check_in_at: string | null; total_minutes: number | null };
@@ -776,11 +791,10 @@ export default async function DashboardPage() {
           <div style={{ fontSize: 14, color: "var(--ink-2, #3A3833)", marginTop: 12 }}>
             <b>Your practice overview.</b>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 14, marginTop: 26, maxWidth: 820 }}>
-            <Pillar label="Active Projects" value="3" pct={62} tone="ink" />
-            <Pillar label="Hours Billed YTD" value="4,250" pct={58} tone="forest" />
-            <Pillar label="Pending Approvals" value="8" pct={48} tone="pattern" />
-            <Pillar label="Invoiced MTD" value="₹18 L" pct={70} tone="teal" />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 14, marginTop: 26, maxWidth: 620 }}>
+            <Pillar label="Active Projects" value={String(activeProjectsCount)} pct={62} tone="ink" />
+            <Pillar label="Total Enquiries" value={String(totalEnquiriesCount)} pct={58} tone="forest" />
+            <Pillar label="Updates Today" value={String(updatesTodayCount)} pct={70} tone="teal" />
           </div>
         </div>
 

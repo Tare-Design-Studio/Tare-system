@@ -1,5 +1,15 @@
 # PROJECT_STATE.md
-(Updated: 2026-05-18 — audit retention, table columns, table-delete fix)
+(Updated: 2026-05-18 — overview metrics + finance expenses picker + enquiry form fix)
+
+### Overview/finance UX + public enquiry fix (2026-05-18)
+
+**Built:**
+- Public enquiry form fixed (migration 066, APPLIED): `submit_public_enquiry()` called `emit_notification()` with a non-existent signature (`p_recipient_capability`, no `p_title`) → every submission 400'd. Also phone soft-dedupe ran on empty-string phone (route sent `""`), so phone-less submissions shared one rate-limit bucket. Fix: corrected `emit_notification` call, made `p_phone_normalized`/`p_source` optional (DEFAULT NULL), empty-string phone treated as absent. Route now passes `null` for missing IP/phone/source. `lib/supabase/types.ts` hand-patched (no Docker for `supabase gen types`).
+- Overview metrics (`app/(app)/page.tsx`): now 3 live pillars — Active Projects, Total Enquiries, Updates Today (count queries). Removed Hours Billed YTD, Invoiced MTD, Pending Approvals.
+- Collections card: Total Expenses now shown as a second 44px figure beside Total Received (was a small row below).
+- Finance page: new `ProjectExpensesPicker` client component — "Expenses" dropdown button in header, selects a project → navigates to `/projects/[id]/expenses`.
+- Customer portal + enquiry pages: Tare logo replaces ArchitectOS mark; portal footer "Powered by ascension" links to ascension-ten.vercel.app.
+- `ConfirmPopover`: panel hardened (`maxWidth`, `boxSizing`, `whiteSpace: normal`, `wordBreak`) so text wraps instead of overflowing the page.
 
 ### Table soft-delete fix (2026-05-18)
 

@@ -59,14 +59,15 @@ export function ConfirmPopover({
           aria-label={title}
           style={{
             position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 50,
-            width: 240, padding: 14, borderRadius: 14,
+            width: 240, maxWidth: 240, boxSizing: 'border-box',
+            padding: 14, borderRadius: 14, whiteSpace: 'normal', textAlign: 'left',
             background: 'var(--color-paper-light)',
             border: '1px solid var(--color-line)',
             boxShadow: '0 8px 28px -8px rgba(30,28,24,.28)',
           }}
         >
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-ink)', marginBottom: 4 }}>{title}</div>
-          <div style={{ fontSize: 12, color: 'var(--color-tan)', lineHeight: 1.5, marginBottom: 12 }}>{message}</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-ink)', marginBottom: 4, whiteSpace: 'normal', wordBreak: 'break-word' }}>{title}</div>
+          <div style={{ fontSize: 12, color: 'var(--color-tan)', lineHeight: 1.5, marginBottom: 12, whiteSpace: 'normal', wordBreak: 'break-word' }}>{message}</div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button
               onClick={() => setOpen(false)}

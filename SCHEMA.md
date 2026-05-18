@@ -482,7 +482,7 @@ Rolling-window rate limit state per IP per tenant.
 | Function | Notes |
 |----------|-------|
 | `public_rate_limit_hit(tenant_id, ip, window_mins, max_requests)` | SECURITY DEFINER; uses `pg_advisory_xact_lock(hashtextextended(...))` for atomicity; returns boolean |
-| `submit_public_enquiry(intake_slug, name, phone, email, source, message, ip, website_hp, rendered_ms)` | SECURITY DEFINER GRANT to anon; validates bounds, resolves slug, IP rate limit, phone soft-dedupe, inserts enquiry, calls emit_notification |
+| `submit_public_enquiry(intake_slug, name, phone_display, email, message, referrer_url, ip, [phone_normalized], [source], [user_agent], [request_id])` | SECURITY DEFINER GRANT to anon; validates bounds, resolves slug, IP rate limit, phone soft-dedupe, inserts enquiry, calls emit_notification. `phone_normalized`/`source` are optional (DEFAULT NULL); empty-string phone treated as absent. (066, Updated: 2026-05-18) |
 
 ---
 

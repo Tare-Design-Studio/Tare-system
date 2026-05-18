@@ -71,13 +71,13 @@ export async function POST(req: Request, { params }: Params) {
   const { data, error } = await supabase.rpc("submit_public_enquiry", {
     p_intake_slug:      slug,
     p_name:             name,
-    p_phone_normalized: phoneNormalized ?? "",
     p_phone_display:    phone ?? "",
     p_email:            email || "",
-    p_source:           source ?? "",
     p_message:          message ?? "",
     p_referrer_url:     referer ?? "",
-    p_ip:               ip ?? "",
+    p_ip:               ip ?? null,
+    ...(phoneNormalized ? { p_phone_normalized: phoneNormalized } : {}),
+    ...(source ? { p_source: source } : {}),
     p_user_agent:       ua ?? "",
     p_request_id:       reqId ?? "",
   });
