@@ -580,6 +580,7 @@ export default async function DashboardPage() {
             financeData={null}
             teamMembers={[]}
             totalMembers={0}
+            updates={[]}
           />
         </div>
         <div className="desktop-only">
@@ -776,6 +777,7 @@ export default async function DashboardPage() {
           financeData={financeData}
           teamMembers={teamMembers}
           totalMembers={teamRows.length}
+          updates={recentUpdates}
         />
       </div>
       <div className="desktop-only">

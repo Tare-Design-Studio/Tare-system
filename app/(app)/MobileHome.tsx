@@ -29,6 +29,16 @@ export type MobileFinance = {
   expenses: number;
 };
 
+export type MobileUpdate = {
+  id: string;
+  update_type: string;
+  body: string;
+  created_at: string;
+  project_id: string;
+  users: { id: string; full_name: string; role: string } | { id: string; full_name: string; role: string }[] | null;
+  projects: { id: string; name: string } | { id: string; name: string }[] | null;
+};
+
 export type MobileTeamMember = {
   id: string;
   initials: string;
@@ -69,6 +79,31 @@ function eventTone(sourceType: string | null, index: number): "ink" | "forest" |
   return index % 3 === 0 ? "ink" : index % 3 === 1 ? "forest" : "sand";
 }
 
+function updateIcon(updateType: string): string {
+  switch (updateType) {
+    case "progress": return "M20 6 9 17l-5-5";
+    case "note": return "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z|M14 2v6h6|M16 13H8|M16 17H8|M10 9H8";
+    case "material_request": return "m12 2 10 6-10 6L2 8z|m2 14 10 6 10-6";
+    case "site_photo": return "M3 3h18v18H3z|M8.5 8.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3|m21 15-5-5L5 21";
+    case "payment": return "M12 2v20|M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6";
+    case "check_in": return "M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 1 1 18 0z|M12 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6z";
+    default: return "M12 20h9|M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z";
+  }
+}
+
+function updateTimeAgo(iso: string): string {
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (diff < 60) return "Just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)} mins`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)} hour${Math.floor(diff / 3600) > 1 ? "s" : ""}`;
+  if (diff < 172800) return "Yesterday";
+  return `${Math.floor(diff / 86400)} days`;
+}
+
+function capitaliseType(s: string) {
+  return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
 /* ── Helper components ───────────────────────────────────────────── */
 
 function SectionTitle({ children, href, style }: { children: React.ReactNode; href?: string; style?: React.CSSProperties }) {
@@ -105,6 +140,7 @@ interface MobileHomeProps {
   financeData: MobileFinance | null;
   teamMembers: MobileTeamMember[];
   totalMembers: number;
+  updates: MobileUpdate[];
 }
 
 function computeGreeting(): string {
@@ -128,6 +164,7 @@ export default function MobileHome({
   financeData,
   teamMembers,
   totalMembers,
+  updates,
 }: MobileHomeProps) {
   const initials = firstName.slice(0, 2).toUpperCase();
   const days = ["M", "T", "W", "T", "F", "S", "S"];
@@ -308,6 +345,52 @@ export default function MobileHome({
         </>
       )}
 
+      {/* Updates */}
+      <div style={{ padding: "0 16px" }}>
+        <SectionTitle href="/updates" style={{ marginTop: 22 }}>Updates</SectionTitle>
+      </div>
+      <div style={{ margin: "0 16px" }}>
+        <div style={{
+          background: "var(--color-paper-light)", borderRadius: 20, padding: 16,
+          boxShadow: "0 1px 0 #FFF inset, 0 8px 20px -10px rgba(30,28,24,.1)",
+        }}>
+          {updates.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "12px 0", color: "var(--color-tan)", fontSize: 13 }}>No recent updates</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {updates.slice(0, 5).map(e => {
+                const authorRaw = e.users;
+                const author = Array.isArray(authorRaw) ? authorRaw[0]?.full_name : authorRaw?.full_name;
+                const projectRaw = e.projects;
+                const projectName = Array.isArray(projectRaw) ? projectRaw[0]?.name : projectRaw?.name;
+                const isMint = e.update_type === "payment";
+                const title = e.body?.split("\n")[0]?.slice(0, 60) || capitaliseType(e.update_type);
+                const sub = [projectName, author].filter(Boolean).join(" · ");
+                return (
+                  <div key={e.id} style={{ display: "grid", gridTemplateColumns: "52px 1fr", gap: 10, alignItems: "flex-start" }}>
+                    <div style={{ paddingTop: 4 }}>
+                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-tan)" }}>{updateTimeAgo(e.created_at)}</div>
+                    </div>
+                    <div style={{
+                      padding: "10px 12px", borderRadius: 12,
+                      background: isMint ? "#D6E0CF" : "#EAE3D3",
+                      color: isMint ? "#3E5A41" : "var(--color-ink)",
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 600, letterSpacing: -0.1 }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                          {updateIcon(e.update_type).split("|").map((p, j) => <path key={j} d={p} />)}
+                        </svg>
+                        {title}
+                      </div>
+                      {sub && <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>{sub}</div>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
 
     </div>
   );

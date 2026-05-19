@@ -48,27 +48,16 @@ export function LoginForm() {
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div
               style={{
-                width: 36,
-                height: 36,
-                borderRadius: 12,
                 background: "#F3EFE7",
-                color: "var(--color-slate)",
+                borderRadius: 12,
+                padding: "8px 12px",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 flexShrink: 0,
               }}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M4 20V8l8-5 8 5v12" />
-                <path d="M4 20h16" />
-              </svg>
-            </div>
-            <div>
-              <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: -0.3 }}>ArchitectOS</div>
-              <div style={{ fontSize: 10, letterSpacing: 1.5, opacity: 0.5, textTransform: "uppercase", marginTop: 1 }}>
-                Ascension Architecture
-              </div>
+              <img src="/tare-logo.png" alt="Tare Logo" style={{ width: 80, height: 35, objectFit: "contain" }} />
             </div>
           </div>
         </div>
@@ -82,7 +71,7 @@ export function LoginForm() {
             Every project,<br />every person,<br />one system.
           </div>
           <p style={{ fontSize: 14, opacity: 0.6, lineHeight: 1.7, maxWidth: 340 }}>
-            From design table to construction site — ArchitectOS keeps your entire practice in sync.
+            From design table to construction site — Tare system keeps your entire practice in sync.
           </p>
 
           {/* Role cards (decorative) */}
@@ -111,7 +100,7 @@ export function LoginForm() {
         </div>
 
         <div style={{ position: "relative", fontSize: 11, opacity: 0.35 }}>
-          © 2025 Ascension Architecture · Powered by ArchitectOS
+          Powered by Ascension
         </div>
       </div>
 
@@ -128,6 +117,10 @@ export function LoginForm() {
         }}
       >
         <div style={{ width: "100%", maxWidth: 380 }}>
+          {/* Mobile-only logo */}
+          <div className="auth-mobile-logo" style={{ display: "none", justifyContent: "center", marginBottom: 36 }}>
+            <img src="/tare-logo.png" alt="Tare Logo" style={{ width: 150, height: 66, objectFit: "contain" }} />
+          </div>
           <h1
             className="font-serif"
             style={{ fontSize: 36, lineHeight: 1, marginBottom: 8, fontWeight: 400, letterSpacing: -0.8 }}
@@ -226,9 +219,9 @@ export function LoginForm() {
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @media (max-width: 767px) {
           .auth-split { flex-direction: column; }
-          .auth-left { flex: none !important; padding: 24px 20px 20px !important; min-height: 0; }
-          .auth-left .font-serif { font-size: 32px !important; }
-          .auth-right { width: 100% !important; padding: 24px 20px 40px !important; }
+          .auth-left { display: none !important; }
+          .auth-right { width: 100% !important; min-height: 100vh; padding: 40px 20px !important; }
+          .auth-mobile-logo { display: flex !important; }
         }
       `}</style>
     </div>
