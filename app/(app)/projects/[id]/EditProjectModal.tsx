@@ -38,6 +38,7 @@ const labelStyle: React.CSSProperties = {
 type Project = {
   id: string; name: string; project_type: string | null; status: string;
   current_stage: string;
+  scope: string;
   budget_total: number | null; estimated_work_hours: number | null;
   estimated_duration_days: number | null; start_date: string | null;
   expected_end_date: string | null; site_location: string | null;
@@ -134,6 +135,7 @@ export default function EditProjectModal({
     project_type: (project.project_type ?? "") as ProjectType | "",
     status: project.status,
     current_stage: project.current_stage,
+    scope: (project.scope === "design_only" ? "design_only" : "design_and_execution") as "design_only" | "design_and_execution",
     budget_total: project.budget_total ? String(project.budget_total) : "",
     estimated_work_hours: project.estimated_work_hours ? String(project.estimated_work_hours) : "",
     estimated_duration_days: project.estimated_duration_days ? String(project.estimated_duration_days) : "",
@@ -173,7 +175,7 @@ export default function EditProjectModal({
     if (!form.name.trim()) { setError("Project name is required"); return; }
     setLoading(true); setError(null);
 
-    const payload: Record<string, unknown> = { name: form.name.trim(), status: form.status };
+    const payload: Record<string, unknown> = { name: form.name.trim(), status: form.status, scope: form.scope };
     if (form.project_type) payload.project_type = form.project_type;
     if (form.start_date) payload.start_date = form.start_date;
     if (form.expected_end_date) payload.expected_end_date = form.expected_end_date;
@@ -310,11 +312,24 @@ export default function EditProjectModal({
                 </div>
               </div>
 
-              <div>
-                <label style={labelStyle}>Project Stage</label>
-                <select style={{ ...inputStyle, appearance: "none" }} value={form.current_stage} onChange={e => set("current_stage", e.target.value)}>
-                  {STAGES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                </select>
+              <div className="stack-mobile" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                <div>
+                  <label style={labelStyle}>Project Stage</label>
+                  <select style={{ ...inputStyle, appearance: "none" }} value={form.current_stage} onChange={e => set("current_stage", e.target.value)}>
+                    {STAGES.map(s => (
+                      <option key={s.value} value={s.value} disabled={form.scope === "design_only" && s.value === "execution"}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>Scope</label>
+                  <select style={{ ...inputStyle, appearance: "none" }} value={form.scope} onChange={e => set("scope", e.target.value)}>
+                    <option value="design_and_execution">Design + Execution</option>
+                    <option value="design_only" disabled={form.current_stage === "execution"}>Design only</option>
+                  </select>
+                </div>
               </div>
 
               <div className="stack-mobile" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>

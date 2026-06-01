@@ -60,6 +60,7 @@ export default function NewProjectModal() {
   const [form, setForm] = useState({
     name: "",
     project_type: "" as ProjectType | "",
+    scope: "design_and_execution" as "design_only" | "design_and_execution",
     start_date: "",
     expected_end_date: "",
     estimated_work_hours: "",
@@ -185,6 +186,7 @@ export default function NewProjectModal() {
 
     const payload: Record<string, unknown> = {
       name: form.name.trim(),
+      scope: form.scope,
       table_preset_ids: selectedTablePresetIds,
       pipeline_template_ids: selectedPipelinePresetIds,
       payment_preset_id: selectedPaymentPresetId || null,
@@ -361,6 +363,19 @@ export default function NewProjectModal() {
                     placeholder="0.00"
                   />
                 </div>
+              </div>
+
+              {/* Scope */}
+              <div>
+                <label style={labelStyle}>Scope</label>
+                <select
+                  style={{ ...inputStyle, appearance: "none" }}
+                  value={form.scope}
+                  onChange={(e) => set("scope", e.target.value as "design_only" | "design_and_execution")}
+                >
+                  <option value="design_and_execution">Design + Execution</option>
+                  <option value="design_only">Design only</option>
+                </select>
               </div>
 
               {/* Dates */}

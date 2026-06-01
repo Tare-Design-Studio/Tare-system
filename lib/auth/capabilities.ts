@@ -189,6 +189,7 @@ export const SITE_ENGINEER_CAPABILITIES: Capability[] = [
   "images:upload",
   "images:view",
   "site_check_in:write",
+  "office_attendance:write_own",
   "calendar:view_own",
   "broadcast:receive",
   "project_table:view",

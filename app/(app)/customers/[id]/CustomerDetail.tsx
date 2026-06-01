@@ -3,6 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import PaymentsCard from "@/components/payments/PaymentsCard";
+import { ConfirmPopover, Icon } from "@/components/atoms";
+
+// ISO timestamp → value for <input type="datetime-local"> (local time, minute precision).
+function toLocalInput(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 const CARD: React.CSSProperties = {
   background: "var(--color-paper-light)",
@@ -179,7 +187,92 @@ export default function CustomerDetail({
     }
   }
 
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editMsg, setEditMsg] = useState("");
+  const [editCategory, setEditCategory] = useState("follow_up");
+  const [editRemindAt, setEditRemindAt] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
+
+  function startEdit(r: Reminder) {
+    setEditingId(r.id);
+    setEditMsg(r.message ?? "");
+    setEditCategory(r.category);
+    setEditRemindAt(toLocalInput(r.remind_at));
+  }
+
+  async function saveEdit(reminder: Reminder) {
+    if (!editRemindAt || editBusy) return;
+    setEditBusy(true);
+    const res = await fetch(`/api/customers/${customer.id}/reminders`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        reminder_id: reminder.id,
+        message: editMsg.trim(),
+        category: editCategory,
+        remind_at: editRemindAt + ":00",
+      }),
+    });
+    if (res.ok) {
+      const updated: Reminder = await res.json();
+      setCustomer((c) => ({
+        ...c,
+        enquiry_reminders: c.enquiry_reminders.map((r) => r.id === updated.id ? updated : r),
+      }));
+      setEditingId(null);
+    }
+    setEditBusy(false);
+  }
+
+  async function deleteReminder(reminder: Reminder) {
+    const res = await fetch(`/api/customers/${customer.id}/reminders?reminder_id=${reminder.id}`, {
+      method: "DELETE",
+    });
+    if (res.ok) {
+      setCustomer((c) => ({
+        ...c,
+        enquiry_reminders: c.enquiry_reminders.filter((r) => r.id !== reminder.id),
+      }));
+      if (editingId === reminder.id) setEditingId(null);
+    }
+  }
+
   function ReminderRow({ r }: { r: Reminder }) {
+    const isEditing = editingId === r.id;
+
+    if (isEditing) {
+      return (
+        <div style={{ padding: "12px 14px", borderRadius: 12, background: CATEGORY_COLOR[r.category] + "12", border: `1px solid ${CATEGORY_COLOR[r.category]}30` }}>
+          <textarea
+            value={editMsg}
+            onChange={(e) => setEditMsg(e.target.value)}
+            rows={2}
+            placeholder="Reminder note…"
+            style={{ width: "100%", padding: "9px 12px", borderRadius: 10, border: "1px solid var(--color-line)", background: "var(--color-paper-light)", fontSize: 13, color: "var(--color-ink)", fontFamily: "inherit", resize: "vertical", outline: "none", boxSizing: "border-box" }}
+          />
+          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <select value={editCategory} onChange={(e) => setEditCategory(e.target.value)} style={{ padding: "7px 10px", borderRadius: 9, fontSize: 12, border: "1px solid var(--color-line)", background: "var(--color-paper-light)", color: "var(--color-ink)", fontFamily: "inherit", cursor: "pointer" }}>
+              {CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            </select>
+            <input type="datetime-local" value={editRemindAt} onChange={(e) => setEditRemindAt(e.target.value)} style={{ padding: "7px 10px", borderRadius: 9, fontSize: 12, border: "1px solid var(--color-line)", background: "var(--color-paper-light)", color: "var(--color-ink)", fontFamily: "inherit" }} />
+            <button onClick={() => saveEdit(r)} disabled={!editRemindAt || editBusy} style={{ padding: "7px 14px", borderRadius: 9, fontSize: 12, fontWeight: 600, background: !editRemindAt ? "var(--color-line)" : "var(--color-forest)", color: "#FFF", border: "none", cursor: !editRemindAt ? "default" : "pointer" }}>
+              {editBusy ? "Saving…" : "Save"}
+            </button>
+            <button onClick={() => setEditingId(null)} style={{ padding: "7px 12px", borderRadius: 9, fontSize: 12, fontWeight: 600, background: "transparent", color: "var(--color-tan)", border: "1px solid var(--color-line)", cursor: "pointer" }}>
+              Cancel
+            </button>
+            <ConfirmPopover title="Delete reminder?" message="This can't be undone." confirmLabel="Delete" onConfirm={() => deleteReminder(r)}>
+              {(open) => (
+                <button onClick={open} aria-label="Delete reminder" style={{ marginLeft: "auto", padding: "7px 10px", borderRadius: 9, fontSize: 12, fontWeight: 600, background: "transparent", color: "var(--color-rust)", border: "1px solid var(--color-rust)40", cursor: "pointer" }}>
+                  Delete
+                </button>
+              )}
+            </ConfirmPopover>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div style={{
         display: "flex", gap: 12, alignItems: "flex-start",
@@ -218,6 +311,14 @@ export default function CustomerDetail({
             <div style={{ fontSize: 13, color: "var(--color-ink)", lineHeight: 1.5 }}>{r.message}</div>
           )}
         </div>
+        <button
+          onClick={() => startEdit(r)}
+          aria-label="Edit reminder"
+          title="Reschedule or edit"
+          style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 8, border: "1px solid var(--color-line)", background: "transparent", cursor: "pointer", color: "var(--color-tan)" }}
+        >
+          <Icon name="pencil" size={13} />
+        </button>
       </div>
     );
   }

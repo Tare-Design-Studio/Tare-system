@@ -3,9 +3,11 @@
 import { useState } from "react";
 import { Chip, Avatar } from "@/components/atoms";
 import { useClientNow } from "@/lib/useClientNow";
-import { Project, Engineer, MaterialPlan, Expense, CheckIn, CATEGORY_LABELS, CATEGORY_TONE, formatDate, formatTime } from "./shared";
+import { Project, Engineer, MaterialPlan, Expense, CheckIn, SiteVisit, CATEGORY_LABELS, CATEGORY_TONE, formatDate, formatTime } from "./shared";
 import { UpdateComposer } from "@/components/updates/UpdateComposer";
 import { UpdatesFeed, type FeedUpdate } from "@/components/updates/UpdatesFeed";
+import SiteAttendanceCard, { type AttendanceLog } from "./SiteAttendanceCard";
+import SiteVisitsCard from "./SiteVisitsCard";
 
 // ── Icons ──────────────────────────────────────────────────────────────
 type IconName = "check" | "pin" | "plus" | "dashboard" | "list" | "trending" | "credit" | "feed";
@@ -63,7 +65,7 @@ const TabBar = ({ active, onTab }: { active: string; onTab: (id: string) => void
 
 // ── Screens ────────────────────────────────────────────────────────────
 
-function SiteCheckInScreen({ project, checkIns, onCheckin, nowMs }: { project: Project; checkIns: CheckIn[]; onCheckin: () => void; nowMs: number; }) {
+function SiteCheckInScreen({ project, checkIns, onCheckin, nowMs, todayAttendance, siteVisits }: { project: Project; checkIns: CheckIn[]; onCheckin: () => void; nowMs: number; todayAttendance: AttendanceLog | null; siteVisits: SiteVisit[]; }) {
   const [checking, setChecking] = useState(false);
   const [checkedIn, setCheckedIn] = useState(false);
   const [checkinResult, setCheckinResult] = useState<{ within_geofence: boolean; distance_m: number } | null>(null);
@@ -147,7 +149,7 @@ function SiteCheckInScreen({ project, checkIns, onCheckin, nowMs }: { project: P
       )}
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8 }}>
-        <div className="font-serif" style={{ fontSize: 20, letterSpacing: -.3 }}>Today's Check-ins</div>
+        <div className="font-serif" style={{ fontSize: 20, letterSpacing: -.3 }}>Today&apos;s Check-ins</div>
       </div>
       <div style={{ background: "var(--color-paper-light)", borderRadius: 16, padding: "14px", boxShadow: "0 1px 0 #FFF inset", display: "flex", flexDirection: "column", gap: 10 }}>
         {todayCheckins.length === 0 ? (
@@ -171,6 +173,11 @@ function SiteCheckInScreen({ project, checkIns, onCheckin, nowMs }: { project: P
             </div>
           ))
         )}
+      </div>
+
+      <div style={{ marginTop: 20 }}>
+        <SiteAttendanceCard todayAttendance={todayAttendance} />
+        <SiteVisitsCard siteVisits={siteVisits} />
       </div>
     </div>
   );
@@ -467,13 +474,15 @@ type Props = {
   updates: FeedUpdate[];
   loading: boolean;
   nowMs: number;
+  todayAttendance: AttendanceLog | null;
+  siteVisits: SiteVisit[];
   switchProject: (pid: string) => void;
   setTab: (tab: string) => void;
   refresh: () => void;
 };
 
 export function MobileSiteEngineer({
-  engineer, project, projects, projectId, tab, plans, expenses, checkIns, updates, nowMs, switchProject, setTab, refresh
+  engineer, project, projects, projectId, tab, plans, expenses, checkIns, updates, nowMs, todayAttendance, siteVisits, switchProject, setTab, refresh
 }: Props) {
   if (projects.length === 0) {
     return (
@@ -505,7 +514,7 @@ export function MobileSiteEngineer({
 
       {project && (
         <div style={{ animation: "fadeIn 0.3s ease-out" }}>
-          {tab === "today"     && <SiteCheckInScreen project={project} checkIns={checkIns} onCheckin={refresh} nowMs={nowMs} />}
+          {tab === "today"     && <SiteCheckInScreen project={project} checkIns={checkIns} onCheckin={refresh} nowMs={nowMs} todayAttendance={todayAttendance} siteVisits={siteVisits} />}
           {tab === "updates"   && <UpdatesScreen     project={project} updates={updates}   onPosted={refresh} engineerId={engineer.id} />}
           {tab === "materials" && <MaterialsScreen   project={project} plans={plans}       onLogged={refresh} />}
           {tab === "progress"  && <ProgressScreen    project={project} />}

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { Chip, Icon } from "@/components/atoms";
-import { CAPABILITIES, OWNER_CAPABILITIES, TEAM_MEMBER_CAPABILITIES, SITE_ENGINEER_CAPABILITIES } from "@/lib/auth/capabilities";
+import { CAPABILITIES } from "@/lib/auth/capabilities";
 import styles from "../../team/team-access.module.css";
 import { PageHeader } from "../../PageHeader";
 import { AccessMatrixEditor, type Member } from "./AccessMatrixEditor";
@@ -117,19 +117,11 @@ export default async function AccessMatrixPage() {
     .single();
 
   const role = profile?.role ?? "team_member";
-  const isOwner = role === "owner";
+  // Access Matrix is owner-only — no one else may view it.
+  if (role !== "owner") redirect("/");
 
-  const ROLE_BADGE: Record<string, { label: string; tone: "forest" | "indigo" | "amber" }> = {
-    owner:         { label: "Owner",        tone: "forest" },
-    team_member:   { label: "Team Member",  tone: "indigo" },
-    site_engineer: { label: "Site Engineer", tone: "amber" },
-  };
-  const badge = ROLE_BADGE[role] ?? ROLE_BADGE.team_member;
-
-  // ── Owner: editable matrix of all members ────────────────────────────────
-  if (isOwner) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const db = supabase as any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const db = supabase as any;
     const [membersRes, tagsRes, capsRes] = await Promise.all([
       supabase
         .from("users")
@@ -207,104 +199,3 @@ export default async function AccessMatrixPage() {
       </div>
     );
   }
-
-  // ── Non-owner: read-only capability view ─────────────────────────────────
-  const { data: userCaps } = await supabase
-    .from("user_capabilities")
-    .select("capability, granted, scope_project_id")
-    .eq("user_id", user.id);
-
-  const grantedSet = new Set(
-    userCaps?.filter((c) => c.granted).map((c) => c.capability) ?? []
-  );
-
-  const defaultCaps =
-    role === "site_engineer" ? SITE_ENGINEER_CAPABILITIES : TEAM_MEMBER_CAPABILITIES;
-
-  const roleRows = [
-    { id: "owner", label: "Owner", caps: OWNER_CAPABILITIES, tone: "forest" as const },
-    { id: "team_member", label: "Team Member", caps: TEAM_MEMBER_CAPABILITIES, tone: "indigo" as const },
-    { id: "site_engineer", label: "Site Engineer", caps: SITE_ENGINEER_CAPABILITIES, tone: "amber" as const },
-  ];
-
-  return (
-    <div className={styles.surface}>
-      <PageHeader
-        title="Access Matrix"
-        subtitle={`${profile?.full_name ?? "You"} · Capability matrix`}
-        actions={
-          <Link href="/team" className={styles.button}>
-            <Icon name="users" size={14} />
-            Team
-          </Link>
-        }
-      >
-        <div style={{ marginTop: 12, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-          <Chip label={badge.label} tone={badge.tone} size="sm" dot />
-        </div>
-      </PageHeader>
-
-      <div className={styles.grid12}>
-        <div className={styles.col12}>
-          <div className={styles.card}>
-            <div className={styles.cardTitle}>
-              <div className={styles.cardTitleText}>
-                <h2 className="font-serif">Role Matrix</h2>
-                <p>Default capabilities · dashboard reference layout</p>
-              </div>
-            </div>
-            <div className={styles.tableWrap}>
-              <table className={styles.matrixTable}>
-                <thead>
-                  <tr>
-                    <th>Role</th>
-                    {CAPABILITIES.map((cap) => (
-                      <th key={cap} className={styles.matrixCapHead}>{cap}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {roleRows.map((r) => (
-                    <tr key={r.id}>
-                      <td style={{ padding: "8px 12px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          <Chip label={r.label} tone={r.tone} size="sm" dot />
-                          {r.id === role && <span style={{ fontSize: 11, color: "var(--color-tan)" }}>Current</span>}
-                        </div>
-                      </td>
-                      {CAPABILITIES.map((cap) => {
-                        const has = r.id === "owner" || r.caps.includes(cap as never);
-                        return (
-                          <td key={cap} style={{ textAlign: "center", padding: "8px 6px" }}>
-                            <div className={`${styles.matrixCell} ${has ? styles.matrixCellOn : ""}`}>
-                              {has && <Icon name="check" size={11} />}
-                            </div>
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <div className={styles.col12}>
-          <CapabilityCards
-            grantedSet={(cap) =>
-              grantedSet.has(cap) || defaultCaps.includes(cap as (typeof defaultCaps)[number])
-            }
-            subtitle="Your access · managed by owner"
-          />
-        </div>
-
-        <div className={styles.col12}>
-          <p style={{ fontSize: 11, color: "var(--color-tan)", margin: 0 }}>
-            Capabilities are managed by the Owner. Contact them to request changes.
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}

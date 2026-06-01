@@ -29,6 +29,19 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
 }
 
+// Humanised time-to-complete for a persistent task (created_at → completed_at).
+function fmtDuration(fromIso: string, toIso: string): string {
+  const ms = new Date(toIso).getTime() - new Date(fromIso).getTime();
+  if (ms < 0) return "—";
+  const mins = Math.floor(ms / 60000);
+  if (mins < 60) return "<1h";
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  const remH = hours % 24;
+  return remH > 0 ? `${days}d ${remH}h` : `${days}d`;
+}
+
 type Member = {
   id: string;
   full_name: string;
@@ -295,7 +308,15 @@ function TasksCard({ dailyTasks, memberTasks }: { dailyTasks: DailyTask[]; membe
                   {t.completed && <Icon name="check" size={10} />}
                 </div>
                 <div className={`${styles.taskTitle} ${t.completed ? styles.taskDone : ""}`}>{t.title}</div>
-                <div className={styles.taskDate}>{fmtDate(t.created_at)}</div>
+                {t.completed && t.completed_at && (
+                  <span
+                    title={`Completed in ${fmtDuration(t.created_at, t.completed_at)}`}
+                    style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 999, background: "var(--color-forest)18", color: "var(--color-forest)", whiteSpace: "nowrap" }}
+                  >
+                    {fmtDuration(t.created_at, t.completed_at)}
+                  </span>
+                )}
+                <div className={styles.taskDate}>{t.completed && t.completed_at ? fmtDate(t.completed_at) : fmtDate(t.created_at)}</div>
               </div>
             ))}
           </div>

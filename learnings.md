@@ -54,3 +54,20 @@ Gotchas + fixes. Each: symptom → cause → fix.
 ### 5. PWA icons via `sharp`
 - Composite logo onto solid bg (no extra tooling). Maskable icons need ~20% padding
   (safe zone). Apple touch icon must be opaque (iOS adds no background).
+
+---
+
+## Build & Deploy
+
+### 6. `npm run build` hangs / `ENOTEMPTY` on `.next/static/...`
+- **Symptom:** build stalls for minutes, or fails with
+  `Error: ENOTEMPTY: directory not empty, rmdir '.next/static/<hash>'`; a
+  background build exits silently with no output and no `.next/BUILD_ID`.
+- **Cause:** a `next dev` server is still running. It holds a lock on `.next`
+  (see `.next/lock`, `.next/dev/`) and keeps writing to `.next/static` while the
+  build tries to read/clear the same dir → collision.
+- **Tell:** `ls .next` shows a `dev/` dir and a `lock` file; `ps aux | grep 'next dev'`
+  finds a live process.
+- **Fix:** `pkill -f 'next dev'; pkill -f 'next-server'`, then `rm -rf .next`,
+  then `npm run build`.
+- **Rule:** stop the dev server before building for deploy.

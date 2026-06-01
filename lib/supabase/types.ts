@@ -31,6 +31,7 @@ export type Database = {
       }
       attendance_logs: {
         Row: {
+          accumulated_minutes: number
           check_in_at: string | null
           check_in_count: number
           check_in_lat: number | null
@@ -42,6 +43,7 @@ export type Database = {
           check_out_within_geofence: boolean | null
           created_at: string
           id: string
+          last_check_in_at: string | null
           tenant_id: string
           total_minutes: number | null
           updated_at: string
@@ -49,6 +51,7 @@ export type Database = {
           work_date: string
         }
         Insert: {
+          accumulated_minutes?: number
           check_in_at?: string | null
           check_in_count?: number
           check_in_lat?: number | null
@@ -60,6 +63,7 @@ export type Database = {
           check_out_within_geofence?: boolean | null
           created_at?: string
           id?: string
+          last_check_in_at?: string | null
           tenant_id: string
           total_minutes?: number | null
           updated_at?: string
@@ -67,6 +71,7 @@ export type Database = {
           work_date?: string
         }
         Update: {
+          accumulated_minutes?: number
           check_in_at?: string | null
           check_in_count?: number
           check_in_lat?: number | null
@@ -78,6 +83,7 @@ export type Database = {
           check_out_within_geofence?: boolean | null
           created_at?: string
           id?: string
+          last_check_in_at?: string | null
           tenant_id?: string
           total_minutes?: number | null
           updated_at?: string
@@ -2493,6 +2499,7 @@ export type Database = {
           name: string
           on_hold_reason: string | null
           project_type: Database["public"]["Enums"]["project_type"] | null
+          scope: string
           share_drive_with_customer: boolean | null
           site_geofence_radius_m: number | null
           site_lat: number | null
@@ -2530,6 +2537,7 @@ export type Database = {
           name: string
           on_hold_reason?: string | null
           project_type?: Database["public"]["Enums"]["project_type"] | null
+          scope?: string
           share_drive_with_customer?: boolean | null
           site_geofence_radius_m?: number | null
           site_lat?: number | null
@@ -2567,6 +2575,7 @@ export type Database = {
           name?: string
           on_hold_reason?: string | null
           project_type?: Database["public"]["Enums"]["project_type"] | null
+          scope?: string
           share_drive_with_customer?: boolean | null
           site_geofence_radius_m?: number | null
           site_lat?: number | null

@@ -36,6 +36,7 @@ const UpdateProjectSchema = z.object({
   share_drive_with_customer: z.boolean().optional(),
   customer_portal_enabled: z.boolean().optional(),
   customer_id: z.string().uuid().nullable().optional(),
+  scope: z.enum(["design_only", "design_and_execution"]).optional(),
 });
 
 type Context = { params: Promise<{ id: string }> };
@@ -109,6 +110,21 @@ export async function PATCH(request: Request, { params }: Context) {
       { error: result.error.issues[0]?.message ?? "Validation failed" },
       { status: 400 }
     );
+  }
+
+  if (result.data.scope === "design_only") {
+    const { data: current } = await supabase
+      .from("projects")
+      .select("current_stage")
+      .eq("id", id)
+      .is("deleted_at", null)
+      .single();
+    if (current?.current_stage === "execution") {
+      return NextResponse.json(
+        { error: "Cannot mark a project Design Only while it is in the Execution stage" },
+        { status: 400 }
+      );
+    }
   }
 
   const { data: project, error } = await supabase

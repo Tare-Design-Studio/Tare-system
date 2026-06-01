@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { TopBar } from "./TopBar";
 import { MobileNav, type MobileNavItem } from "./MobileNav";
@@ -49,6 +50,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   const role = profile?.role ?? "team_member";
+  // Site-engineer dashboard is a self-contained view with its own header — no owner chrome.
+  const pathname = (await headers()).get("x-pathname") ?? "";
+  const isSiteDashboard = role === "site_engineer" || pathname.startsWith("/site");
   const mobileNavItems: MobileNavItem[] = ALL_NAV_DEFS
     .filter((item) => {
       if (!item.roles) return true;
@@ -62,7 +66,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div style={{ minHeight: "100vh" }}>
-      {role === "site_engineer" ? (
+      {isSiteDashboard ? (
         <main className="mobile-main">{children}</main>
       ) : (
         <>

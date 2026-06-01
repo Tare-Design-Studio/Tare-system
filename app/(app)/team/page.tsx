@@ -1,11 +1,14 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { serverNowMs } from "@/lib/serverNow";
 import { Avatar, Chip, Icon } from "@/components/atoms";
 import { InviteForm } from "./InviteForm";
 import { BroadcastsPanel } from "./BroadcastsPanel";
 import { DailyTasksWidget } from "./DailyTasksWidget";
 import { TagsPanel } from "./TagsPanel";
+import { DownloadReportButton } from "./DownloadReportButton";
+import { availableReportMonths } from "@/lib/reports/monthMeta";
 import styles from "./team-access.module.css";
 import { PageHeader } from "../PageHeader";
 
@@ -127,6 +130,8 @@ export default async function TeamPage() {
   );
   const broadcasts = broadcastsRes.data ?? [];
   const dailyTasks = dailyTasksRes.data ?? [];
+  // Access Matrix is owner-only.
+  const isOwner = rows.find((m) => m.id === user.id)?.role === "owner";
 
   // Aggregate attendance per user for current month
   type AttRow = { user_id: string; work_date: string; check_in_at: string | null; total_minutes: number | null; check_in_count: number | null; users: { full_name: string } | null };
@@ -186,10 +191,13 @@ export default async function TeamPage() {
         subtitle={`${rows.length} member${rows.length !== 1 ? "s" : ""} · Performance & Control`}
         actions={
           <>
-            <Link href="/settings/access-matrix" className={styles.button}>
-              <Icon name="shield" size={14} />
-              Access Matrix
-            </Link>
+            {canManage && <DownloadReportButton months={availableReportMonths()} />}
+            {isOwner && (
+              <Link href="/settings/access-matrix" className={styles.button}>
+                <Icon name="shield" size={14} />
+                Access Matrix
+              </Link>
+            )}
             {canManage && (
               <details className={styles.headerInviteDisclosure}>
                 <summary
@@ -218,9 +226,11 @@ export default async function TeamPage() {
                 <h2 className="font-serif">Members</h2>
                 <p>Directory · roles · invite status</p>
               </div>
-              <Link href="/settings/access-matrix" className={styles.cornerButton} aria-label="Open access matrix">
-                <Icon name="arrowUR" size={15} />
-              </Link>
+              {isOwner && (
+                <Link href="/settings/access-matrix" className={styles.cornerButton} aria-label="Open access matrix">
+                  <Icon name="arrowUR" size={15} />
+                </Link>
+              )}
             </div>
             <div className={styles.memberList}>
               {rows.map((m) => {
@@ -382,7 +392,7 @@ export default async function TeamPage() {
               canCompose={!!canBroadcast}
               currentUserId={user.id}
               refreshLimit={1}
-              nowMs={Date.now()}
+              nowMs={serverNowMs()}
             />
           </div>
         </div>

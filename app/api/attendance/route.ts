@@ -35,7 +35,7 @@ export async function GET(req: Request) {
 
   let query = supabase
     .from("attendance_logs")
-    .select("id, work_date, check_in_at, check_out_at, check_in_within_geofence, check_out_within_geofence, total_minutes, check_in_count")
+    .select("id, work_date, check_in_at, check_out_at, check_in_within_geofence, check_out_within_geofence, total_minutes, accumulated_minutes, last_check_in_at, check_in_count")
     .eq("user_id", targetUserId)
     .order("work_date", { ascending: false });
 
@@ -85,18 +85,37 @@ export async function POST(req: Request) {
   }
 
   const today = new Date().toISOString().slice(0, 10);
-  const now = new Date().toISOString();
+  const nowDate = new Date();
+  const now = nowDate.toISOString();
+
+  // worked_minutes = closed cycles + the currently-open cycle (if any).
+  function workedMinutes(row: { accumulated_minutes?: number | null; last_check_in_at?: string | null }): number {
+    const acc = row.accumulated_minutes ?? 0;
+    if (row.last_check_in_at) {
+      const openMs = nowDate.getTime() - new Date(row.last_check_in_at).getTime();
+      return acc + Math.max(0, Math.floor(openMs / 60000));
+    }
+    return acc;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function respond(row: any) {
+    return NextResponse.json(
+      { ...row, within_geofence: withinGeofence, worked_minutes: workedMinutes(row) },
+      { status: 200 }
+    );
+  }
+
+  const { data: existing } = await supabase
+    .from("attendance_logs")
+    .select("id, check_in_at, check_in_count, accumulated_minutes, last_check_in_at")
+    .eq("user_id", user.id)
+    .eq("work_date", today)
+    .maybeSingle();
 
   if (action === "check_in") {
-    // One row per day: keep the FIRST check-in, just bump the count on re-check-in.
-    const { data: existing } = await supabase
-      .from("attendance_logs")
-      .select("id, check_in_at, check_in_count")
-      .eq("user_id", user.id)
-      .eq("work_date", today)
-      .maybeSingle();
-
     if (!existing) {
+      // First check-in of the day — open cycle one.
       const { data, error } = await supabase
         .from("attendance_logs")
         .insert({
@@ -104,6 +123,8 @@ export async function POST(req: Request) {
           tenant_id: profile.tenant_id,
           work_date: today,
           check_in_at: now,
+          last_check_in_at: now,
+          accumulated_minutes: 0,
           check_in_lat: lat ?? null,
           check_in_lng: lng ?? null,
           check_in_within_geofence: withinGeofence,
@@ -113,36 +134,54 @@ export async function POST(req: Request) {
         .single();
 
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      return NextResponse.json({ ...data, within_geofence: withinGeofence }, { status: 200 });
+      return respond(data);
     }
 
-    // Re-check-in: keep first check-in time/coords, only increment the count.
+    // Already in an open cycle — idempotent, return current.
+    if (existing.last_check_in_at) {
+      return respond(existing);
+    }
+
+    // Currently checked out — start another cycle (keep first check_in_at for display).
     const { data, error } = await supabase
       .from("attendance_logs")
-      .update({ check_in_count: (existing.check_in_count ?? 1) + 1 })
+      .update({
+        last_check_in_at: now,
+        check_out_at: null,
+        check_in_lat: lat ?? null,
+        check_in_lng: lng ?? null,
+        check_in_within_geofence: withinGeofence,
+        check_in_count: (existing.check_in_count ?? 1) + 1,
+      })
       .eq("id", existing.id)
       .select()
       .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    return NextResponse.json({ ...data, within_geofence: withinGeofence }, { status: 200 });
+    return respond(data);
   } else {
-    // Update today's row with check_out
+    // check_out — requires an open cycle.
+    if (!existing) return NextResponse.json({ error: "No check-in found for today" }, { status: 400 });
+    if (!existing.last_check_in_at) return NextResponse.json({ error: "No active check-in to check out from" }, { status: 400 });
+
+    const openMs = nowDate.getTime() - new Date(existing.last_check_in_at).getTime();
+    const cycleMinutes = Math.max(0, Math.floor(openMs / 60000));
+
     const { data, error } = await supabase
       .from("attendance_logs")
       .update({
         check_out_at: now,
+        last_check_in_at: null,
+        accumulated_minutes: (existing.accumulated_minutes ?? 0) + cycleMinutes,
         check_out_lat: lat ?? null,
         check_out_lng: lng ?? null,
         check_out_within_geofence: withinGeofence,
       })
-      .eq("user_id", user.id)
-      .eq("work_date", today)
+      .eq("id", existing.id)
       .select()
       .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    if (!data) return NextResponse.json({ error: "No check-in found for today" }, { status: 400 });
-    return NextResponse.json({ ...data, within_geofence: withinGeofence }, { status: 200 });
+    return respond(data);
   }
 }

@@ -41,6 +41,21 @@ export async function PATCH(request: Request, { params }: Context) {
     );
   }
 
+  if (result.data.stage === "execution") {
+    const { data: current } = await supabase
+      .from("projects")
+      .select("scope")
+      .eq("id", id)
+      .is("deleted_at", null)
+      .single();
+    if (current && (current as { scope?: string }).scope === "design_only") {
+      return NextResponse.json(
+        { error: "Design-only projects cannot enter the Execution stage" },
+        { status: 400 }
+      );
+    }
+  }
+
   const { data: project, error } = await supabase
     .from("projects")
     .update({

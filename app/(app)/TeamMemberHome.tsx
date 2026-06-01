@@ -62,6 +62,8 @@ type AttendanceLog = {
   check_in_at: string | null;
   check_out_at: string | null;
   total_minutes: number | null;
+  accumulated_minutes: number | null;
+  last_check_in_at: string | null;
   check_in_count: number;
 };
 

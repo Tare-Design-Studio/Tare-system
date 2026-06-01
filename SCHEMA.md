@@ -1,7 +1,24 @@
 # SCHEMA.md
-(Updated: 2026-05-18 — migrations 062–064 applied)
+(Updated: 2026-05-30 — migrations 067 + 068 written, NOT yet applied)
 
-## Status: Phase 10 migrations (043–050) + 051–064 + 999_add + 999_zz applied to cloud Supabase.
+## Status: Phase 10 migrations (043–050) + 051–066 + 999_add + 999_zz applied to cloud Supabase. Migrations 067 + 068 written, awaiting apply.
+
+### Migration 068 — attendance accumulate + site-engineer office attendance (NOT YET APPLIED)
+- `attendance_logs.accumulated_minutes int NOT NULL DEFAULT 0` — running sum of each CLOSED check-in→check-out cycle in the day. Backfilled from `total_minutes` for existing rows.
+- `attendance_logs.last_check_in_at timestamptz NULL` — start of the currently-open cycle; NULL when checked out / day complete.
+- Behaviour: a member/engineer may run multiple cycles a day. On check-out the app adds `(now − last_check_in_at)` to `accumulated_minutes` and clears `last_check_in_at`; a fresh check-in re-opens a cycle and bumps `check_in_count`. The legacy GENERATED `total_minutes` (first-in→last-out) stays for back-compat but the UI shows `accumulated_minutes` ("Worked").
+- Grants `office_attendance:write_own` to all existing `site_engineer` users (guarded by NOT EXISTS, scope_project_id IS NULL). New site engineers get it from `SITE_ENGINEER_CAPABILITIES` in `lib/auth/capabilities.ts`.
+- No RLS change — existing `member_*_own_attendance` policies already gate on `office_attendance:write_own` + `user_id = auth.uid()`.
+- Types: hand-patched `lib/supabase/types.ts` (`attendance_logs` Row/Insert/Update add `accumulated_minutes`, `last_check_in_at`).
+- Apply: `DATABASE_URL=... npx tsx scripts/migrate.ts`
+
+### Migration 067 — project scope (NOT YET APPLIED)
+- Adds `projects.scope text NOT NULL DEFAULT 'design_and_execution'` with CHECK constraint `scope IN ('design_only','design_and_execution')`.
+- Existing rows default to `design_and_execution` so behaviour is unchanged.
+- Index: `idx_projects_scope (scope) WHERE deleted_at IS NULL`.
+- Wiring: New + Edit project modals expose a Scope selector; `projects` POST/PATCH zod schemas accept it. The stage route refuses `execution` when scope is `design_only`. The PATCH route refuses `scope='design_only'` when the project is already in the execution stage. `/projects` gains a Scope filter chip group. The project detail page hides the Material Plan card, Expense Summary, and the full-width Execution Tables section when the project is design-only.
+- Types: hand-patched `lib/supabase/types.ts` (Row/Insert/Update) to add `scope` (no `supabase gen types` — same pattern as migration 066).
+- Apply: `DATABASE_URL=... npx tsx scripts/migrate.ts`
 
 ### Migration 064 — fix project_tables soft-delete (applied 2026-05-18)
 - Root cause: a direct `UPDATE ... SET deleted_at` fails RLS — Postgres also enforces the SELECT policy's `USING (deleted_at IS NULL)` against the post-update row, so the new row violates the SELECT policy ("new row violates row-level security policy"). Migration 058 fixed the UPDATE policy's WITH CHECK but not this.
@@ -93,6 +110,7 @@
 ### Column additions
 - `project_checkpoints.started_at timestamptz NULL` — orange "Under Progress" state (043)
 - `projects.whatsapp_group_url text NULL` (044)
+- `projects.scope text NOT NULL DEFAULT 'design_and_execution'` CHECK IN ('design_only','design_and_execution') (067)
 - `payment_records.method` CHECK extended: `bank | neft | upi | cheque | cash` (045)
 - `projects.source_payment_preset_id uuid` FK → `payment_milestone_presets(id)` (046)
 - `customers.customer_portal_hash text UNIQUE NULL` + `customer_portal_hash_generated_at timestamptz NULL` + `customer_portal_enabled boolean DEFAULT false` (048)

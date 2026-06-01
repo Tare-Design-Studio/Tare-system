@@ -1,5 +1,53 @@
 # PROJECT_STATE.md
-(Updated: 2026-05-18 — overview metrics + finance expenses picker + enquiry form fix)
+(Updated: 2026-06-01 — reversible demo data set)
+
+### Reversible demo data (2026-06-01)
+
+**Built:**
+- `supabase/migrations/069_demo_seed.sql` — full-coverage demonstration data for Tare Design Studio: 6 demo logins (`*@demo.tare` / `demo1234`, real `auth.users`+`auth.identities`), 4 team members (2 tagged: project_manager, accountant) + 2 site engineers, 6 customers, 8 enquiries (full pipeline), 5 projects (mix of scope/status/stage) with assignments, checkpoints+items, payment schedule/records, materials (plan+consumption, one tripping the excess flag), expenses (pending+approved), site check-ins (one out-of-geofence), updates, bridge messages, member/daily tasks, personal reminders, 5 days attendance/user, broadcasts+recipients, 2 months performance. Sets `tenants.office_lat/lng` for the geofence.
+- `supabase/demo_teardown.sql` — deletes everything 069 created, strictly by the `dec0de00-…` UUID namespace + demo user ids (FK-ordered); reverts office GPS to NULL. Kept OUT of `migrations/` so the runner never auto-applies it (it would wipe the seed immediately — happened once during setup).
+- **069 APPLIED to cloud Supabase (2026-06-01); demo data is live** (5 projects, 6 customers, 8 enquiries, 6 demo users, etc.). 069 = on-demand demo data, NOT schema. See DEMO_VS_PROD.md.
+
+**Pending:**
+- [ ] Run teardown before any prod cutover: `psql "$DATABASE_URL" -f supabase/demo_teardown.sql`.
+
+### Monthly team PDF report (2026-05-30)
+
+**Built:**
+- **Download Report button** beside Access Matrix on `/team` (owner / `team:create_user` only) — `app/(app)/team/DownloadReportButton.tsx`. Disclosure panel with a month `<select>` (last 12 completed months) → fetches the PDF as a blob → triggers a browser download. Months come from `availableReportMonths()` computed server-side and passed as a prop (hydration-safe).
+- **Availability rule**: only fully-elapsed calendar months are downloadable; the current (in-progress) month becomes available on the 1st. `lib/reports/monthMeta.ts` — `availableReportMonths()`, `isMonthAvailable()`, `monthStartDate/EndDate()`, `monthKeyLabel()`; "now" computed in `Asia/Kolkata`.
+- **PDF document**: `lib/reports/MonthlyReport.tsx` — `@react-pdf/renderer@4.5.1` (MIT, fully local, no paid service). Editorial cover (paper bg, amber left spine, **Tare wordmark `public/tare-logo.png` embedded as a data URI**, hairline, large serif title "Team &" ink + "*Performance*" forest italic, month in tracked caps, slate "At a glance" metric band with hairline-divided columns + footer rule) → Overview page (team-at-a-glance stat band + all-members table) → one detail page per member (excludes owner): team members show attendance/tasks/performance/broadcast stat bands + attendance log + task table; site engineers show site-check-in stats + check-in log. Brand palette mirrors `app/globals.css`. The logo is read server-side in the route (`loadLogo()` → base64 data URI) and passed via `ReportData.logoSrc`; falls back to a serif studio name if the file is missing.
+- **API**: `GET /api/reports/monthly?month=YYYY-MM` (`route.tsx`, `runtime=nodejs`) — gated by `office_attendance:view_all`; rejects non-elapsed months (400); bulk-fetches all member sections scoped to the calendar month; renders via `renderToBuffer`; streams `application/pdf` with `Cache-Control: no-store`. Reuses the same tables as the per-member detail page (`attendance_logs`, `team_daily_tasks`, `member_tasks`, `team_performance_monthly`, `owner_broadcast_recipients`, `site_check_ins`, `team_member_tags`).
+- New dep: `@react-pdf/renderer@4.5.1`.
+- No DB/schema change.
+
+### Team/Site-Engineer dashboard batch (2026-05-30)
+
+**Built:**
+- **General updates removed** — `app/(app)/team-member/AddUpdateCard.tsx` now posts project updates only (the "general" path tried to insert an `owner_broadcasts` row, which RLS blocks for team members → "Failed to post general update"). Project/general toggle gone.
+- **Attendance accumulates worked minutes** across multiple check-in→check-out cycles a day. Migration 068 adds `attendance_logs.accumulated_minutes` + `last_check_in_at`. `app/api/attendance/route.ts` rewritten: check-out adds `(now − last_check_in_at)` to `accumulated_minutes`; a fresh check-in re-opens a cycle (bumps `check_in_count`); returns `worked_minutes`. `AttendanceCard.tsx` drives state off `last_check_in_at` (Check In ⇄ Check Out, "Check In Again" after a check-out); removed the old "+" re-log popover; "Worked" tile shows accumulated minutes.
+- **Site engineers get office check-in/out** — same model as team members. New `app/(app)/site/components/SiteAttendanceCard.tsx` in the Today tab (Desktop + Mobile). Migration 068 grants `office_attendance:write_own` to existing site engineers; `SITE_ENGINEER_CAPABILITIES` adds it for new ones. `site/page.tsx` fetches today's `attendance_logs` row and threads it through `SiteEngineerDashboard`.
+- **Scheduled site visits shown to site engineers** — new `SiteVisitsCard.tsx` lists upcoming `enquiry_reminders` (category `site_visit`, not done, `remind_at >= now`) for customers of the engineer's assigned projects. `site/page.tsx` fetches via **service client** (SE lacks `enquiry:view`/`customer:view`); `customer_id` added to the projects select; `SiteVisit` type in `site/components/shared.ts`.
+- **Member-task completion time** surfaced to owner — `app/(app)/team/[memberId]/MemberDetailClient.tsx` Persistent Tasks rows show a duration chip (`completed_at − created_at`, humanised via new `fmtDuration`) for completed tasks. No API/DB change (data already fetched).
+- **Owner reminder reschedule + delete** — `app/api/customers/[id]/reminders/route.ts` + `app/api/enquiries/[id]/reminders/route.ts`: PATCH extended to accept `remind_at`/`message`/`category` (reschedule); new DELETE (`?reminder_id=`). `CustomerDetail.tsx` `ReminderRow` gains a pencil button → inline edit (message/category/datetime) with Save + Delete (ConfirmPopover). RLS `enquiry_reminders_update`/`_delete` already allow `enquiry:set_reminder`.
+- **Owner overview Broadcasts card** now shows only the single most recent broadcast (`page.tsx` owner query `.limit(1)`, `BroadcastsPanel refreshLimit={1}`).
+
+**Pending:**
+- [ ] Apply migration 068 (re-run after tenant_id fix): `DATABASE_URL=... npx tsx scripts/migrate.ts`
+
+### Overview cards + updates filter + project scope (2026-05-30)
+
+### Overview cards + updates filter + project scope (2026-05-30)
+
+**Built:**
+- Overview (`app/(app)/page.tsx`) reshuffled: removed the dark Collections card; Updates card moved into the top-right 3-col slot; a new full Broadcasts card (`BroadcastsPanel`, owner-compose, reused from `/team`) now occupies the bottom-left 8-col slot. Server fetches `owner_broadcasts` + recipients + `broadcast:create` capability and passes `nowMs` for hydration-safe relative time. Mobile view (`MobileHome`) still receives `financeData`, so the underlying queries stay.
+- `/updates` rebuilt with new `UpdatesClient.tsx` (`app/(app)/updates/UpdatesClient.tsx`): month-pill filter (current + previous 5 months) **plus** custom `from`/`to` date inputs. Default = current month. Filter is URL-driven (`?month=YYYY-MM` or `?from=&to=`) so the server SQL applies `gte/lte` directly (limit raised to 500 within range). `nowMs` passed from server for hydration-safe `timeAgo`.
+- Project scope (`projects.scope`) — settable via New + Edit project modals (Design + Execution / Design only). Migration 067 (`supabase/migrations/067_project_scope.sql`) **NOT YET APPLIED**. Stage route blocks `execution` when scope is `design_only`; PATCH route blocks `design_only` when project is in `execution`. EditProjectModal disables conflicting options in the Stage/Scope selects. `lib/supabase/types.ts` hand-patched (Row/Insert/Update — `scope: string`).
+- `/projects` gains a Scope filter chip group beside the Stage chips (All / Design only / Design + Execution).
+- Project detail page (`app/(app)/projects/[id]/page.tsx`): when `scope === "design_only"`, the Material Plan card, Expense Summary card, and the full-width Execution Tables section are all hidden. `isExecution = p.scope !== "design_only"` gates all three.
+
+**Pending:**
+- [ ] Apply migration 067: `DATABASE_URL=... npx tsx scripts/migrate.ts`
 
 ### Overview/finance UX + public enquiry fix (2026-05-18)
 

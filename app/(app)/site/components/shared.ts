@@ -50,6 +50,14 @@ export type CheckIn = {
   engineer?: { full_name: string } | null;
 };
 
+export type SiteVisit = {
+  id: string;
+  remind_at: string;
+  message: string | null;
+  customer_name: string | null;
+  project_names: string[];
+};
+
 export const CATEGORY_LABELS: Record<string, string> = {
   labour: "Labour",
   transport: "Transport",

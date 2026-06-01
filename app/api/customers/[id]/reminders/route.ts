@@ -44,12 +44,28 @@ export async function PATCH(req: Request, { params }: Params) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { reminder_id, is_done } = await req.json();
+  const body = await req.json();
+  const { reminder_id, is_done, remind_at, message, category } = body;
   if (!reminder_id) return NextResponse.json({ error: "reminder_id is required" }, { status: 400 });
+
+  // Reschedule / edit fields when present; otherwise toggle done.
+  const update: {
+    is_done?: boolean;
+    remind_at?: string;
+    message?: string;
+    category?: string;
+  } = {};
+  if (typeof is_done === "boolean") update.is_done = is_done;
+  if (typeof remind_at === "string" && remind_at) update.remind_at = remind_at;
+  if (typeof message === "string") update.message = message;
+  if (typeof category === "string" && category) update.category = category;
+  if (Object.keys(update).length === 0) {
+    return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+  }
 
   const { data, error } = await supabase
     .from("enquiry_reminders")
-    .update({ is_done: Boolean(is_done) })
+    .update(update)
     .eq("id", reminder_id)
     .eq("customer_id", customer_id)
     .select()
@@ -57,4 +73,23 @@ export async function PATCH(req: Request, { params }: Params) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
+}
+
+export async function DELETE(req: Request, { params }: Params) {
+  const { id: customer_id } = await params;
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const reminder_id = new URL(req.url).searchParams.get("reminder_id");
+  if (!reminder_id) return NextResponse.json({ error: "reminder_id is required" }, { status: 400 });
+
+  const { error } = await supabase
+    .from("enquiry_reminders")
+    .delete()
+    .eq("id", reminder_id)
+    .eq("customer_id", customer_id);
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return new NextResponse(null, { status: 204 });
 }

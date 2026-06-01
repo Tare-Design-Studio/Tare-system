@@ -2,7 +2,15 @@
 (Updated: 2026-05-14 — Phase 10 in progress)
 
 ## Current Status
-No demo data exists. v1 launches empty — seed data provided by user before go-live.
+Reversible demo data set: `supabase/migrations/069_demo_seed.sql` (insert) + `supabase/demo_teardown.sql` (delete). **069 is APPLIED to cloud Supabase (2026-06-01) — demo data is currently live.** Every demo row uses the fixed `dec0de00-…` UUID namespace; teardown deletes strictly by that namespace + the 6 demo user ids, so real Tare data is never touched.
+
+⚠️ The teardown is deliberately kept OUT of `supabase/migrations/` — the migrate runner applies every `*.sql` in that folder, so a teardown placed there auto-runs immediately after the seed and wipes it (this happened once during setup). It lives at `supabase/demo_teardown.sql` and is run manually.
+
+**069 seeds:** 6 demo logins (`*@demo.tare`, password `demo1234`) — 4 team members (Priya=project_manager tag, Arjun=accountant tag, Meera, Rohan) + 2 site engineers (Vikram, Sneha), all with `auth.users` + `auth.identities` so they can sign in; 6 customers; 8 enquiries (full pipeline, 2 converted); 5 projects (Sharma Villa exec/active, Kapoor design-only/active, Mehta exec/active, Desai exec/completed, Reddy exec/on_hold) with assignments, checkpoints (+items), payment schedule/records, material plan/consumption (one over-15% to trip excess flag), expenses (pending+approved), site check-ins (one out-of-geofence), updates, bridge messages, member/daily tasks, personal reminders, 5 days attendance per user, broadcasts (+recipients), 2 months team performance. Also sets `tenants.office_lat/lng` (Bengaluru) for the attendance geofence; teardown reverts it to NULL.
+
+**Seed:** `DATABASE_URL=... npx tsx scripts/migrate.ts` (069 applies via the normal chain). **Teardown:** `psql "$DATABASE_URL" -f supabase/demo_teardown.sql`. **Re-seed after teardown:** `DELETE FROM _migrations WHERE filename='069_demo_seed.sql'` then re-run migrate.
+
+v1 production launches empty — demo data is for demonstrations only and must be torn down before prod cutover.
 
 ---
 
@@ -32,6 +40,7 @@ No demo data exists. v1 launches empty — seed data provided by user before go-
 | 2026-05-11 | NotificationBell static bell replaced | `app/(app)/TopBar.tsx` | Live — real Realtime-backed bell; no demo data |
 | 2026-05-12 | Performance page | `app/(app)/performance/PerformanceClient.tsx` | Live — real DB; no demo data; empty until Owner enters monthly KPIs |
 | 2026-05-12 | Audit log page | `app/(app)/audit/AuditClient.tsx` | Live — real DB; no demo data; populated by audit triggers |
+| 2026-06-01 | Demo data set (reversible) | `supabase/migrations/069_demo_seed.sql`, `supabase/demo_teardown.sql` | APPLIED (069 live) — `dec0de00-…` namespace; teardown is manual, run before prod |
 
 ---
 

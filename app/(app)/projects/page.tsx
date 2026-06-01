@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { serverNowMs } from "@/lib/serverNow";
 import { Card, Icon } from "@/components/atoms";
 import NewProjectModal from "./NewProjectModal";
 import { PageHeader } from "../PageHeader";
@@ -11,6 +12,7 @@ type ProjectRow = {
   slug: string;
   project_type: string | null;
   current_stage: string;
+  scope: string;
   status: string;
   start_date: string | null;
   expected_end_date: string | null;
@@ -37,7 +39,7 @@ export default async function ProjectsPage() {
   const { data: projects, error: projectsError } = await supabase
     .from("projects")
     .select(
-      `id, name, slug, project_type, current_stage, status,
+      `id, name, slug, project_type, current_stage, scope, status,
        start_date, expected_end_date, estimated_work_hours,
        project_checkpoints ( completed_at ),
        project_assignments ( user_id, users!user_id ( full_name ) )`
@@ -90,7 +92,7 @@ export default async function ProjectsPage() {
           </p>
         </Card>
       ) : (
-        <ProjectsClient initialProjects={rows} nowMs={Date.now()} />
+        <ProjectsClient initialProjects={rows} nowMs={serverNowMs()} />
       )}
     </div>
   );

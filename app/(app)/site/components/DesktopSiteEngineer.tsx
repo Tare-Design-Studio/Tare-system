@@ -3,11 +3,13 @@
 import { useState } from "react";
 import { Chip, Avatar } from "@/components/atoms";
 import { useClientNow } from "@/lib/useClientNow";
-import { Project, Engineer, MaterialPlan, Expense, CheckIn, CATEGORY_LABELS, CATEGORY_TONE, formatDate, formatTime } from "./shared";
+import { Project, Engineer, MaterialPlan, Expense, CheckIn, SiteVisit, CATEGORY_LABELS, CATEGORY_TONE, formatDate, formatTime } from "./shared";
 import { UpdateComposer } from "@/components/updates/UpdateComposer";
 import { UpdatesFeed, type FeedUpdate } from "@/components/updates/UpdatesFeed";
+import SiteAttendanceCard, { type AttendanceLog } from "./SiteAttendanceCard";
+import SiteVisitsCard from "./SiteVisitsCard";
 
-function TodayTab({ project, checkIns, onCheckin, nowMs }: { project: Project; checkIns: CheckIn[]; onCheckin: () => void; nowMs: number; }) {
+function TodayTab({ project, checkIns, onCheckin, nowMs, todayAttendance, siteVisits }: { project: Project; checkIns: CheckIn[]; onCheckin: () => void; nowMs: number; todayAttendance: AttendanceLog | null; siteVisits: SiteVisit[]; }) {
   const [checking, setChecking] = useState(false);
   const [checkedIn, setCheckedIn] = useState(false);
   const [checkinResult, setCheckinResult] = useState<{ within_geofence: boolean; distance_m: number } | null>(null);
@@ -108,6 +110,9 @@ function TodayTab({ project, checkIns, onCheckin, nowMs }: { project: Project; c
           {error}
         </div>
       )}
+
+      <SiteAttendanceCard todayAttendance={todayAttendance} />
+      <SiteVisitsCard siteVisits={siteVisits} />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 28 }}>
         {[
@@ -503,13 +508,15 @@ type Props = {
   updates: FeedUpdate[];
   loading: boolean;
   nowMs: number;
+  todayAttendance: AttendanceLog | null;
+  siteVisits: SiteVisit[];
   switchProject: (pid: string) => void;
   setTab: (tab: string) => void;
   refresh: () => void;
 };
 
 export function DesktopSiteEngineer({
-  engineer, project, projects, projectId, tab, plans, expenses, checkIns, updates, loading, nowMs, switchProject, setTab, refresh
+  engineer, project, projects, projectId, tab, plans, expenses, checkIns, updates, loading, nowMs, todayAttendance, siteVisits, switchProject, setTab, refresh
 }: Props) {
   const avatarInitials = engineer.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
 
@@ -577,7 +584,7 @@ export function DesktopSiteEngineer({
             <div style={{ fontSize: 13, color: "var(--color-tan)", marginBottom: 16 }}>Loading…</div>
           )}
 
-          {tab === "today"     && <TodayTab     project={project} checkIns={checkIns} onCheckin={refresh} nowMs={nowMs} />}
+          {tab === "today"     && <TodayTab     project={project} checkIns={checkIns} onCheckin={refresh} nowMs={nowMs} todayAttendance={todayAttendance} siteVisits={siteVisits} />}
           {tab === "updates"   && <UpdatesTab   project={project} updates={updates}   onPosted={refresh} engineerId={engineer.id} />}
           {tab === "materials" && <MaterialsTab project={project} plans={plans}       onLogged={refresh} />}
           {tab === "progress"  && <ProgressTab  project={project} />}

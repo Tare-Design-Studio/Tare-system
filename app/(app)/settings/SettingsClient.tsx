@@ -250,7 +250,7 @@ function SecuritySection({ profile }: { profile: Profile }) {
 
 // ── Access section ─────────────────────────────────────────────────
 
-function AccessSection() {
+function AccessSection({ role }: { role: string }) {
   return (
     <div className={S.card}>
       <div className={S.cardHeader}>
@@ -259,15 +259,17 @@ function AccessSection() {
           <span className={S.cardSub}>What you can see and do in the app</span>
         </div>
       </div>
-      <div className={S.accessLinkRow}>
-        <div className={S.secRowLeft}>
-          <span className={S.secRowLabel}>Access Matrix</span>
-          <span className={S.secRowMeta}>View your full capability list, grouped by area</span>
+      {role === "owner" && (
+        <div className={S.accessLinkRow}>
+          <div className={S.secRowLeft}>
+            <span className={S.secRowLabel}>Access Matrix</span>
+            <span className={S.secRowMeta}>View your full capability list, grouped by area</span>
+          </div>
+          <Link href="/settings/access-matrix" className={`${S.btn} ${S.btnSm}`}>
+            View matrix
+          </Link>
         </div>
-        <Link href="/settings/access-matrix" className={`${S.btn} ${S.btnSm}`}>
-          View matrix
-        </Link>
-      </div>
+      )}
       <div className={S.accessLinkRow}>
         <div className={S.secRowLeft}>
           <span className={S.secRowLabel}>Table Presets</span>
@@ -447,7 +449,7 @@ export default function SettingsClient({ profile, tenant }: Props) {
       <div className={S.sectionStack}>
         <ProfileSection profile={profile} />
         <SecuritySection profile={profile} />
-        <AccessSection />
+        <AccessSection role={profile.role} />
         {tenant && <WorkspaceSection tenant={tenant} />}
       </div>
     </div>

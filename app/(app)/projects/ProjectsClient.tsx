@@ -10,6 +10,7 @@ type ProjectRow = {
   slug: string;
   project_type: string | null;
   current_stage: string;
+  scope: string;
   status: string;
   start_date: string | null;
   expected_end_date: string | null;
@@ -182,14 +183,21 @@ function ProjectCard({ p, nowMs }: { p: ProjectRow; nowMs: number }) {
 export default function ProjectsClient({ initialProjects, nowMs }: { initialProjects: ProjectRow[]; nowMs: number }) {
   const [statusFilter, setStatusFilter] = useState("All");
   const [stageFilter, setStageFilter] = useState("All");
+  const [scopeFilter, setScopeFilter] = useState<"All" | "design_only" | "design_and_execution">("All");
 
   const statuses = ["All", "Active", "On Hold", "Completed"];
   const stages = ["All", "Design", "Execution", "Completed"];
+  const scopes: { value: "All" | "design_only" | "design_and_execution"; label: string }[] = [
+    { value: "All", label: "All" },
+    { value: "design_only", label: "Design only" },
+    { value: "design_and_execution", label: "Design + Execution" },
+  ];
 
   const filtered = initialProjects.filter((p) => {
     const sMatch = statusFilter === "All" || p.status.toLowerCase() === statusFilter.toLowerCase().replace(" ", "_");
     const stMatch = stageFilter === "All" || p.current_stage.toLowerCase() === stageFilter.toLowerCase();
-    return sMatch && stMatch;
+    const scMatch = scopeFilter === "All" || (p.scope ?? "design_and_execution") === scopeFilter;
+    return sMatch && stMatch && scMatch;
   });
 
   return (
@@ -207,6 +215,13 @@ export default function ProjectsClient({ initialProjects, nowMs }: { initialProj
           <span style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.8, display: "flex", alignItems: "center" }}>Stage</span>
           {stages.map((s) => (
             <FilterChip key={s} label={s} active={stageFilter === s} onClick={() => setStageFilter(s)} />
+          ))}
+        </div>
+        <div style={{ width: 1, height: 24, background: "var(--color-line)", flexShrink: 0 }} />
+        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          <span style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.8, display: "flex", alignItems: "center" }}>Scope</span>
+          {scopes.map((s) => (
+            <FilterChip key={s.value} label={s.label} active={scopeFilter === s.value} onClick={() => setScopeFilter(s.value)} />
           ))}
         </div>
         <div style={{ marginLeft: "auto", fontSize: 12, color: "var(--color-tan)", flexShrink: 0, paddingRight: 16 }}>{filtered.length} shown</div>

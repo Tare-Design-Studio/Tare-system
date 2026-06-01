@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { serverNowMs } from "@/lib/serverNow";
 import { Chip } from "@/components/atoms";
 import ProjectTablesSection from "./ProjectTablesSection";
 import EditProjectModal from "./EditProjectModal";
@@ -41,6 +42,7 @@ type Project = {
   slug: string;
   project_type: string | null;
   current_stage: string;
+  scope: string;
   status: string;
   on_hold_reason: string | null;
   budget_total: number | null;
@@ -124,7 +126,7 @@ export default async function ProjectDetailPage({ params }: Ctx) {
   const { data: project } = await (supabase as any)
     .from("projects")
     .select(
-      `id, name, slug, project_type, current_stage, status, on_hold_reason,
+      `id, name, slug, project_type, current_stage, scope, status, on_hold_reason,
        budget_total, estimated_work_hours, estimated_duration_days,
        start_date, expected_end_date, actual_start_date, actual_end_date,
        site_location, drive_folder_url, whatsapp_group_url, site_lat, site_lng,
@@ -172,6 +174,9 @@ export default async function ProjectDetailPage({ params }: Ctx) {
 
   // Assigned users (team members / site engineers) can post updates here
   const isAssigned = p.project_assignments.some(a => a.users?.id === user.id);
+
+  // Scope: when the project is design-only, hide all execution / site-engineer cards
+  const isExecution = p.scope !== "design_only";
 
   const [hoursRes, expensesRes, paymentsRes, paymentRecordsRes, tablesRes, canEditTableRes, updatesRes, materialPlanRes, materialConsumptionRes, materialPresetsRes, mediaRes] = await Promise.all([
     supabase
@@ -489,7 +494,7 @@ export default async function ProjectDetailPage({ params }: Ctx) {
                   <span>Progress Timeline</span>
                   <span style={{ fontFamily: "var(--font-mono)", fontSize: 10 }}>{overallProgress}% complete</span>
                 </div>
-                <ProgressTimelineClient checkpoints={checkpoints} nowMs={Date.now()} />
+                <ProgressTimelineClient checkpoints={checkpoints} nowMs={serverNowMs()} />
               </div>
             )}
 
@@ -581,7 +586,7 @@ export default async function ProjectDetailPage({ params }: Ctx) {
           )}
 
           {/* Material Plan */}
-          {(materialPlan.length > 0 || canPlanMaterials) && (
+          {isExecution && (materialPlan.length > 0 || canPlanMaterials) && (
             <div className={styles.card}>
               <MaterialPlanCard
                 projectId={id}
@@ -618,6 +623,7 @@ export default async function ProjectDetailPage({ params }: Ctx) {
           </div>
 
           {/* Expense Summary */}
+          {isExecution && (
           <div className={styles.card}>
             <div className={styles.cardHeading} style={{ marginBottom: 16 }}>Expense Summary</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
@@ -638,6 +644,7 @@ export default async function ProjectDetailPage({ params }: Ctx) {
               View Detailed Breakdown
             </Link>
           </div>
+          )}
 
           {/* Latest Files */}
           <div className={styles.card}>
@@ -683,7 +690,8 @@ export default async function ProjectDetailPage({ params }: Ctx) {
         </div>
       </div>
 
-      {/* Execution Tables — full-width below the two-column grid */}
+      {/* Execution Tables — full-width below the two-column grid (hidden when design-only) */}
+      {isExecution && (
       <div style={{ paddingBottom: 40 }}>
         <ProjectTablesSection
           projectId={p.id}
@@ -692,6 +700,7 @@ export default async function ProjectDetailPage({ params }: Ctx) {
           siteEngineers={siteEngineerAssignments}
         />
       </div>
+      )}
     </div>
   );
 }

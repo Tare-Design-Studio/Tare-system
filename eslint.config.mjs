@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Design-reference mocks — not part of the app build (see CLAUDE.md).
+    "ArchitectOS copy/**",
   ]),
 ]);
 

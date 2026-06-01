@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react";
 
-type AttendanceLog = {
+export type AttendanceLog = {
   id: string;
   work_date: string;
   check_in_at: string | null;
@@ -25,30 +25,25 @@ function fmtMinutes(m: number | null) {
   return h > 0 ? `${h}h ${min}m` : `${min}m`;
 }
 
-const C: React.CSSProperties = {
-  background: "var(--color-paper-light)",
-  borderRadius: 22,
-  padding: 24,
-  boxShadow: "0 1px 0 #FFF inset, 0 2px 0 rgba(30,28,24,.02), 0 20px 40px -30px rgba(30,28,24,.2)",
-  border: "1px solid rgba(30,28,24,.04)",
-};
-
 type Phase = "idle" | "confirm_in" | "confirm_out" | "loading";
 
-export default function AttendanceCard({ todayAttendance }: { todayAttendance: AttendanceLog | null }) {
+// Office attendance for site engineers — mirrors the team-member AttendanceCard:
+// office geofence (tenant.office_*), two-click confirm, worked minutes accumulate
+// across multiple check-in → check-out cycles in a day. This is distinct from the
+// project-site GPS check-in elsewhere in the Today tab.
+export default function SiteAttendanceCard({ todayAttendance }: { todayAttendance: AttendanceLog | null }) {
   const [log, setLog] = useState<AttendanceLog | null>(todayAttendance);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const hasCheckedInToday = !!log?.check_in_at;
-  const isOpen = !!log?.last_check_in_at; // currently in an active cycle
+  const isOpen = !!log?.last_check_in_at;
   const workedMinutes = log?.accumulated_minutes ?? log?.total_minutes ?? null;
 
   function startConfirm(action: "check_in" | "check_out") {
     if (resetTimer.current) clearTimeout(resetTimer.current);
     setPhase(action === "check_in" ? "confirm_in" : "confirm_out");
-    // Auto-reset after 4s if not confirmed
     resetTimer.current = setTimeout(() => setPhase("idle"), 4000);
   }
 
@@ -67,7 +62,7 @@ export default function AttendanceCard({ todayAttendance }: { todayAttendance: A
         lat = pos.coords.latitude;
         lng = pos.coords.longitude;
       } catch {
-        // GPS unavailable — proceed anyway, withinGeofence will be null
+        // GPS unavailable — proceed; within-geofence will be null.
       }
     }
 
@@ -84,90 +79,62 @@ export default function AttendanceCard({ todayAttendance }: { todayAttendance: A
       return;
     }
 
-    const updated = await res.json();
-    setLog(updated);
+    setLog(await res.json());
     setPhase("idle");
   }
 
   return (
-    <div style={{ ...C }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-        <div style={{ fontSize: 16, fontFamily: "'Instrument Serif', serif", fontWeight: 400 }}>
-          Attendance
-        </div>
-      </div>
+    <div style={{ background: "var(--color-paper-light)", borderRadius: 20, boxShadow: "var(--shadow-card)", border: "1px solid rgba(30,28,24,.04)", padding: "20px 24px", marginBottom: 24 }}>
+      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 14 }}>Office Attendance</div>
 
-      {/* Status row */}
-      <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
-        <div style={{ flex: 1, padding: "10px 12px", borderRadius: 12, background: "var(--color-bg)" }}>
+      <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 90, padding: "10px 12px", borderRadius: 12, background: "var(--color-bg)" }}>
           <div style={{ fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{isOpen ? "Checked In" : "First In"}</div>
           <div style={{ fontSize: 14, fontWeight: 600, color: hasCheckedInToday ? "var(--color-forest)" : "var(--color-line)" }}>
             {fmt((isOpen ? log?.last_check_in_at : log?.check_in_at) ?? null)}
           </div>
         </div>
-        <div style={{ flex: 1, padding: "10px 12px", borderRadius: 12, background: "var(--color-bg)" }}>
+        <div style={{ flex: 1, minWidth: 90, padding: "10px 12px", borderRadius: 12, background: "var(--color-bg)" }}>
           <div style={{ fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Last Out</div>
           <div style={{ fontSize: 14, fontWeight: 600, color: log?.check_out_at && !isOpen ? "var(--color-forest)" : "var(--color-line)" }}>
             {fmt(isOpen ? null : log?.check_out_at ?? null)}
           </div>
         </div>
         {workedMinutes != null && (
-          <div style={{ flex: 1, padding: "10px 12px", borderRadius: 12, background: "var(--color-bg)" }}>
+          <div style={{ flex: 1, minWidth: 90, padding: "10px 12px", borderRadius: 12, background: "var(--color-bg)" }}>
             <div style={{ fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Worked</div>
             <div style={{ fontSize: 14, fontWeight: 600 }}>{fmtMinutes(workedMinutes)}</div>
           </div>
         )}
         {hasCheckedInToday && (
-          <div style={{ flex: 1, padding: "10px 12px", borderRadius: 12, background: "var(--color-bg)" }}>
+          <div style={{ flex: 1, minWidth: 90, padding: "10px 12px", borderRadius: 12, background: "var(--color-bg)" }}>
             <div style={{ fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Check-ins</div>
             <div style={{ fontSize: 14, fontWeight: 600 }}>{log?.check_in_count ?? 1}</div>
           </div>
         )}
       </div>
 
-      {error && (
-        <div style={{ fontSize: 11, color: "var(--color-rust)", marginBottom: 10 }}>{error}</div>
-      )}
+      {error && <div style={{ fontSize: 11, color: "var(--color-rust)", marginBottom: 10 }}>{error}</div>}
 
-      {/* Action buttons — two-click pattern. Members can run multiple cycles a day;
-          worked time accumulates across each check-in → check-out span. */}
       {phase === "loading" ? (
         <div style={{ fontSize: 12, color: "var(--color-tan)" }}>Logging…</div>
       ) : !isOpen ? (
         phase === "confirm_in" ? (
-          <button
-            onClick={() => confirm("check_in")}
-            style={{ width: "100%", padding: "10px", borderRadius: 12, background: "var(--color-forest)", color: "#FFF", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <polyline points="20 6 9 17 4 12"/>
-            </svg>
+          <button onClick={() => confirm("check_in")} style={{ width: "100%", padding: "10px", borderRadius: 12, background: "var(--color-forest)", color: "#FFF", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
             {hasCheckedInToday ? "Confirm Check In Again" : "Confirm Check In"}
           </button>
         ) : (
-          <button
-            onClick={() => startConfirm("check_in")}
-            style={{ width: "100%", padding: "10px", borderRadius: 12, background: "rgba(30,28,24,.06)", color: "var(--color-ink)", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600 }}
-          >
+          <button onClick={() => startConfirm("check_in")} style={{ width: "100%", padding: "10px", borderRadius: 12, background: "rgba(30,28,24,.06)", color: "var(--color-ink)", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
             {hasCheckedInToday ? "Check In Again" : "Check In"}
           </button>
         )
       ) : (
         phase === "confirm_out" ? (
-          <button
-            onClick={() => confirm("check_out")}
-            style={{ width: "100%", padding: "10px", borderRadius: 12, background: "var(--color-rust)", color: "#FFF", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-              <polyline points="20 6 9 17 4 12"/>
-            </svg>
+          <button onClick={() => confirm("check_out")} style={{ width: "100%", padding: "10px", borderRadius: 12, background: "var(--color-rust)", color: "#FFF", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
             Confirm Check Out
           </button>
         ) : (
-          <button
-            onClick={() => startConfirm("check_out")}
-            style={{ width: "100%", padding: "10px", borderRadius: 12, background: "rgba(30,28,24,.06)", color: "var(--color-ink)", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600 }}
-          >
+          <button onClick={() => startConfirm("check_out")} style={{ width: "100%", padding: "10px", borderRadius: 12, background: "rgba(30,28,24,.06)", color: "var(--color-ink)", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
             Check Out
           </button>
         )

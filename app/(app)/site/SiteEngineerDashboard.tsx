@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Project, Engineer, MaterialPlan, Expense, CheckIn } from "./components/shared";
+import { Project, Engineer, MaterialPlan, Expense, CheckIn, SiteVisit } from "./components/shared";
 import type { FeedUpdate } from "@/components/updates/UpdatesFeed";
+import type { AttendanceLog } from "./components/SiteAttendanceCard";
 import { DesktopSiteEngineer } from "./components/DesktopSiteEngineer";
 import { MobileSiteEngineer } from "./components/MobileSiteEngineer";
 
@@ -10,9 +11,11 @@ type Props = {
   engineer: Engineer;
   projects: Project[];
   nowMs: number;
+  todayAttendance: AttendanceLog | null;
+  siteVisits: SiteVisit[];
 };
 
-export default function SiteEngineerDashboard({ engineer, projects, nowMs }: Props) {
+export default function SiteEngineerDashboard({ engineer, projects, nowMs, todayAttendance, siteVisits }: Props) {
   const [projectId, setProjectId] = useState(projects[0]?.id ?? "");
   const [tab, setTab] = useState("today");
   const [plans, setPlans] = useState<MaterialPlan[]>([]);
@@ -65,6 +68,8 @@ export default function SiteEngineerDashboard({ engineer, projects, nowMs }: Pro
           checkIns={checkIns}
           updates={updates}
           loading={loading}
+          todayAttendance={todayAttendance}
+          siteVisits={siteVisits}
           switchProject={switchProject}
           setTab={setTab}
           refresh={() => refresh(projectId)}
@@ -83,6 +88,8 @@ export default function SiteEngineerDashboard({ engineer, projects, nowMs }: Pro
           checkIns={checkIns}
           updates={updates}
           loading={loading}
+          todayAttendance={todayAttendance}
+          siteVisits={siteVisits}
           switchProject={switchProject}
           setTab={setTab}
           refresh={() => refresh(projectId)}

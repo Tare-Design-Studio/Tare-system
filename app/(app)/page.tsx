@@ -2,20 +2,11 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { serverNowMs } from "@/lib/serverNow";
 import { Avatar } from "@/components/atoms";
 import MobileHome, { type MobileProject } from "./MobileHome";
 import TeamMemberHome from "./TeamMemberHome";
-
-function fmtLakhs(n: number) {
-  if (n >= 100000) {
-    return `₹${(n / 100000).toFixed(1)} L`;
-  }
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    maximumFractionDigits: 0,
-  }).format(n);
-}
+import { BroadcastsPanel } from "./team/BroadcastsPanel";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 function computeGreeting(): string {
@@ -275,55 +266,6 @@ function ProjectsCard({ projects }: { projects: DashProject[] }) {
   );
 }
 
-function CashFlowCard({ finance }: { finance: { due: number; received: number; outstanding: number; expenses: number } }) {
-  const dots: { filled: boolean; hot: boolean }[] = [];
-  for (let r = 0; r < 8; r++) {
-    for (let c = 0; c < 14; c++) {
-      const v = (Math.sin(r * 0.9 + c * 0.55) + 1) / 2;
-      dots.push({ filled: v > 0.35, hot: v > 0.78 });
-    }
-  }
-  return (
-    <Link href="/finance" style={{ textDecoration: "none", display: "block", height: "100%" }}>
-      <div style={{ ...C, height: "100%", background: "#1E2530", color: "#F3EFE7", boxShadow: "0 1px 0 rgba(255,255,255,.04) inset, 0 20px 40px -30px rgba(0,0,0,.4)", border: "1px solid rgba(255,255,255,.06)", overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 18, gap: 12 }}>
-          <div>
-            <div style={{ fontSize: 22, fontFamily: "'Instrument Serif', serif", fontWeight: 400, letterSpacing: -0.3 }}>Collections</div>
-            <div style={{ fontSize: 12, color: "rgba(243,239,231,.55)", marginTop: 6 }}>All active projects</div>
-          </div>
-          <button style={{ width: 34, height: 34, borderRadius: 12, background: "rgba(255,255,255,.06)", border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#F3EFE7" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M7 17 17 7" /><path d="M8 7h9v9" /></svg>
-          </button>
-        </div>
-
-        <div style={{ display: "flex", gap: 28, flexWrap: "wrap" }}>
-          <div>
-            <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 44, lineHeight: 1, letterSpacing: -1.2 }}>{fmtLakhs(finance.received)}</div>
-            <div style={{ fontSize: 10, color: "rgba(243,239,231,.55)", letterSpacing: 1, textTransform: "uppercase", marginTop: 6 }}>Total Received</div>
-          </div>
-          <div>
-            <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 44, lineHeight: 1, letterSpacing: -1.2, color: "#E9B76A" }}>{fmtLakhs(finance.expenses)}</div>
-            <div style={{ fontSize: 10, color: "rgba(243,239,231,.55)", letterSpacing: 1, textTransform: "uppercase", marginTop: 6 }}>Total Expenses</div>
-          </div>
-        </div>
-
-        <div style={{ marginTop: 20, display: "grid", gridTemplateColumns: "repeat(14, 1fr)", gap: 6 }}>
-          {dots.map((d, i) => (
-            <div key={i} style={{
-              aspectRatio: "1/1", borderRadius: "50%",
-              background: d.hot ? "#E9B76A" : d.filled ? "#4A5566" : "rgba(255,255,255,.06)",
-            }} />
-          ))}
-        </div>
-
-        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10, fontSize: 10, color: "rgba(243,239,231,.4)", fontFamily: "var(--font-mono)" }}>
-          <span>W44</span><span>W45</span><span>W46</span><span>W47</span>
-        </div>
-      </div>
-    </Link>
-  );
-}
-
 type DashUpdate = {
   id: string;
   update_type: string;
@@ -531,7 +473,7 @@ export default async function DashboardPage() {
         .limit(50),
       db
         .from("attendance_logs")
-        .select("id, work_date, check_in_at, check_out_at, check_in_within_geofence, check_out_within_geofence, total_minutes, check_in_count")
+        .select("id, work_date, check_in_at, check_out_at, check_in_within_geofence, check_out_within_geofence, total_minutes, accumulated_minutes, last_check_in_at, check_in_count")
         .eq("user_id", user.id)
         .eq("work_date", today)
         .maybeSingle(),
@@ -607,7 +549,11 @@ export default async function DashboardPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any;
 
-  const [projectsRes, scheduleRes, expensesRes, calendarRes, membersRes, attendanceRes, memberTasksRes, tagsRes, siteCheckInsRes, dashUpdatesRes, enquiriesCountRes, updatesTodayCountRes, activeProjectsCountRes] = await Promise.all([
+  const canBroadcastRes = await supabase.rpc("has_capability", { p_capability: "broadcast:create" });
+  const canBroadcast = canBroadcastRes.data === true;
+  const overviewNowMs = serverNowMs();
+
+  const [projectsRes, scheduleRes, expensesRes, calendarRes, membersRes, attendanceRes, memberTasksRes, tagsRes, siteCheckInsRes, dashUpdatesRes, enquiriesCountRes, updatesTodayCountRes, activeProjectsCountRes, broadcastsRes] = await Promise.all([
     supabase
       .from("projects")
       .select("id, name, slug, project_type, status, current_stage, site_location, project_checkpoints(completed_at)")
@@ -670,6 +616,13 @@ export default async function DashboardPage() {
       .select("id", { count: "exact", head: true })
       .is("deleted_at", null)
       .eq("status", "active"),
+    supabase
+      .from("owner_broadcasts")
+      .select(`id, body, created_at, edited_at,
+        users:author_id (id, full_name),
+        owner_broadcast_recipients (user_id, is_acknowledged, users:user_id (id, full_name))`)
+      .order("created_at", { ascending: false })
+      .limit(1),
   ]);
 
   const projects: DashProject[] = (projectsRes.data ?? []) as DashProject[];
@@ -765,6 +718,12 @@ export default async function DashboardPage() {
 
   const { dates, todayIdx } = computeWeek();
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const broadcastsForPanel = (broadcastsRes.data ?? []) as any;
+  const broadcastTeamMembers = teamRows
+    .filter((m) => m.id !== user.id)
+    .map((m) => ({ id: m.id, full_name: m.full_name }));
+
   return (
     <>
       <div className="mobile-only">
@@ -804,8 +763,20 @@ export default async function DashboardPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: 18 }}>
           <div style={{ gridColumn: "span 3" }}><CalendarCard dates={dates} todayIdx={todayIdx} events={calendarEvents} /></div>
           <div style={{ gridColumn: "span 6" }}><ProjectsCard projects={projects} /></div>
-          <div style={{ gridColumn: "span 3" }}><CashFlowCard finance={financeData} /></div>
-          <div style={{ gridColumn: "span 8" }}><UpdatesCard updates={recentUpdates} /></div>
+          <div style={{ gridColumn: "span 3" }}><UpdatesCard updates={recentUpdates} /></div>
+          <div style={{ gridColumn: "span 8" }}>
+            <div style={{ ...C, height: "100%" }}>
+              <CardHead title="Broadcasts" subtitle={canBroadcast ? "Compose & latest updates" : "Latest owner updates"} />
+              <BroadcastsPanel
+                broadcasts={broadcastsForPanel}
+                teamMembers={broadcastTeamMembers}
+                canCompose={canBroadcast}
+                currentUserId={user.id}
+                refreshLimit={1}
+                nowMs={overviewNowMs}
+              />
+            </div>
+          </div>
           <div style={{ gridColumn: "span 4" }}><AgentsCard members={teamMembers} totalMembers={teamRows.length} /></div>
         </div>
       </div>

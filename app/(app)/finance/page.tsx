@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { serverNowMs } from "@/lib/serverNow";
 import { Chip } from "@/components/atoms";
 import { PageHeader } from "../PageHeader";
 import { DailyExpensesCard } from "./DailyExpensesCard";
@@ -342,7 +343,7 @@ export default async function FinancePage() {
         )}
       </Card>
 
-      <DailyExpensesCard initial={dailyRows} nowMs={Date.now()} />
+      <DailyExpensesCard initial={dailyRows} nowMs={serverNowMs()} />
     </div>
   );
 }

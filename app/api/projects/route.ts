@@ -31,6 +31,10 @@ const CreateProjectSchema = z.object({
   site_geofence_radius_m: z.number().int().min(50).max(2000).optional(),
   drive_folder_url: z.string().url().optional().or(z.literal("")),
   customer_id: z.string().uuid().optional(),
+  scope: z
+    .enum(["design_only", "design_and_execution"])
+    .optional()
+    .default("design_and_execution"),
   apply_sal_preset: z.boolean().optional().default(true),
   apply_drawing_register: z.boolean().optional().default(true),
   table_preset_ids: z.array(z.string().uuid()).optional(),

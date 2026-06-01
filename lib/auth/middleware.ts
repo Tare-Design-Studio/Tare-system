@@ -3,7 +3,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import { v4 as uuidv4 } from "uuid";
 
 export async function updateSession(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request });
+  // Forward the pathname to server components — layouts can't read it otherwise,
+  // and the app shell uses it to drop owner chrome on the site-engineer dashboard.
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-pathname", request.nextUrl.pathname);
+
+  let supabaseResponse = NextResponse.next({ request: { headers: requestHeaders } });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,7 +18,7 @@ export async function updateSession(request: NextRequest) {
         getAll: () => request.cookies.getAll(),
         setAll: (cookiesToSet) => {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
-          supabaseResponse = NextResponse.next({ request });
+          supabaseResponse = NextResponse.next({ request: { headers: requestHeaders } });
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
           );
