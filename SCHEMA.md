@@ -648,3 +648,8 @@ Office check-in/out per team member per day with GPS validation.
 
 ### In-app notification (041_in_app_notifications.sql)
 `generate_personal_reminder_notifications()` — pg_cron every 5 min, emits `personal_reminder_due` notification to the reminder owner within 5-minute window. No web push for team members.
+
+### Realtime publication (071_realtime_publication.sql)
+Content tables added to the `supabase_realtime` publication so the global client subscriber (`components/realtime/RealtimeRefresher.tsx`) can re-fetch the current page on change via `router.refresh()` (debounced 800ms, paused while tab hidden):
+`updates`, `notification_recipients`, `owner_broadcasts`, `owner_broadcast_recipients`, `member_tasks`, `team_daily_tasks`, `expenses`, `material_plan`, `material_consumption`, `site_check_ins`, `enquiries`, `enquiry_reminders`, `payment_records`, `payment_schedule`, `projects`, `project_assignments`, `calendar_events`, `personal_reminders`, `media_assets`.
+RLS applies to realtime — clients only receive events for rows they can read. Non-content/high-churn tables (audit_log, attendance_logs, user_capabilities, presets, users, tenants) intentionally excluded. (Updated: 2026-06-01)

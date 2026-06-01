@@ -3,6 +3,7 @@ import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { TopBar } from "./TopBar";
 import { MobileNav, type MobileNavItem } from "./MobileNav";
+import { RealtimeRefresher } from "@/components/realtime/RealtimeRefresher";
 
 type NavItemDef = {
   href: string;
@@ -50,9 +51,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   }
 
   const role = profile?.role ?? "team_member";
-  // Site-engineer dashboard is a self-contained view with its own header — no owner chrome.
+  // The site-engineer dashboard (/site) is a self-contained view with its own
+  // header — no owner chrome. Other pages a site engineer visits (project
+  // details, bridge) render with the normal header + navbar.
   const pathname = (await headers()).get("x-pathname") ?? "";
-  const isSiteDashboard = role === "site_engineer" || pathname.startsWith("/site");
+  const isSiteDashboard = pathname.startsWith("/site");
   const mobileNavItems: MobileNavItem[] = ALL_NAV_DEFS
     .filter((item) => {
       if (!item.roles) return true;
@@ -66,6 +69,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div style={{ minHeight: "100vh" }}>
+      <RealtimeRefresher />
       {isSiteDashboard ? (
         <main className="mobile-main">{children}</main>
       ) : (
