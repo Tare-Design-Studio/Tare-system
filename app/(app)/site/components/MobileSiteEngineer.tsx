@@ -9,7 +9,7 @@ import { UpdatesFeed, type FeedUpdate } from "@/components/updates/UpdatesFeed";
 import SiteVisitsCard from "./SiteVisitsCard";
 
 // ── Icons ──────────────────────────────────────────────────────────────
-type IconName = "check" | "pin" | "plus" | "dashboard" | "list" | "trending" | "credit" | "feed" | "info";
+type IconName = "check" | "pin" | "plus" | "dashboard" | "list" | "trending" | "credit" | "feed" | "info" | "bridge";
 const ICON_PATHS: Record<IconName, string> = {
   check: "M20 6 9 17l-5-5",
   pin: "M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z M12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
@@ -20,6 +20,7 @@ const ICON_PATHS: Record<IconName, string> = {
   credit: "M21 4H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM3 8h18v2H3V8zm0 8v-4h18v4H3z",
   feed: "M4 4h16v16H4z M8 9h8 M8 13h8 M8 17h5",
   info: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 16v-4 M12 8h.01",
+  bridge: "M2 12h20 M4 12V9a8 8 0 0 1 16 0v3 M7 12v6 M12 12v6 M17 12v6 M2 18h20",
 };
 const Icon = ({ name, size = 24, stroke = 1.5, color = "currentColor" }: { name: IconName; size?: number; stroke?: number; color?: string }) => {
   const p = ICON_PATHS[name] ?? "";
@@ -39,6 +40,7 @@ const TabBar = ({ active, onTab }: { active: string; onTab: (id: string) => void
     { id: "materials", label: "Materials", icon: "list"      as IconName },
     { id: "progress",  label: "Progress",  icon: "trending"  as IconName },
     { id: "expenses",  label: "Expenses",  icon: "credit"    as IconName },
+    { id: "bridge",    label: "Bridge",    icon: "bridge"    as IconName },
   ];
   return (
     <div style={{

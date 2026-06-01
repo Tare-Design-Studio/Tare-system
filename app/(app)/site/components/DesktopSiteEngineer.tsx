@@ -498,6 +498,7 @@ const TABS = [
   { id: "materials", label: "Materials" },
   { id: "progress",  label: "Progress"  },
   { id: "expenses",  label: "Expenses"  },
+  { id: "bridge",    label: "Bridge"    },
 ];
 
 type Props = {

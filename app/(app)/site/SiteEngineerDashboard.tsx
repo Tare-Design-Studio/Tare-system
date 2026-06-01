@@ -26,6 +26,10 @@ export default function SiteEngineerDashboard({ engineer, projects, nowMs, siteV
       if (projectId) router.push(`/projects/${projectId}`);
       return;
     }
+    if (next === "bridge") {
+      router.push("/bridge");
+      return;
+    }
     setTab(next);
   };
   const [plans, setPlans] = useState<MaterialPlan[]>([]);
