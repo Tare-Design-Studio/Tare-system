@@ -3,14 +3,13 @@
 import { useState } from "react";
 import { Chip, Avatar } from "@/components/atoms";
 import { useClientNow } from "@/lib/useClientNow";
-import { Project, Engineer, MaterialPlan, Expense, CheckIn, SiteVisit, CATEGORY_LABELS, CATEGORY_TONE, formatDate, formatTime } from "./shared";
+import { Project, Engineer, MaterialPlan, Expense, CheckIn, SiteVisit, CATEGORY_LABELS, CATEGORY_TONE, formatDate, formatTime, formatMinutes } from "./shared";
 import { UpdateComposer } from "@/components/updates/UpdateComposer";
 import { UpdatesFeed, type FeedUpdate } from "@/components/updates/UpdatesFeed";
-import SiteAttendanceCard, { type AttendanceLog } from "./SiteAttendanceCard";
 import SiteVisitsCard from "./SiteVisitsCard";
 
 // ── Icons ──────────────────────────────────────────────────────────────
-type IconName = "check" | "pin" | "plus" | "dashboard" | "list" | "trending" | "credit" | "feed";
+type IconName = "check" | "pin" | "plus" | "dashboard" | "list" | "trending" | "credit" | "feed" | "info";
 const ICON_PATHS: Record<IconName, string> = {
   check: "M20 6 9 17l-5-5",
   pin: "M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z M12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
@@ -20,6 +19,7 @@ const ICON_PATHS: Record<IconName, string> = {
   trending: "M23 6l-9.5 9.5-5-5L1 18 M23 6v6 M23 6h-6",
   credit: "M21 4H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM3 8h18v2H3V8zm0 8v-4h18v4H3z",
   feed: "M4 4h16v16H4z M8 9h8 M8 13h8 M8 17h5",
+  info: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z M12 16v-4 M12 8h.01",
 };
 const Icon = ({ name, size = 24, stroke = 1.5, color = "currentColor" }: { name: IconName; size?: number; stroke?: number; color?: string }) => {
   const p = ICON_PATHS[name] ?? "";
@@ -34,6 +34,7 @@ const Icon = ({ name, size = 24, stroke = 1.5, color = "currentColor" }: { name:
 const TabBar = ({ active, onTab }: { active: string; onTab: (id: string) => void }) => {
   const tabs = [
     { id: "today",     label: "Today",     icon: "dashboard" as IconName },
+    { id: "details",   label: "Details",   icon: "info"      as IconName },
     { id: "updates",   label: "Updates",   icon: "feed"      as IconName },
     { id: "materials", label: "Materials", icon: "list"      as IconName },
     { id: "progress",  label: "Progress",  icon: "trending"  as IconName },
@@ -65,19 +66,33 @@ const TabBar = ({ active, onTab }: { active: string; onTab: (id: string) => void
 
 // ── Screens ────────────────────────────────────────────────────────────
 
-function SiteCheckInScreen({ project, checkIns, onCheckin, nowMs, todayAttendance, siteVisits }: { project: Project; checkIns: CheckIn[]; onCheckin: () => void; nowMs: number; todayAttendance: AttendanceLog | null; siteVisits: SiteVisit[]; }) {
+function SiteCheckInScreen({ project, checkIns, onCheckin, nowMs, siteVisits }: { project: Project; checkIns: CheckIn[]; onCheckin: () => void; nowMs: number; siteVisits: SiteVisit[]; }) {
   const [checking, setChecking] = useState(false);
-  const [checkedIn, setCheckedIn] = useState(false);
-  const [checkinResult, setCheckinResult] = useState<{ within_geofence: boolean; distance_m: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const today = new Date(nowMs);
-  const todayCheckins = checkIns.filter(ci => {
-    const d = new Date(ci.checked_in_at);
+  const isToday = (iso: string) => {
+    const d = new Date(iso);
     return d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
-  });
+  };
+  const todayCheckins = checkIns.filter(ci => isToday(ci.checked_in_at));
 
-  const handleCheckin = async () => {
+  // Open session = my latest check-in on this project that has no check-out yet.
+  const openSession = checkIns.find(ci => ci.checked_out_at == null) ?? null;
+  const isOnSite = !!openSession;
+
+  // Today's worked minutes on this site: closed sessions today + the open one so far.
+  const clientNow = useClientNow();
+  const nowDate = clientNow ?? today;
+  const todayMinutes = todayCheckins.reduce((sum, ci) => {
+    if (ci.duration_minutes != null) return sum + ci.duration_minutes;
+    if (ci.checked_out_at == null) {
+      return sum + Math.max(0, Math.floor((nowDate.getTime() - new Date(ci.checked_in_at).getTime()) / 60000));
+    }
+    return sum;
+  }, 0);
+
+  const submit = async (action: "check_in" | "check_out") => {
     setChecking(true);
     setError(null);
     try {
@@ -87,12 +102,10 @@ function SiteCheckInScreen({ project, checkIns, onCheckin, nowMs, todayAttendanc
       const res = await fetch(`/api/projects/${project.id}/checkin`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gps_lat: pos.coords.latitude, gps_lng: pos.coords.longitude }),
+        body: JSON.stringify({ action, gps_lat: pos.coords.latitude, gps_lng: pos.coords.longitude }),
       });
       const json = await res.json();
-      if (!res.ok && res.status !== 202) throw new Error(json.error ?? "Check-in failed");
-      setCheckedIn(true);
-      setCheckinResult({ within_geofence: json.within_geofence, distance_m: json.distance_m });
+      if (!res.ok && res.status !== 202) throw new Error(json.error ?? `${action === "check_in" ? "Check-in" : "Check-out"} failed`);
       onCheckin();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Could not get GPS location. Enable location access and retry.");
@@ -101,12 +114,7 @@ function SiteCheckInScreen({ project, checkIns, onCheckin, nowMs, todayAttendanc
     }
   };
 
-  // Date and time both come from the server clock for the first render (so
-  // server/client HTML match and hydration succeeds); once mounted, the time
-  // updates to the device clock.
   const todayDateStr = today.toLocaleDateString("en-IN", { weekday: "short", month: "short", day: "numeric" });
-  const clientNow = useClientNow();
-  const timeStr = (clientNow ?? today).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 
   return (
     <div style={{ padding: "8px 20px 32px" }}>
@@ -115,31 +123,30 @@ function SiteCheckInScreen({ project, checkIns, onCheckin, nowMs, todayAttendanc
         <div className="font-serif" style={{ fontSize: 32, letterSpacing: -.8, lineHeight: 1.1, marginTop: 4 }}>Site Check-In</div>
       </div>
 
-      <div style={{ padding: "20px", borderRadius: 20, background: checkedIn ? (checkinResult?.within_geofence ? "var(--color-forest)" : "var(--color-amber)") : "var(--color-paper-light)", color: checkedIn ? "#F3EFE7" : "var(--color-ink)", boxShadow: "0 1px 0 rgba(255,255,255,.15) inset, 0 16px 40px -20px rgba(30,28,24,.2)", marginBottom: 20, transition: "all .3s" }}>
-        {checkedIn ? (
-          <div style={{ textAlign: "center", padding: "12px 0" }}>
-            <div style={{ width: 56, height: 56, borderRadius: "50%", background: "rgba(255,255,255,.2)", margin: "0 auto 14px", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <Icon name="check" size={26} color="#FFF" stroke={2.5} />
+      <div style={{ padding: "20px", borderRadius: 20, background: isOnSite ? "var(--color-forest)" : "var(--color-paper-light)", color: isOnSite ? "#F3EFE7" : "var(--color-ink)", boxShadow: "0 1px 0 rgba(255,255,255,.15) inset, 0 16px 40px -20px rgba(30,28,24,.2)", marginBottom: 20, transition: "all .3s" }}>
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: isOnSite ? "rgba(243,239,231,.65)" : "var(--color-tan)", textTransform: "uppercase", letterSpacing: .8, marginBottom: 7 }}>Project</div>
+          <div style={{ width: "100%", padding: "11px 14px", borderRadius: 12, border: `1px solid ${isOnSite ? "rgba(255,255,255,.2)" : "var(--color-line)"}`, background: isOnSite ? "rgba(255,255,255,.1)" : "var(--bg-2)", fontSize: 14, fontWeight: 500 }}>
+            {project.name}
+          </div>
+        </div>
+
+        {isOnSite && openSession && (
+          <div style={{ display: "flex", gap: 16, marginBottom: 14, fontSize: 12 }}>
+            <div>
+              <div style={{ opacity: .65, textTransform: "uppercase", letterSpacing: .6, fontSize: 10 }}>Since</div>
+              <div className="font-mono" style={{ fontWeight: 600, marginTop: 2 }}>{formatTime(openSession.checked_in_at)}</div>
             </div>
-            <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 4 }}>Checked In</div>
-            <div style={{ fontSize: 13, opacity: .8 }}>{project.name} · {timeStr}</div>
-            <div style={{ fontSize: 11, opacity: .65, marginTop: 4, display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}>
-              <Icon name="pin" size={11} color="#F3EFE7" /> {checkinResult?.within_geofence ? "GPS recorded" : `${checkinResult?.distance_m}m from site`}
+            <div>
+              <div style={{ opacity: .65, textTransform: "uppercase", letterSpacing: .6, fontSize: 10 }}>Today on site</div>
+              <div className="font-mono" style={{ fontWeight: 600, marginTop: 2 }}>{formatMinutes(todayMinutes)}</div>
             </div>
           </div>
-        ) : (
-          <>
-            <div style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: .8, marginBottom: 7 }}>Project</div>
-              <div style={{ width: "100%", padding: "11px 14px", borderRadius: 12, border: "1px solid var(--color-line)", background: "var(--bg-2)", fontSize: 14, fontWeight: 500 }}>
-                {project.name}
-              </div>
-            </div>
-            <button onClick={handleCheckin} disabled={checking} style={{ width: "100%", padding: "14px", borderRadius: 14, background: "var(--color-ink)", color: "#F3EFE7", fontWeight: 700, fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, border: "none", opacity: checking ? .6 : 1 }}>
-              <Icon name="pin" size={16} color="#F3EFE7" stroke={2} /> {checking ? "Getting GPS…" : "Confirm Presence"}
-            </button>
-          </>
         )}
+
+        <button onClick={() => submit(isOnSite ? "check_out" : "check_in")} disabled={checking} style={{ width: "100%", padding: "14px", borderRadius: 14, background: isOnSite ? "var(--color-rust)" : "var(--color-ink)", color: "#F3EFE7", fontWeight: 700, fontSize: 15, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, border: "none", opacity: checking ? .6 : 1 }}>
+          <Icon name="pin" size={16} color="#F3EFE7" stroke={2} /> {checking ? "Getting GPS…" : isOnSite ? "Check Out" : "Check In"}
+        </button>
       </div>
 
       {error && (
@@ -160,10 +167,12 @@ function SiteCheckInScreen({ project, checkIns, onCheckin, nowMs, todayAttendanc
               <Avatar initials={(c.engineer?.full_name ?? "?").split(" ").map((w: string) => w[0]).join("").slice(0, 2)} tone="amber" size={32} />
               <div>
                 <div style={{ fontWeight: 500, fontSize: 13 }}>{c.engineer?.full_name ?? "Unknown"}</div>
-                <div style={{ fontSize: 11, color: "var(--color-tan)", marginTop: 1 }}>{project.name}</div>
+                <div style={{ fontSize: 11, color: "var(--color-tan)", marginTop: 1 }}>
+                  {formatTime(c.checked_in_at)}{c.checked_out_at ? ` – ${formatTime(c.checked_out_at)}` : " · on site"}
+                </div>
               </div>
               <div style={{ textAlign: "right" }}>
-                <div className="font-mono" style={{ fontSize: 12, fontWeight: 600 }}>{formatTime(c.checked_in_at)}</div>
+                <div className="font-mono" style={{ fontSize: 12, fontWeight: 600 }}>{c.checked_out_at ? formatMinutes(c.duration_minutes) : "—"}</div>
                 {c.within_geofence ? (
                   <div style={{ fontSize: 10, color: "var(--color-forest)", marginTop: 2 }}>GPS ✓</div>
                 ) : (
@@ -176,7 +185,6 @@ function SiteCheckInScreen({ project, checkIns, onCheckin, nowMs, todayAttendanc
       </div>
 
       <div style={{ marginTop: 20 }}>
-        <SiteAttendanceCard todayAttendance={todayAttendance} />
         <SiteVisitsCard siteVisits={siteVisits} />
       </div>
     </div>
@@ -474,7 +482,6 @@ type Props = {
   updates: FeedUpdate[];
   loading: boolean;
   nowMs: number;
-  todayAttendance: AttendanceLog | null;
   siteVisits: SiteVisit[];
   switchProject: (pid: string) => void;
   setTab: (tab: string) => void;
@@ -482,7 +489,7 @@ type Props = {
 };
 
 export function MobileSiteEngineer({
-  engineer, project, projects, projectId, tab, plans, expenses, checkIns, updates, nowMs, todayAttendance, siteVisits, switchProject, setTab, refresh
+  engineer, project, projects, projectId, tab, plans, expenses, checkIns, updates, nowMs, siteVisits, switchProject, setTab, refresh
 }: Props) {
   if (projects.length === 0) {
     return (
@@ -514,7 +521,7 @@ export function MobileSiteEngineer({
 
       {project && (
         <div style={{ animation: "fadeIn 0.3s ease-out" }}>
-          {tab === "today"     && <SiteCheckInScreen project={project} checkIns={checkIns} onCheckin={refresh} nowMs={nowMs} todayAttendance={todayAttendance} siteVisits={siteVisits} />}
+          {tab === "today"     && <SiteCheckInScreen project={project} checkIns={checkIns} onCheckin={refresh} nowMs={nowMs} siteVisits={siteVisits} />}
           {tab === "updates"   && <UpdatesScreen     project={project} updates={updates}   onPosted={refresh} engineerId={engineer.id} />}
           {tab === "materials" && <MaterialsScreen   project={project} plans={plans}       onLogged={refresh} />}
           {tab === "progress"  && <ProgressScreen    project={project} />}

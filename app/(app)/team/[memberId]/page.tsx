@@ -93,13 +93,50 @@ export default async function MemberDetailPage({
   const isSiteEngineer = member.role === "site_engineer";
 
   if (isSiteEngineer) {
-    const { data: checkIns } = await db
-      .from("site_check_ins")
-      .select("id, project_id, checked_in_at, gps_lat, gps_lng, within_geofence, projects:project_id(name)")
-      .eq("user_id", memberId)
-      .gte("checked_in_at", `${start}T00:00:00.000Z`)
-      .lte("checked_in_at", `${today}T23:59:59.999Z`)
-      .order("checked_in_at", { ascending: false });
+    // Site engineers get the same panels as team members minus drawing-centric
+    // performance: assignments, office attendance, tasks, site check-ins, broadcasts.
+    const [checkInsRes, projectsRes, dailyTasksRes, memberTasksRes, attendanceRes, broadcastsRes] = await Promise.all([
+      db
+        .from("site_check_ins")
+        .select("id, project_id, checked_in_at, gps_lat, gps_lng, within_geofence, projects:project_id(name)")
+        .eq("user_id", memberId)
+        .gte("checked_in_at", `${start}T00:00:00.000Z`)
+        .lte("checked_in_at", `${today}T23:59:59.999Z`)
+        .order("checked_in_at", { ascending: false }),
+
+      supabase
+        .from("project_assignments")
+        .select("contribution_pct, projects:project_id(id, name, status, current_stage)")
+        .eq("user_id", memberId),
+
+      supabase
+        .from("team_daily_tasks")
+        .select("id, description, task_date, is_done, done_at, project_id")
+        .eq("user_id", memberId)
+        .gte("task_date", start)
+        .lte("task_date", today)
+        .order("task_date", { ascending: false }),
+
+      supabase
+        .from("member_tasks")
+        .select("id, title, completed, completed_at, created_at")
+        .eq("user_id", memberId)
+        .order("created_at", { ascending: false }),
+
+      supabase
+        .from("attendance_logs")
+        .select("id, work_date, check_in_at, check_out_at, total_minutes, check_in_within_geofence, check_out_within_geofence")
+        .eq("user_id", memberId)
+        .gte("work_date", start)
+        .lte("work_date", today)
+        .order("work_date", { ascending: false }),
+
+      supabase
+        .from("owner_broadcast_recipients")
+        .select("broadcast_id, is_acknowledged, acknowledged_at, owner_broadcasts:broadcast_id(created_at, body)")
+        .eq("user_id", memberId)
+        .order("broadcast_id", { ascending: false }),
+    ]);
 
     return (
       <MemberDetailClient
@@ -108,7 +145,12 @@ export default async function MemberDetailPage({
         initialData={{
           member,
           tags: tags ?? [],
-          checkIns: checkIns ?? [],
+          checkIns: checkInsRes.data ?? [],
+          projects: projectsRes.data ?? [],
+          dailyTasks: dailyTasksRes.data ?? [],
+          memberTasks: memberTasksRes.data ?? [],
+          attendance: attendanceRes.data ?? [],
+          broadcasts: broadcastsRes.data ?? [],
         }}
       />
     );

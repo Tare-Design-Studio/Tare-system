@@ -4,7 +4,6 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { serverNowMs } from "@/lib/serverNow";
 import SiteEngineerDashboard from "./SiteEngineerDashboard";
 import type { SiteVisit } from "./components/shared";
-import type { AttendanceLog } from "./components/SiteAttendanceCard";
 
 export default async function SitePage() {
   const supabase = await createClient();
@@ -61,16 +60,6 @@ export default async function SitePage() {
     })
     .filter(Boolean);
 
-  // Today's office attendance row for this engineer.
-  const today = new Date().toISOString().slice(0, 10);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: attendance } = await (supabase as any)
-    .from("attendance_logs")
-    .select("id, work_date, check_in_at, check_out_at, total_minutes, accumulated_minutes, last_check_in_at, check_in_count")
-    .eq("user_id", user.id)
-    .eq("work_date", today)
-    .maybeSingle();
-
   // Upcoming owner-scheduled site visits for customers of this engineer's projects.
   // Service client bypasses RLS — site engineers lack enquiry:view / customer:view.
   const customerIds = Array.from(
@@ -121,7 +110,6 @@ export default async function SitePage() {
       engineer={{ id: profile.id, name: profile.full_name, role: profile.role }}
       projects={projects}
       nowMs={serverNowMs()}
-      todayAttendance={(attendance ?? null) as AttendanceLog | null}
       siteVisits={siteVisits}
     />
   );

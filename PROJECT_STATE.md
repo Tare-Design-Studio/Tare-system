@@ -1,5 +1,41 @@
 # PROJECT_STATE.md
-(Updated: 2026-06-01 — reversible demo data set)
+(Updated: 2026-06-01 — site check-out + per-site hours batch)
+
+### Site check-out + per-site hours (2026-06-01)
+
+**Built:**
+- **Site check-in → check-out** — the site-engineer Today card (Desktop + Mobile) now toggles Check In / Check Out. `POST /api/projects/[id]/checkin` accepts `action: "check_in" | "check_out"` (defaults `check_in`); check-out closes the latest open `site_check_ins` row and records `duration_minutes`. GET now returns `checked_out_at, duration_minutes`. Open session = latest row with `checked_out_at IS NULL`; card shows "since" time + minutes on site today.
+- **Office attendance removed for SEs** — `SiteAttendanceCard` deleted; no longer rendered on the site-engineer dashboard (office attendance flow for **team members** is untouched). `site/page.tsx` no longer fetches `attendance_logs`; `todayAttendance` prop removed from `SiteEngineerDashboard` + Desktop/Mobile SE components.
+- **Team SE detail — Site Hours card** — `/team/[memberId]` (site engineer) replaces the office Attendance card with a new **Site Hours** card: total hours, days on site, days absent (working days in range − distinct check-in days), per-site hours table. Site Check-Ins rows show in→out + duration. API SE branch fetches `checked_out_at, duration_minutes`.
+- **Migration 070** (NOT YET APPLIED) — `site_check_ins.checked_out_at`, `.duration_minutes` + partial unique index `(user_id, project_id) WHERE checked_out_at IS NULL`; backfills pre-existing open check-ins to closed 8h sessions (incl. live demo rows). Types hand-patched.
+- **Mobile project-details table** — `@media (max-width:767px)` rule: `executionTable td { white-space: nowrap }` + text inputs `min-width:140px` so row text is fully readable in the horizontal scroller (`project-detail.module.css`).
+- Build: tsc clean.
+
+### Mobile UX + SE project-details redirect batch (2026-06-01)
+
+### Mobile UX + SE project-details redirect batch (2026-06-01)
+
+**Built:**
+- **SE "Details" → shared owner page** — the site-engineer "Details" tab no longer renders a custom panel; `SiteEngineerDashboard.tsx` intercepts `setTab("details")` and `router.push(/projects/[id])` so SEs see the exact same project detail page as the owner (RLS lets assigned SEs SELECT the project). Removed the now-dead `DetailsTab`/`DetailsScreen` from Desktop/Mobile SE components; reverted the extra `site/page.tsx` query columns + shared `Project` type additions from the prior batch.
+- **Overview mobile: finance card → updates card** — `MobileHome.tsx` dark Collections/finance card removed (phones only — desktop overview unchanged); the Updates card now sits in that top slot (old bottom Updates section removed). Dropped unused `fmtLakhs`/`MiniStat`/`financeData` destructure (prop kept in interface).
+- **Mobile log-out** — `MobileHome.tsx` top row gains a sign-out icon button (`<form action={signOut}>`, server action from `app/(auth)/actions`) beside the NotificationBell + avatar.
+- **Material Plan card mobile** — table wrapped in an `overflow-x:auto` container with `minWidth:360`; add/edit form grid switched to `repeat(auto-fit, minmax(120px,1fr))` so fields stack on phones (`MaterialPlanCard.tsx`).
+- **Customers page mobile overflow** — contact-card header now `flex-wrap` with `minWidth:0`; name/email/phone get `overflowWrap:anywhere`; financial-stats grid switched to `repeat(auto-fit, minmax(120px,1fr))` (`customers/page.tsx`).
+- **Add Event modal** — rewritten in `CalendarClient.tsx`: flex-column layout, safe-area top padding, click-outside-to-close, responsive date/time grid; added a **Description** textarea (POST already accepted `description`) and an explanatory subtitle under the title (shown on phone + desktop).
+- **Team members card** — removed the indigo (blue) tag chips on the right of each member row (tags still shown as text in the meta line; owner still manages via TagsPanel) (`team/page.tsx`).
+- **Team Stream scroll** — feed moved to a `.streamFeed` CSS class (max-height 420 desktop / 320 mobile, `overflow-y:auto`, `overscroll-behavior:contain`) so messages scroll within the card (`TeamStreamCard.tsx` + `project-detail.module.css`).
+- No DB/schema change. Build: zero errors.
+
+### Team / Site-Engineer / Access Matrix UX batch (2026-06-01)
+
+**Built:**
+- **Access Matrix mobile fix** — the per-member "Capabilities" panel orientation was broken on phones because the editor reused the grid `.memberRow`. New flex-based `.accessRow` / `.accessRowControls` / `.accessRowSelect` classes in `team-access.module.css` (+ `@media (max-width:640px)` rules: controls drop to their own full-width line, dropdown + Capabilities button each `flex:1`). `AccessMatrixEditor.tsx` switched to these classes so the capability grid (`flexBasis:100%`) wraps correctly.
+- **Team page SE attendance** — site-engineer rows now show Present / Hours / Check-ins (office attendance) + a 4th "Site visits" tile (was only site-check-ins). Owner attendance query was already role-agnostic so SE office attendance was available.
+- **Owner metrics removed on team page** — owner's `memberStats` block hidden (`m.role !== "owner"` guard); owner filtered out of the Performance table (`rows.filter(m => m.role !== "owner")`).
+- **SE detail page parity** — `/team/[memberId]` for a site engineer now renders Projects + Attendance + Tasks + Site Check-Ins + Broadcasts (was only CheckInsCard). No drawing-centric Performance card (SE have no drawings). Both `app/(app)/team/[memberId]/page.tsx` and `app/api/team/[memberId]/route.ts` SE branches fetch the extra data; `MemberDetailClient.tsx` SE branch renders the cards.
+- **Broadcast by project** — owner compose in `BroadcastsPanel.tsx` gains a "Send to a project team…" `<select>` (new optional `projects` prop = `{id,name,memberIds[]}`); picking a project preselects only its assigned members. Team page builds `broadcastProjects` from a new `project_assignments` query (excludes completed projects + self). Overview's BroadcastsPanel usage unaffected (prop defaults to `[]`).
+- **SE "Details" tab** — new project-details nav option on the site engineer dashboard (Desktop tab + Mobile bottom-bar `info` icon). Shows status/stage/type/location/dates/budget/checkpoints/geofence + WhatsApp group link. `site/page.tsx` project query extended with `project_type, budget_total, start_date, expected_end_date, whatsapp_group_url` (all existing columns — no migration); shared `Project` type + inline type updated.
+- No DB/schema change. Build: zero errors.
 
 ### Reversible demo data (2026-06-01)
 

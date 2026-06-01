@@ -1,7 +1,16 @@
 # SCHEMA.md
-(Updated: 2026-05-30 — migrations 067 + 068 written, NOT yet applied)
+(Updated: 2026-06-01 — migrations 067 + 068 + 070 written, NOT yet applied)
 
-## Status: Phase 10 migrations (043–050) + 051–066 + 999_add + 999_zz applied to cloud Supabase. Migrations 067 + 068 written, awaiting apply.
+## Status: Phase 10 migrations (043–050) + 051–066 + 999_add + 999_zz applied to cloud Supabase. Migrations 067 + 068 + 070 written, awaiting apply.
+
+### Migration 070 — site check-in → check-out + per-site hours (NOT YET APPLIED)
+- `site_check_ins.checked_out_at timestamptz NULL` — when the engineer left the site; NULL = currently on site (open session).
+- `site_check_ins.duration_minutes int NULL` — `floor((checked_out_at − checked_in_at)/60s)`, set by the app on check-out; NULL while open.
+- Partial unique index `idx_site_checkin_open_session (user_id, project_id) WHERE checked_out_at IS NULL` — at most one open session per engineer per project.
+- Behaviour: `POST /api/projects/[id]/checkin` accepts `action: "check_in" | "check_out"` (defaults `check_in`). Check-out closes the latest open row and records duration. Per-site worked hours = `SUM(duration_minutes)`. Replaces office (`SiteAttendanceCard`) check-in/out on the **site-engineer dashboard only** — office attendance flow for team members is unchanged.
+- Team member detail page (site engineers) gains a **Site Hours** card: total hours, days on site, days absent (working days in range − distinct check-in days), per-site hours table; Site Check-Ins rows now show in→out times + duration.
+- Types: hand-patched `lib/supabase/types.ts` (`site_check_ins` Row/Insert/Update add `checked_out_at`, `duration_minutes`).
+- Apply: `DATABASE_URL=... npx tsx scripts/migrate.ts`
 
 ### Migration 068 — attendance accumulate + site-engineer office attendance (NOT YET APPLIED)
 - `attendance_logs.accumulated_minutes int NOT NULL DEFAULT 0` — running sum of each CLOSED check-in→check-out cycle in the day. Backfilled from `total_minutes` for existing rows.

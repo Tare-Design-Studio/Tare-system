@@ -1,5 +1,7 @@
 # DEMO_VS_PROD.md
-(Updated: 2026-05-14 — Phase 10 in progress)
+(Updated: 2026-06-01 — Phase 10 in progress)
+
+> Note (2026-06-01): Migration 070 backfills the 4 demo `site_check_ins` rows (069) to closed 8h sessions (`checked_out_at`, `duration_minutes=480`) so the new per-site-hours feature has realistic data and the open-session unique index applies cleanly. No teardown change needed — demo rows are still deleted by namespace.
 
 ## Current Status
 Reversible demo data set: `supabase/migrations/069_demo_seed.sql` (insert) + `supabase/demo_teardown.sql` (delete). **069 is APPLIED to cloud Supabase (2026-06-01) — demo data is currently live.** Every demo row uses the fixed `dec0de00-…` UUID namespace; teardown deletes strictly by that namespace + the 6 demo user ids, so real Tare data is never touched.

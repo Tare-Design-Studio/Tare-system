@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 
 const CheckinSchema = z.object({
+  action: z.enum(["check_in", "check_out"]).default("check_in"),
   gps_lat: z.number().min(-90).max(90),
   gps_lng: z.number().min(-180).max(180),
   notes: z.string().max(500).optional(),
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const parsed = CheckinSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
-  const { gps_lat, gps_lng, notes } = parsed.data;
+  const { action, gps_lat, gps_lng, notes } = parsed.data;
   const { data: canCheckIn } = await supabase.rpc("has_capability", {
     p_capability: "site_check_in:write",
     p_project_id: project_id,
@@ -49,6 +50,37 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     .maybeSingle();
 
   if (!assignment) return NextResponse.json({ error: "Forbidden — project is not assigned to you" }, { status: 403 });
+
+  // Check-out: close the open session for this user+project and record duration.
+  if (action === "check_out") {
+    const { data: open } = await service
+      .from("site_check_ins")
+      .select("id, checked_in_at")
+      .eq("project_id", project_id)
+      .eq("user_id", user.id)
+      .is("checked_out_at", null)
+      .order("checked_in_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!open) return NextResponse.json({ error: "No open check-in to check out from" }, { status: 400 });
+
+    const checkedOutAt = new Date();
+    const durationMinutes = Math.max(
+      0,
+      Math.floor((checkedOutAt.getTime() - new Date(open.checked_in_at).getTime()) / 60000)
+    );
+
+    const { data, error } = await service
+      .from("site_check_ins")
+      .update({ checked_out_at: checkedOutAt.toISOString(), duration_minutes: durationMinutes })
+      .eq("id", open.id)
+      .select()
+      .single();
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ data, checked_out: true, duration_minutes: durationMinutes }, { status: 200 });
+  }
 
   // Fetch project's site location for geofence check
   const { data: project, error: projErr } = await service
@@ -112,7 +144,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   const { data, error } = await supabase
     .from("site_check_ins")
     .select(`
-      id, checked_in_at, gps_lat, gps_lng, within_geofence,
+      id, checked_in_at, checked_out_at, duration_minutes, gps_lat, gps_lng, within_geofence,
       geofence_failure_reason, approved_by, approved_at, notes, gps_retained_until,
       engineer:users!site_check_ins_user_id_fkey(id, full_name)
     `)

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Avatar, ConfirmPopover, Icon } from "@/components/atoms";
 import { FeedImageTile } from "@/components/updates/UpdatesFeed";
+import styles from "./project-detail.module.css";
 
 type Assignment = {
   id: string;
@@ -163,7 +164,7 @@ export default function TeamStreamCard({ assignments, updates: initialUpdates, p
           </div>
 
           {/* Activity feed */}
-          <div style={{ display: "flex", flexDirection: "column", maxHeight: 420, overflowY: "auto" }}>
+          <div className={styles.streamFeed}>
             {filteredUpdates.length === 0 ? (
               <p style={{ color: "var(--color-tan)", fontSize: 13, fontStyle: "italic" }}>No updates logged.</p>
             ) : (

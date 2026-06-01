@@ -45,6 +45,8 @@ export type Expense = {
 export type CheckIn = {
   id: string;
   checked_in_at: string;
+  checked_out_at: string | null;
+  duration_minutes: number | null;
   within_geofence: boolean;
   notes: string | null;
   engineer?: { full_name: string } | null;
@@ -79,4 +81,11 @@ export function formatDate(d: string | null) {
 
 export function formatTime(d: string) {
   return new Date(d).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+}
+
+export function formatMinutes(m: number | null) {
+  if (m == null) return "—";
+  const h = Math.floor(m / 60);
+  const min = m % 60;
+  return h > 0 ? `${h}h ${min}m` : `${min}m`;
 }

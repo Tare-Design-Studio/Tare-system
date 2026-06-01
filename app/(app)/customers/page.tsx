@@ -274,14 +274,14 @@ function CustomerDetailPanel({
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       {/* Contact card */}
       <div style={CARD}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
-          <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 14 }}>
+          <div style={{ display: "flex", gap: 14, alignItems: "center", minWidth: 0 }}>
             <Avatar initials={initials(customer.name)} tone="forest" size={52} />
-            <div>
-              <div className="font-serif" style={{ fontSize: 30, letterSpacing: -0.5, lineHeight: 1, fontWeight: 400 }}>{customer.name}</div>
-              <div style={{ display: "flex", gap: 14, marginTop: 8, color: "var(--color-tan)", fontSize: 12 }}>
+            <div style={{ minWidth: 0 }}>
+              <div className="font-serif" style={{ fontSize: 30, letterSpacing: -0.5, lineHeight: 1, fontWeight: 400, overflowWrap: "anywhere" }}>{customer.name}</div>
+              <div style={{ display: "flex", gap: 14, marginTop: 8, color: "var(--color-tan)", fontSize: 12, flexWrap: "wrap" }}>
                 {customer.phone && (
-                  <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <span style={{ display: "flex", gap: 6, alignItems: "center", minWidth: 0, overflowWrap: "anywhere" }}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                       <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.15 14a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.06 3.28h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.09 10.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 21 17.92z" />
                     </svg>
@@ -289,8 +289,8 @@ function CustomerDetailPanel({
                   </span>
                 )}
                 {customer.email && (
-                  <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <span style={{ display: "flex", gap: 6, alignItems: "center", minWidth: 0, overflowWrap: "anywhere" }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ flexShrink: 0 }}>
                       <rect x="2" y="4" width="20" height="16" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
                     </svg>
                     {customer.email}
@@ -326,7 +326,7 @@ function CustomerDetailPanel({
         </div>
 
         {/* Financial summary stats */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 12 }}>
           {[
             { label: "Total Project Value", value: totalFee > 0 ? fmtAmount(totalFee) : "—", color: "var(--color-ink)" },
             { label: "Paid to Date", value: totalPaid > 0 ? fmtAmount(totalPaid) : "—", color: "var(--color-mint)" },

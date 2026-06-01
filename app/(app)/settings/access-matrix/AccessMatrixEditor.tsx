@@ -190,7 +190,7 @@ export function AccessMatrixEditor({ members, tagByUser, capsByUser }: AccessMat
           const tag = effectiveTag(m);
           const dirty = !!edits[m.id];
           return (
-            <div key={m.id} className={styles.memberRow} style={{ flexWrap: "wrap" }}>
+            <div key={m.id} className={styles.accessRow}>
               <Avatar initials={initials(m.full_name)} tone={ROLE_TONE[m.role] ?? "indigo"} />
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div className={styles.memberName}>
@@ -214,7 +214,7 @@ export function AccessMatrixEditor({ members, tagByUser, capsByUser }: AccessMat
               </div>
 
               {!isOwner && (
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <div className={styles.accessRowControls}>
                   {/* Tag select — confirmation popover opens before applying */}
                   <ConfirmPopover
                     title="Are you sure?"
@@ -236,12 +236,8 @@ export function AccessMatrixEditor({ members, tagByUser, capsByUser }: AccessMat
                           pendingTagRef.current[m.id] = v === "" ? null : (v as Tag);
                           open();
                         }}
-                        style={{
-                          padding: "6px 10px", borderRadius: 8,
-                          border: "1px solid var(--color-line)", fontSize: 12,
-                          fontFamily: "inherit", background: "var(--color-paper-light)",
-                          cursor: canTag ? "pointer" : "not-allowed",
-                        }}
+                        className={styles.accessRowSelect}
+                        style={{ cursor: canTag ? "pointer" : "not-allowed" }}
                       >
                         <option value="">No tag</option>
                         {VALID_TAGS.map((t) => (

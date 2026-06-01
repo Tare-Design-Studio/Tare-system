@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Avatar } from "@/components/atoms";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { signOut } from "@/app/(auth)/actions";
 
 /* ── Types ───────────────────────────────────────────────────────── */
 
@@ -52,11 +53,6 @@ export type MobileTeamMember = {
 };
 
 /* ── Helpers ──────────────────────────────────────────────────────── */
-
-function fmtLakhs(n: number) {
-  if (n >= 100000) return `₹${(n / 100000).toFixed(1)} L`;
-  return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
-}
 
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -117,18 +113,6 @@ function SectionTitle({ children, href, style }: { children: React.ReactNode; hr
   );
 }
 
-function MiniStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{
-      flex: 1, padding: "8px 10px", borderRadius: 10,
-      background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.08)",
-    }}>
-      <div style={{ fontSize: 10, color: "rgba(243,239,231,.55)", textTransform: "uppercase", letterSpacing: 0.8 }}>{label}</div>
-      <div style={{ fontSize: 16, fontWeight: 600, marginTop: 2 }}>{value}</div>
-    </div>
-  );
-}
-
 /* ── Main component ──────────────────────────────────────────────── */
 
 interface MobileHomeProps {
@@ -161,7 +145,6 @@ export default function MobileHome({
   todayIdx,
   calendarEvents,
   projects,
-  financeData,
   teamMembers,
   totalMembers,
   updates,
@@ -187,32 +170,74 @@ export default function MobileHome({
             <em style={{ color: "var(--color-forest)", fontStyle: "italic" }}>{firstName}</em>
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center" }}>
           <NotificationBell />
           <Avatar initials={initials} tone="forest" size={40} />
+          <form action={signOut}>
+            <button
+              type="submit"
+              title="Sign out"
+              aria-label="Sign out"
+              style={{
+                width: 40, height: 40, borderRadius: 999, background: "rgba(30,28,24,.05)",
+                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                border: "none", cursor: "pointer", color: "var(--color-tan)",
+              }}
+            >
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </button>
+          </form>
         </div>
       </div>
 
-      {/* Collections card (dark) */}
-      {financeData && (
-        <Link href="/finance" style={{ textDecoration: "none", color: "inherit", display: "block", margin: "0 16px 16px" }}>
-          <div style={{
-            padding: 20, borderRadius: 20,
-            background: "linear-gradient(135deg, #1E2530 0%, #2A3340 100%)",
-            color: "#F3EFE7", position: "relative", overflow: "hidden",
-          }}>
-            <div style={{ position: "absolute", right: -30, top: -30, width: 140, height: 140, borderRadius: "50%", background: "rgba(45,106,79,.18)" }} />
-            <div style={{ position: "relative", zIndex: 1 }}>
-              <div style={{ fontSize: 11, letterSpacing: 1.2, textTransform: "uppercase", color: "rgba(243,239,231,.55)" }}>Total Received</div>
-              <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 42, lineHeight: 1, letterSpacing: -1.5, marginTop: 6 }}>{fmtLakhs(financeData.received)}</div>
-              <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-                <MiniStat label="Projects" value={String(openProjects.length)} />
-                <MiniStat label="Outstanding" value={fmtLakhs(financeData.outstanding)} />
-              </div>
+      {/* Updates card (replaces the finance card on phones) */}
+      <div style={{ margin: "0 16px 16px" }}>
+        <div style={{
+          background: "var(--color-paper-light)", borderRadius: 20, padding: 16,
+          boxShadow: "0 1px 0 #FFF inset, 0 8px 20px -10px rgba(30,28,24,.1)",
+        }}>
+          <SectionTitle href="/updates" style={{ marginBottom: 12 }}>Updates</SectionTitle>
+          {updates.length === 0 ? (
+            <div style={{ textAlign: "center", padding: "12px 0", color: "var(--color-tan)", fontSize: 13 }}>No recent updates</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {updates.slice(0, 5).map(e => {
+                const authorRaw = e.users;
+                const author = Array.isArray(authorRaw) ? authorRaw[0]?.full_name : authorRaw?.full_name;
+                const projectRaw = e.projects;
+                const projectName = Array.isArray(projectRaw) ? projectRaw[0]?.name : projectRaw?.name;
+                const isMint = e.update_type === "payment";
+                const title = e.body?.split("\n")[0]?.slice(0, 60) || capitaliseType(e.update_type);
+                const sub = [projectName, author].filter(Boolean).join(" · ");
+                return (
+                  <div key={e.id} style={{ display: "grid", gridTemplateColumns: "52px 1fr", gap: 10, alignItems: "flex-start" }}>
+                    <div style={{ paddingTop: 4 }}>
+                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-tan)" }}>{updateTimeAgo(e.created_at)}</div>
+                    </div>
+                    <div style={{
+                      padding: "10px 12px", borderRadius: 12,
+                      background: isMint ? "#D6E0CF" : "#EAE3D3",
+                      color: isMint ? "#3E5A41" : "var(--color-ink)",
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 600, letterSpacing: -0.1 }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                          {updateIcon(e.update_type).split("|").map((p, j) => <path key={j} d={p} />)}
+                        </svg>
+                        {title}
+                      </div>
+                      {sub && <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>{sub}</div>}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          </div>
-        </Link>
-      )}
+          )}
+        </div>
+      </div>
 
       {/* Calendar section */}
       <div style={{ padding: "0 16px" }}>
@@ -344,53 +369,6 @@ export default function MobileHome({
           </Link>
         </>
       )}
-
-      {/* Updates */}
-      <div style={{ padding: "0 16px" }}>
-        <SectionTitle href="/updates" style={{ marginTop: 22 }}>Updates</SectionTitle>
-      </div>
-      <div style={{ margin: "0 16px" }}>
-        <div style={{
-          background: "var(--color-paper-light)", borderRadius: 20, padding: 16,
-          boxShadow: "0 1px 0 #FFF inset, 0 8px 20px -10px rgba(30,28,24,.1)",
-        }}>
-          {updates.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "12px 0", color: "var(--color-tan)", fontSize: 13 }}>No recent updates</div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {updates.slice(0, 5).map(e => {
-                const authorRaw = e.users;
-                const author = Array.isArray(authorRaw) ? authorRaw[0]?.full_name : authorRaw?.full_name;
-                const projectRaw = e.projects;
-                const projectName = Array.isArray(projectRaw) ? projectRaw[0]?.name : projectRaw?.name;
-                const isMint = e.update_type === "payment";
-                const title = e.body?.split("\n")[0]?.slice(0, 60) || capitaliseType(e.update_type);
-                const sub = [projectName, author].filter(Boolean).join(" · ");
-                return (
-                  <div key={e.id} style={{ display: "grid", gridTemplateColumns: "52px 1fr", gap: 10, alignItems: "flex-start" }}>
-                    <div style={{ paddingTop: 4 }}>
-                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-tan)" }}>{updateTimeAgo(e.created_at)}</div>
-                    </div>
-                    <div style={{
-                      padding: "10px 12px", borderRadius: 12,
-                      background: isMint ? "#D6E0CF" : "#EAE3D3",
-                      color: isMint ? "#3E5A41" : "var(--color-ink)",
-                    }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 600, letterSpacing: -0.1 }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                          {updateIcon(e.update_type).split("|").map((p, j) => <path key={j} d={p} />)}
-                        </svg>
-                        {title}
-                      </div>
-                      {sub && <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>{sub}</div>}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
 
     </div>
   );

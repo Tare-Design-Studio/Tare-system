@@ -19,10 +19,12 @@ type Broadcast = {
 };
 
 type TeamMember = { id: string; full_name: string };
+type BroadcastProject = { id: string; name: string; memberIds: string[] };
 
 interface Props {
   broadcasts: Broadcast[];
   teamMembers: TeamMember[];
+  projects?: BroadcastProject[];
   canCompose: boolean;
   currentUserId: string;
   refreshLimit?: number;
@@ -41,7 +43,7 @@ function timeAgo(iso: string, nowMs: number) {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-export function BroadcastsPanel({ broadcasts: initial, teamMembers, canCompose, currentUserId, refreshLimit = 10, nowMs }: Props) {
+export function BroadcastsPanel({ broadcasts: initial, teamMembers, projects = [], canCompose, currentUserId, refreshLimit = 10, nowMs }: Props) {
   const [broadcasts, setBroadcasts] = useState(initial);
   const [body, setBody] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
@@ -75,6 +77,16 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, canCompose, 
 
   function toggleMember(id: string) {
     setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }
+
+  // Picking a project preselects only its assigned members (that exist in the pill
+  // list), so the owner can broadcast straight to a project team.
+  function selectProject(projectId: string) {
+    if (!projectId) { setSelected([]); return; }
+    const proj = projects.find(p => p.id === projectId);
+    if (!proj) return;
+    const known = new Set(teamMembers.map(m => m.id));
+    setSelected(proj.memberIds.filter(id => known.has(id)));
   }
 
   async function sendBroadcast() {
@@ -131,6 +143,21 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, canCompose, 
               resize: "none", lineHeight: 1.5, boxSizing: "border-box",
             }}
           />
+          {projects.length > 0 && (
+            <select
+              defaultValue=""
+              onChange={e => selectProject(e.target.value)}
+              style={{
+                width: "100%", padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-line)",
+                background: "var(--color-paper-light)", fontSize: 12, fontFamily: "inherit", color: "var(--color-ink)",
+              }}
+            >
+              <option value="">Send to a project team…</option>
+              {projects.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          )}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {teamMembers.map(m => (
               <button

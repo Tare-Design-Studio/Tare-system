@@ -49,6 +49,15 @@ VALUES
   ('00000000-0000-0000-0000-000000000000','dec0de00-0000-0000-0000-000000000005','authenticated','authenticated','vikram@demo.tare', crypt('demo1234', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}','{}', now(), now()),
   ('00000000-0000-0000-0000-000000000000','dec0de00-0000-0000-0000-000000000006','authenticated','authenticated','sneha@demo.tare',  crypt('demo1234', gen_salt('bf')), now(), '{"provider":"email","providers":["email"]}','{}', now(), now());
 
+-- GoTrue scans these token columns into non-nullable Go strings; a NULL there
+-- makes login fail with "Database error querying schema". Set them to ''.
+UPDATE auth.users
+   SET confirmation_token     = '',
+       recovery_token         = '',
+       email_change           = '',
+       email_change_token_new = ''
+ WHERE email LIKE '%@demo.tare';
+
 -- Email identities (required by GoTrue for email/password sign-in)
 INSERT INTO auth.identities (
   id, user_id, provider_id, provider, identity_data,

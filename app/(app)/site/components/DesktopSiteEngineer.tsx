@@ -3,22 +3,40 @@
 import { useState } from "react";
 import { Chip, Avatar } from "@/components/atoms";
 import { useClientNow } from "@/lib/useClientNow";
-import { Project, Engineer, MaterialPlan, Expense, CheckIn, SiteVisit, CATEGORY_LABELS, CATEGORY_TONE, formatDate, formatTime } from "./shared";
+import { Project, Engineer, MaterialPlan, Expense, CheckIn, SiteVisit, CATEGORY_LABELS, CATEGORY_TONE, formatDate, formatTime, formatMinutes } from "./shared";
 import { UpdateComposer } from "@/components/updates/UpdateComposer";
 import { UpdatesFeed, type FeedUpdate } from "@/components/updates/UpdatesFeed";
-import SiteAttendanceCard, { type AttendanceLog } from "./SiteAttendanceCard";
 import SiteVisitsCard from "./SiteVisitsCard";
 
-function TodayTab({ project, checkIns, onCheckin, nowMs, todayAttendance, siteVisits }: { project: Project; checkIns: CheckIn[]; onCheckin: () => void; nowMs: number; todayAttendance: AttendanceLog | null; siteVisits: SiteVisit[]; }) {
+function TodayTab({ project, checkIns, onCheckin, nowMs, siteVisits }: { project: Project; checkIns: CheckIn[]; onCheckin: () => void; nowMs: number; siteVisits: SiteVisit[]; }) {
   const [checking, setChecking] = useState(false);
-  const [checkedIn, setCheckedIn] = useState(false);
-  const [checkinResult, setCheckinResult] = useState<{ within_geofence: boolean; distance_m: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const checkpoints = project.project_checkpoints;
   const doneCount = checkpoints.filter(c => c.completed_at).length;
 
-  const handleCheckin = async () => {
+  // `today` is the server clock (passed as nowMs) so server/client render match.
+  const today = new Date(nowMs);
+  const clientNow = useClientNow();
+  const nowDate = clientNow ?? today;
+  const todayCheckins = checkIns.filter(ci => {
+    const d = new Date(ci.checked_in_at);
+    return d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
+  });
+
+  // Open session = my latest check-in on this project with no check-out yet.
+  const openSession = checkIns.find(ci => ci.checked_out_at == null) ?? null;
+  const isOnSite = !!openSession;
+
+  const todayMinutes = todayCheckins.reduce((sum, ci) => {
+    if (ci.duration_minutes != null) return sum + ci.duration_minutes;
+    if (ci.checked_out_at == null) {
+      return sum + Math.max(0, Math.floor((nowDate.getTime() - new Date(ci.checked_in_at).getTime()) / 60000));
+    }
+    return sum;
+  }, 0);
+
+  const submit = async (action: "check_in" | "check_out") => {
     setChecking(true);
     setError(null);
     try {
@@ -28,12 +46,10 @@ function TodayTab({ project, checkIns, onCheckin, nowMs, todayAttendance, siteVi
       const res = await fetch(`/api/projects/${project.id}/checkin`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gps_lat: pos.coords.latitude, gps_lng: pos.coords.longitude }),
+        body: JSON.stringify({ action, gps_lat: pos.coords.latitude, gps_lng: pos.coords.longitude }),
       });
       const json = await res.json();
-      if (!res.ok && res.status !== 202) throw new Error(json.error ?? "Check-in failed");
-      setCheckedIn(true);
-      setCheckinResult({ within_geofence: json.within_geofence, distance_m: json.distance_m });
+      if (!res.ok && res.status !== 202) throw new Error(json.error ?? `${action === "check_in" ? "Check-in" : "Check-out"} failed`);
       onCheckin();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Could not get GPS location. Enable location access and retry.");
@@ -42,66 +58,51 @@ function TodayTab({ project, checkIns, onCheckin, nowMs, todayAttendance, siteVi
     }
   };
 
-  // `today` is the server clock (passed as nowMs) so server/client render match.
-  const today = new Date(nowMs);
-  const clientNow = useClientNow();
-  const todayCheckins = checkIns.filter(ci => {
-    const d = new Date(ci.checked_in_at);
-    return d.getDate() === today.getDate() && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
-  });
-
   return (
     <div>
       <div style={{
         padding: "28px 32px", borderRadius: 22, marginBottom: 24,
-        background: checkedIn
-          ? checkinResult?.within_geofence
-            ? "linear-gradient(135deg, var(--color-forest) 0%, var(--color-teal) 100%)"
-            : "linear-gradient(135deg, var(--color-amber) 0%, var(--color-rust) 100%)"
+        background: isOnSite
+          ? "linear-gradient(135deg, var(--color-forest) 0%, var(--color-teal) 100%)"
           : "var(--color-paper-light)",
         boxShadow: "var(--shadow-card)",
         border: "1px solid rgba(30,28,24,.04)",
-        color: checkedIn ? "#F3EFE7" : "var(--color-ink)",
+        color: isOnSite ? "#F3EFE7" : "var(--color-ink)",
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
-            <div style={{ fontSize: 12, opacity: checkedIn ? .7 : 1, color: checkedIn ? "#F3EFE7" : "var(--color-tan)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
+            <div style={{ fontSize: 12, opacity: isOnSite ? .7 : 1, color: isOnSite ? "#F3EFE7" : "var(--color-tan)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
               Today · {today.toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "short" })}
             </div>
             <div className="font-serif" style={{ fontSize: 36, letterSpacing: -.5, marginBottom: 6 }}>
-              {checkedIn
-                ? checkinResult?.within_geofence ? "You're checked in" : "Checked in — outside geofence"
-                : "Confirm your presence"}
+              {isOnSite ? "You're on site" : "Confirm your presence"}
             </div>
-            <div style={{ fontSize: 13, opacity: .75, marginBottom: checkedIn ? 0 : 20 }}>
+            <div style={{ fontSize: 13, opacity: .75, marginBottom: isOnSite ? 0 : 20 }}>
               {project.name}{project.site_location ? ` · ${project.site_location}` : ""}
             </div>
-            {checkedIn && checkinResult && (
+            {isOnSite && openSession && (
               <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                <div style={{ padding: "5px 12px", borderRadius: 20, background: "rgba(255,255,255,.2)", fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>
-                  {checkinResult.within_geofence ? "GPS confirmed" : `${checkinResult.distance_m}m from site`}
+                <div style={{ padding: "5px 12px", borderRadius: 20, background: "rgba(255,255,255,.2)", fontSize: 12 }}>
+                  Since {formatTime(openSession.checked_in_at)}
                 </div>
                 <div style={{ padding: "5px 12px", borderRadius: 20, background: "rgba(255,255,255,.2)", fontSize: 12 }}>
-                  {(clientNow ?? today).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
+                  {formatMinutes(todayMinutes)} on site today
                 </div>
               </div>
             )}
           </div>
-          {!checkedIn && (
-            <button
-              onClick={handleCheckin}
-              disabled={checking}
-              style={{
-                padding: "14px 28px", borderRadius: 14, background: "var(--color-ink)", color: "#F3EFE7",
-                fontSize: 14, fontWeight: 600, display: "flex", alignItems: "center", gap: 8,
-                flexShrink: 0, opacity: checking ? .6 : 1,
-              }}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>
-              {checking ? "Getting GPS…" : "Check In"}
-            </button>
-          )}
+          <button
+            onClick={() => submit(isOnSite ? "check_out" : "check_in")}
+            disabled={checking}
+            style={{
+              padding: "14px 28px", borderRadius: 14, background: isOnSite ? "var(--color-rust)" : "var(--color-ink)", color: "#F3EFE7",
+              fontSize: 14, fontWeight: 600, display: "flex", alignItems: "center", gap: 8,
+              flexShrink: 0, opacity: checking ? .6 : 1,
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>
+            {checking ? "Getting GPS…" : isOnSite ? "Check Out" : "Check In"}
+          </button>
         </div>
       </div>
 
@@ -111,13 +112,12 @@ function TodayTab({ project, checkIns, onCheckin, nowMs, todayAttendance, siteVi
         </div>
       )}
 
-      <SiteAttendanceCard todayAttendance={todayAttendance} />
       <SiteVisitsCard siteVisits={siteVisits} />
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 28 }}>
         {[
           { label: "Checkpoints Done", value: `${doneCount}/${checkpoints.length}`, sub: "project total", color: "var(--color-forest)" },
-          { label: "Today's Check-Ins", value: `${todayCheckins.length}`, sub: "confirmed today", color: "var(--color-teal)" },
+          { label: "Today on Site", value: formatMinutes(todayMinutes), sub: `${todayCheckins.length} check-in${todayCheckins.length === 1 ? "" : "s"}`, color: "var(--color-teal)" },
           { label: "Site Location", value: project.site_lat ? "Configured" : "Not set", sub: project.site_geofence_radius_m ? `${project.site_geofence_radius_m}m radius` : "ask owner to set", color: project.site_lat ? "var(--color-forest)" : "var(--color-tan)" },
         ].map((s, i) => (
           <div key={i} style={{ padding: "18px 20px", borderRadius: 18, background: "var(--color-paper-light)", boxShadow: "var(--shadow-card)", border: "1px solid rgba(30,28,24,.04)" }}>
@@ -140,11 +140,14 @@ function TodayTab({ project, checkIns, onCheckin, nowMs, todayAttendance, siteVi
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 500 }}>{project.name}</div>
                   <div className="font-mono" style={{ fontSize: 11, color: "var(--color-tan)" }}>
-                    {formatDate(ci.checked_in_at)} · {formatTime(ci.checked_in_at)}
+                    {formatDate(ci.checked_in_at)} · {formatTime(ci.checked_in_at)}{ci.checked_out_at ? ` – ${formatTime(ci.checked_out_at)}` : " · on site"}
                   </div>
                 </div>
               </div>
-              <Chip label={ci.within_geofence ? "GPS ✓" : "Out of range"} tone={ci.within_geofence ? "mint" : "amber"} size="sm" />
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {ci.checked_out_at && <span className="font-mono" style={{ fontSize: 12, fontWeight: 600 }}>{formatMinutes(ci.duration_minutes)}</span>}
+                <Chip label={ci.within_geofence ? "GPS ✓" : "Out of range"} tone={ci.within_geofence ? "mint" : "amber"} size="sm" />
+              </div>
             </div>
           ))
         )}
@@ -490,6 +493,7 @@ function UpdatesTab({ project, updates, onPosted, engineerId }: { project: Proje
 
 const TABS = [
   { id: "today",     label: "Today"     },
+  { id: "details",   label: "Details"   },
   { id: "updates",   label: "Updates"   },
   { id: "materials", label: "Materials" },
   { id: "progress",  label: "Progress"  },
@@ -508,7 +512,6 @@ type Props = {
   updates: FeedUpdate[];
   loading: boolean;
   nowMs: number;
-  todayAttendance: AttendanceLog | null;
   siteVisits: SiteVisit[];
   switchProject: (pid: string) => void;
   setTab: (tab: string) => void;
@@ -516,7 +519,7 @@ type Props = {
 };
 
 export function DesktopSiteEngineer({
-  engineer, project, projects, projectId, tab, plans, expenses, checkIns, updates, loading, nowMs, todayAttendance, siteVisits, switchProject, setTab, refresh
+  engineer, project, projects, projectId, tab, plans, expenses, checkIns, updates, loading, nowMs, siteVisits, switchProject, setTab, refresh
 }: Props) {
   const avatarInitials = engineer.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
 
@@ -584,7 +587,7 @@ export function DesktopSiteEngineer({
             <div style={{ fontSize: 13, color: "var(--color-tan)", marginBottom: 16 }}>Loading…</div>
           )}
 
-          {tab === "today"     && <TodayTab     project={project} checkIns={checkIns} onCheckin={refresh} nowMs={nowMs} todayAttendance={todayAttendance} siteVisits={siteVisits} />}
+          {tab === "today"     && <TodayTab     project={project} checkIns={checkIns} onCheckin={refresh} nowMs={nowMs} siteVisits={siteVisits} />}
           {tab === "updates"   && <UpdatesTab   project={project} updates={updates}   onPosted={refresh} engineerId={engineer.id} />}
           {tab === "materials" && <MaterialsTab project={project} plans={plans}       onLogged={refresh} />}
           {tab === "progress"  && <ProgressTab  project={project} />}

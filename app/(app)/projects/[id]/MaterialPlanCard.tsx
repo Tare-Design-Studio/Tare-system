@@ -196,7 +196,7 @@ export function MaterialPlanCard({ projectId, initialRows, canEdit, presets }: M
 
   const formGrid = (onSave: () => void) => (
     <div style={{ padding: 14, borderRadius: 12, background: "var(--color-bg)", marginTop: 10, display: "flex", flexDirection: "column", gap: 10 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1.4fr", gap: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 8 }}>
         <div>
           <label style={labelStyle}>Material</label>
           <input style={inputStyle} value={form.material_name} onChange={(e) => set("material_name", e.target.value)} placeholder="e.g. Cement" />
@@ -275,7 +275,8 @@ export function MaterialPlanCard({ projectId, initialRows, canEdit, presets }: M
           No planned materials yet.{canEdit ? " Add one or apply a preset above." : ""}
         </p>
       ) : (
-        <div>
+        <div style={{ overflowX: "auto", margin: "0 -2px", WebkitOverflowScrolling: "touch" }}>
+          <div style={{ minWidth: 360 }}>
           {rows.length > 0 && (
             <div style={{ display: "grid", gridTemplateColumns: GRID, gap: 8, padding: "0 0 8px", fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 1, borderBottom: "1px solid var(--color-line)" }}>
               <div style={{ textAlign: "left" }}>Material</div>
@@ -320,6 +321,7 @@ export function MaterialPlanCard({ projectId, initialRows, canEdit, presets }: M
               </div>
             )
           )}
+          </div>
         </div>
       )}
 

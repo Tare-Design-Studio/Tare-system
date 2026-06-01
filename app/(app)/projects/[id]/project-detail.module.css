@@ -424,7 +424,21 @@
   padding: 10px 0;
 }
 
+/* Team Stream activity feed: scrolls within the card so the card height stays
+   bounded instead of growing with every message. */
+.streamFeed {
+  display: flex;
+  flex-direction: column;
+  max-height: 420px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 @media (max-width: 767px) {
+  .streamFeed {
+    max-height: 320px;
+  }
+
   .shell {
     max-width: none;
     padding: 20px 16px 120px;
@@ -501,6 +515,16 @@
   .executionCard {
     border-radius: 16px;
     padding: 16px;
+  }
+
+  /* On phones the table is in a horizontal scroller; give text cells room and
+     stop them wrapping/clipping so each row's text is fully readable. */
+  .executionTable td {
+    white-space: nowrap;
+  }
+
+  .executionTable td input[type="text"] {
+    min-width: 140px;
   }
 
   .executionTableHeader {

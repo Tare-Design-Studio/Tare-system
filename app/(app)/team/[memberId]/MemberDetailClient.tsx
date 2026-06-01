@@ -111,6 +111,8 @@ type CheckIn = {
   id: string;
   project_id: string | null;
   checked_in_at: string;
+  checked_out_at: string | null;
+  duration_minutes: number | null;
   within_geofence: boolean | null;
   projects: { name: string } | null;
 };
@@ -420,6 +422,86 @@ function BroadcastsCard({ broadcasts }: { broadcasts: BroadcastRecipient[] }) {
   );
 }
 
+// Working days (Mon–Sat) elapsed in the range up to today — used to estimate leaves.
+function workingDaysInRange(range: Range): number {
+  const now = new Date();
+  const start = new Date(now);
+  if (range === "3m") start.setDate(start.getDate() - 90);
+  else if (range === "6m") start.setDate(start.getDate() - 180);
+  else if (range === "year") { start.setMonth(0); start.setDate(1); }
+  else { start.setDate(1); }
+  let count = 0;
+  const cur = new Date(start);
+  while (cur <= now) {
+    if (cur.getDay() !== 0) count++; // exclude Sundays
+    cur.setDate(cur.getDate() + 1);
+  }
+  return count;
+}
+
+function SiteHoursCard({ checkIns, range }: { checkIns: CheckIn[]; range: Range }) {
+  // Aggregate worked minutes per project (closed sessions only — open sessions
+  // have no duration yet and are excluded from totals).
+  const perProject = new Map<string, { name: string; minutes: number; sessions: number }>();
+  let totalMinutes = 0;
+  for (const c of checkIns) {
+    const key = c.project_id ?? "unknown";
+    const name = c.projects?.name ?? "Unknown project";
+    const entry = perProject.get(key) ?? { name, minutes: 0, sessions: 0 };
+    entry.sessions += 1;
+    if (c.duration_minutes != null) {
+      entry.minutes += c.duration_minutes;
+      totalMinutes += c.duration_minutes;
+    }
+    perProject.set(key, entry);
+  }
+  const rows = [...perProject.values()].sort((a, b) => b.minutes - a.minutes);
+
+  const daysOnSite = new Set(checkIns.map((c) => c.checked_in_at.slice(0, 10))).size;
+  const daysAbsent = Math.max(0, workingDaysInRange(range) - daysOnSite);
+
+  return (
+    <div className={styles.card}>
+      <div className={styles.cardTitle}>
+        <div className={styles.cardTitleText}>
+          <h2 className="font-serif">Site Hours</h2>
+          <p>Time on each site + days present / leave</p>
+        </div>
+      </div>
+      <div className={styles.statTiles}>
+        <StatTile label="Total Hours" value={fmtHours(totalMinutes)} />
+        <StatTile label="Days On Site" value={daysOnSite} unit="d" />
+        <StatTile label="Days Absent" value={daysAbsent} unit="d" />
+        <StatTile label="Sites Visited" value={rows.length} />
+      </div>
+      {rows.length > 0 ? (
+        <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th>Site</th>
+                <th>Sessions</th>
+                <th>Hours</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.name}>
+                  <td>{r.name}</td>
+                  <td>{r.sessions}</td>
+                  <td>{fmtHours(r.minutes)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className={styles.empty}>No site time logged in range.</div>
+      )}
+    </div>
+  );
+}
+
 function CheckInsCard({ checkIns }: { checkIns: CheckIn[] }) {
   const total = checkIns.length;
   const withinGeo = checkIns.filter((c) => c.within_geofence).length;
@@ -444,8 +526,12 @@ function CheckInsCard({ checkIns }: { checkIns: CheckIn[] }) {
           {checkIns.map((c) => (
             <div key={c.id} className={styles.checkinRow}>
               <div>
-                <div className={styles.checkinTime}>{fmtTime(c.checked_in_at)}</div>
-                <div className={styles.checkinDate}>{fmtDate(c.checked_in_at)}</div>
+                <div className={styles.checkinTime}>
+                  {fmtTime(c.checked_in_at)}{c.checked_out_at ? ` – ${fmtTime(c.checked_out_at)}` : ""}
+                </div>
+                <div className={styles.checkinDate}>
+                  {fmtDate(c.checked_in_at)}{c.checked_out_at ? ` · ${fmtHours(c.duration_minutes)}` : " · on site"}
+                </div>
               </div>
               <div className={styles.checkinProject}>
                 {(c.projects as { name: string } | null)?.name ?? "Unknown project"}
@@ -620,9 +706,23 @@ export default function MemberDetailClient({
       {!loading && (
         <div className={styles.grid12}>
           {isSiteEngineer ? (
-            <div className={styles.col12}>
-              <CheckInsCard checkIns={data.checkIns ?? []} />
-            </div>
+            <>
+              <div className={styles.col4}>
+                <ProjectsCard projects={data.projects ?? []} />
+              </div>
+              <div className={styles.col8}>
+                <SiteHoursCard checkIns={data.checkIns ?? []} range={range} />
+              </div>
+              <div className={styles.col12}>
+                <TasksCard dailyTasks={data.dailyTasks ?? []} memberTasks={data.memberTasks ?? []} />
+              </div>
+              <div className={styles.col8}>
+                <CheckInsCard checkIns={data.checkIns ?? []} />
+              </div>
+              <div className={styles.col4}>
+                <BroadcastsCard broadcasts={data.broadcasts ?? []} />
+              </div>
+            </>
           ) : (
             <>
               <div className={styles.col4}>

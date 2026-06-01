@@ -2771,6 +2771,8 @@ export type Database = {
           approved_at: string | null
           approved_by: string | null
           checked_in_at: string
+          checked_out_at: string | null
+          duration_minutes: number | null
           geofence_failure_reason: string | null
           gps_lat: number | null
           gps_lng: number | null
@@ -2786,6 +2788,8 @@ export type Database = {
           approved_at?: string | null
           approved_by?: string | null
           checked_in_at?: string
+          checked_out_at?: string | null
+          duration_minutes?: number | null
           geofence_failure_reason?: string | null
           gps_lat?: number | null
           gps_lng?: number | null
@@ -2801,6 +2805,8 @@ export type Database = {
           approved_at?: string | null
           approved_by?: string | null
           checked_in_at?: string
+          checked_out_at?: string | null
+          duration_minutes?: number | null
           geofence_failure_reason?: string | null
           gps_lat?: number | null
           gps_lng?: number | null

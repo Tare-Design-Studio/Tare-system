@@ -206,6 +206,35 @@
   border: 1px solid var(--aos-line);
 }
 
+/* Access-matrix editor rows: flex layout so the per-capability panel can wrap
+   to full width (flexBasis:100%) and controls stack cleanly on phones. */
+.accessRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--aos-bg-2);
+  border: 1px solid var(--aos-line);
+}
+
+.accessRowControls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.accessRowSelect {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--color-line);
+  font-size: 12px;
+  font-family: inherit;
+  background: var(--color-paper-light);
+}
+
 .memberName {
   font-size: 13px;
   font-weight: 600;
@@ -791,6 +820,23 @@
   .memberRow > :last-child {
     grid-column: 2;
     justify-self: flex-start;
+  }
+
+  /* Access-matrix editor: name takes its own line, controls drop below and
+     each control fills the row so the dropdown + Capabilities button don't
+     overflow or get squeezed on narrow screens. */
+  .accessRowControls {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .accessRowControls > * {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .accessRowSelect {
+    width: 100%;
   }
 
   .activityRow {

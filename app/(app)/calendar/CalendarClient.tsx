@@ -121,6 +121,7 @@ function AddEventModal({ onClose, onCreated }: { onClose: () => void; onCreated:
   const [title, setTitle] = useState("");
   const [date, setDate] = useState("");
   const [time, setTime] = useState("09:00");
+  const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function submit() {
@@ -130,7 +131,7 @@ function AddEventModal({ onClose, onCreated }: { onClose: () => void; onCreated:
     const res = await fetch("/api/calendar", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, starts_at, visibility: "tenant" }),
+      body: JSON.stringify({ title, starts_at, description: description.trim() || null, visibility: "tenant" }),
     });
     setLoading(false);
     if (res.ok) {
@@ -140,28 +141,73 @@ function AddEventModal({ onClose, onCreated }: { onClose: () => void; onCreated:
   }
 
   const input: React.CSSProperties = {
-    width: "100%", padding: "9px 12px", borderRadius: 10,
+    width: "100%", padding: "10px 12px", borderRadius: 10,
     border: "1px solid var(--color-line)", fontSize: 13,
     background: "var(--color-paper-light)", color: "var(--color-ink)",
-    fontFamily: "inherit", marginBottom: 10,
+    fontFamily: "inherit", boxSizing: "border-box",
+  };
+  const fieldLabel: React.CSSProperties = {
+    fontSize: 11, fontWeight: 600, color: "var(--color-tan)",
+    textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5,
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(27,26,23,.45)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div className="modal-mobile-full" style={{ background: "var(--color-paper-light)", borderRadius: 20, padding: 28, width: 380, boxShadow: "0 20px 60px -20px rgba(27,26,23,.4)" }}>
-        <div className="font-serif" style={{ fontSize: 22, fontWeight: 400, marginBottom: 20, letterSpacing: -0.3 }}>Add Event</div>
-        <input style={input} placeholder="Event title *" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <input style={input} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        <input style={input} type="time" value={time} onChange={(e) => setTime(e.target.value)} />
-        <div style={{ display: "flex", gap: 10 }}>
+    <div
+      onClick={onClose}
+      style={{ position: "fixed", inset: 0, zIndex: 50, background: "rgba(27,26,23,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="modal-mobile-full"
+        style={{
+          background: "var(--color-paper-light)", borderRadius: 20,
+          padding: "max(env(safe-area-inset-top), 24px) 24px 24px", width: 400, maxWidth: "100%",
+          boxShadow: "0 20px 60px -20px rgba(27,26,23,.4)",
+          display: "flex", flexDirection: "column", gap: 14,
+        }}
+      >
+        <div>
+          <div className="font-serif" style={{ fontSize: 24, fontWeight: 400, letterSpacing: -0.3 }}>Add Event</div>
+          <div style={{ fontSize: 12.5, color: "var(--color-tan)", marginTop: 4, lineHeight: 1.4 }}>
+            Create a calendar event visible to your whole team. Add an optional description for context.
+          </div>
+        </div>
+
+        <div>
+          <label style={fieldLabel}>Title *</label>
+          <input style={input} placeholder="e.g. Site review with client" value={title} onChange={(e) => setTitle(e.target.value)} />
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10 }}>
+          <div>
+            <label style={fieldLabel}>Date *</label>
+            <input style={input} type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
+          <div>
+            <label style={fieldLabel}>Time</label>
+            <input style={input} type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+          </div>
+        </div>
+
+        <div>
+          <label style={fieldLabel}>Description</label>
+          <textarea
+            style={{ ...input, minHeight: 76, resize: "vertical", lineHeight: 1.5 }}
+            placeholder="Add details about this event…"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: 10, marginTop: 2 }}>
           <button
             onClick={submit}
             disabled={loading || !title.trim() || !date}
-            style={{ flex: 1, padding: 10, borderRadius: 10, background: "var(--color-forest)", color: "#FFF", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer", opacity: loading || !title.trim() || !date ? 0.5 : 1 }}
+            style={{ flex: 1, padding: 12, borderRadius: 10, background: "var(--color-forest)", color: "#FFF", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer", opacity: loading || !title.trim() || !date ? 0.5 : 1 }}
           >
-            {loading ? "Saving…" : "Add"}
+            {loading ? "Saving…" : "Add Event"}
           </button>
-          <button onClick={onClose} style={{ padding: "10px 16px", borderRadius: 10, border: "1px solid var(--color-line)", background: "none", fontSize: 13, cursor: "pointer", color: "var(--color-tan)" }}>Cancel</button>
+          <button onClick={onClose} style={{ padding: "12px 18px", borderRadius: 10, border: "1px solid var(--color-line)", background: "none", fontSize: 13, cursor: "pointer", color: "var(--color-tan)" }}>Cancel</button>
         </div>
       </div>
     </div>

@@ -69,7 +69,7 @@ export default async function TeamPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any;
   // Fetch team members, broadcasts, daily tasks, and attendance in parallel
-  const [membersRes, broadcastsRes, dailyTasksRes, attendanceRes, memberTasksRes, tagRowsRes, siteCheckInsRes] = await Promise.all([
+  const [membersRes, broadcastsRes, dailyTasksRes, attendanceRes, memberTasksRes, tagRowsRes, siteCheckInsRes, projectAssignmentsRes] = await Promise.all([
     supabase
       .from("users")
       .select("id, full_name, role, role_label, is_active, last_login_at")
@@ -120,6 +120,13 @@ export default async function TeamPage() {
         .from("site_check_ins")
         .select("user_id, checked_in_at")
         .gte("checked_in_at", `${currentMonthStart}T00:00:00.000Z`)
+      : Promise.resolve({ data: null, error: null }),
+
+    // Project → assigned members, for broadcast-by-project targeting (owner compose).
+    canBroadcast
+      ? db
+        .from("project_assignments")
+        .select("user_id, projects:project_id(id, name, status)")
       : Promise.resolve({ data: null, error: null }),
   ]);
 
@@ -183,6 +190,21 @@ export default async function TeamPage() {
   for (const row of (siteCheckInsRes.data ?? []) as SiteCheckInRow[]) {
     siteCheckInsByUser.set(row.user_id, (siteCheckInsByUser.get(row.user_id) ?? 0) + 1);
   }
+
+  // Group project assignments → { id, name, memberIds[] } for broadcast targeting.
+  // Self (owner) is excluded so the recipient list matches the compose pills.
+  type AssignmentRow = { user_id: string; projects: { id: string; name: string; status: string } | null };
+  const projectMembersMap = new Map<string, { id: string; name: string; memberIds: string[] }>();
+  for (const row of (projectAssignmentsRes.data ?? []) as AssignmentRow[]) {
+    const p = row.projects;
+    if (!p || p.status === "completed" || row.user_id === user.id) continue;
+    const existing = projectMembersMap.get(p.id) ?? { id: p.id, name: p.name, memberIds: [] };
+    if (!existing.memberIds.includes(row.user_id)) existing.memberIds.push(row.user_id);
+    projectMembersMap.set(p.id, existing);
+  }
+  const broadcastProjects = [...projectMembersMap.values()]
+    .filter((p) => p.memberIds.length > 0)
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   return (
     <div className={styles.surface}>
@@ -270,12 +292,27 @@ export default async function TeamPage() {
                         )}
                       </div>
                     </div>
+                    {m.role !== "owner" && (
                     <div className={styles.memberStats}>
                       {m.role === "site_engineer" ? (
-                        <div className={styles.memberStat}>
-                          <span>Check-ins</span>
-                          <strong>{siteCheckIns}</strong>
-                        </div>
+                        <>
+                          <div className={styles.memberStat}>
+                            <span>Present</span>
+                            <strong>{attendance?.days ?? 0}d</strong>
+                          </div>
+                          <div className={styles.memberStat}>
+                            <span>Hours</span>
+                            <strong>{formatHours(attendance?.total_minutes ?? 0)}</strong>
+                          </div>
+                          <div className={styles.memberStat}>
+                            <span>Check-ins</span>
+                            <strong>{attendance?.check_ins ?? 0}</strong>
+                          </div>
+                          <div className={styles.memberStat}>
+                            <span>Site visits</span>
+                            <strong>{siteCheckIns}</strong>
+                          </div>
+                        </>
                       ) : (
                         <>
                           <div className={styles.memberStat}>
@@ -318,11 +355,9 @@ export default async function TeamPage() {
                         </>
                       )}
                     </div>
+                    )}
                     <div className={styles.inlineChips}>
                       {!m.is_active && <Chip label="Pending" tone="sand" size="sm" />}
-                      {memberTags.map((tag) => (
-                        <Chip key={tag} label={TAG_LABELS[tag] ?? tag} tone="indigo" size="sm" />
-                      ))}
                       {canManageTags && m.role !== "owner" && (
                         <TagsPanel userId={m.id} userName={m.full_name} currentTags={memberTags} />
                       )}
@@ -357,7 +392,7 @@ export default async function TeamPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.slice(0, 5).map((m, i) => (
+                  {rows.filter((m) => m.role !== "owner").slice(0, 5).map((m, i) => (
                     <tr key={m.id}>
                       <td>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -389,6 +424,7 @@ export default async function TeamPage() {
             <BroadcastsPanel
               broadcasts={broadcasts as Parameters<typeof BroadcastsPanel>[0]["broadcasts"]}
               teamMembers={rows.filter(m => m.id !== user.id).map(m => ({ id: m.id, full_name: m.full_name }))}
+              projects={broadcastProjects}
               canCompose={!!canBroadcast}
               currentUserId={user.id}
               refreshLimit={1}
