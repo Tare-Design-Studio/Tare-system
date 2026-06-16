@@ -1,8 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import PaymentsCard from "@/components/payments/PaymentsCard";
+
+type TablePresetOption = { id: string; name: string; table_owner_role: string; table_preset_columns?: unknown[] };
+type PipelinePresetOption = { id: string; name: string; checkpoint_template_items?: unknown[] };
+type PaymentPresetOption = { id: string; name: string; payment_milestone_preset_items?: { percentage: number }[] };
 
 type ProjectType = "residential" | "commercial" | "industrial" | "institutional" | "interior" | "urban" | "landscape" | "other";
 
@@ -130,6 +134,38 @@ export default function EditProjectModal({
     () => buildCheckpointEdits(checkpoints)
   );
 
+  // Preset application (Add Presets section)
+  const [tablePresets, setTablePresets] = useState<TablePresetOption[]>([]);
+  const [pipelinePresets, setPipelinePresets] = useState<PipelinePresetOption[]>([]);
+  const [paymentPresets, setPaymentPresets] = useState<PaymentPresetOption[]>([]);
+  const [presetsLoaded, setPresetsLoaded] = useState(false);
+  const [showPresets, setShowPresets] = useState(false);
+  const [selectedTablePresetIds, setSelectedTablePresetIds] = useState<string[]>([]);
+  const [selectedPipelinePresetIds, setSelectedPipelinePresetIds] = useState<string[]>([]);
+  const [selectedPaymentPresetId, setSelectedPaymentPresetId] = useState("");
+
+  useEffect(() => {
+    if (!open || presetsLoaded) return;
+    Promise.all([
+      fetch("/api/table-presets").then(r => r.json()).catch(() => ({ presets: [] })),
+      fetch("/api/pipeline-templates").then(r => r.json()).catch(() => ({ templates: [] })),
+      fetch("/api/payment-presets").then(r => r.json()).catch(() => []),
+    ]).then(([tableData, pipelineData, paymentData]) => {
+      setTablePresets(tableData.presets ?? []);
+      setPipelinePresets(pipelineData.templates ?? []);
+      setPaymentPresets(Array.isArray(paymentData) ? paymentData : []);
+      setPresetsLoaded(true);
+    }).catch(() => setPresetsLoaded(true));
+  }, [open, presetsLoaded]);
+
+  function toggleTablePreset(id: string) {
+    setSelectedTablePresetIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }
+  function togglePipelinePreset(id: string) {
+    setSelectedPipelinePresetIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }
+  const hasPresetSelection = selectedTablePresetIds.length > 0 || selectedPipelinePresetIds.length > 0 || !!selectedPaymentPresetId;
+
   const [form, setForm] = useState({
     name: project.name,
     project_type: (project.project_type ?? "") as ProjectType | "",
@@ -153,6 +189,10 @@ export default function EditProjectModal({
   function openModal() {
     setError(null);
     setCheckpointEdits(buildCheckpointEdits(checkpoints));
+    setShowPresets(false);
+    setSelectedTablePresetIds([]);
+    setSelectedPipelinePresetIds([]);
+    setSelectedPaymentPresetId("");
     setOpen(true);
   }
 
@@ -243,6 +283,23 @@ export default function EditProjectModal({
           completion_percentage: edited.status === "complete" ? 100 : edited.completion_percentage,
           completed_at: edited.status === "complete" ? new Date().toISOString() : null,
         });
+      }
+
+      if (hasPresetSelection) {
+        const presetRes = await fetch(`/api/projects/${project.id}/apply-presets`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            table_preset_ids: selectedTablePresetIds,
+            pipeline_template_ids: selectedPipelinePresetIds,
+            payment_preset_id: selectedPaymentPresetId || null,
+          }),
+        });
+        const presetData = await presetRes.json().catch(() => null);
+        if (!presetRes.ok) {
+          const message = typeof presetData?.error === "string" ? presetData.error : "Failed to apply presets";
+          throw new Error(message);
+        }
       }
 
       setOpen(false);
@@ -438,6 +495,76 @@ export default function EditProjectModal({
                   </div>
                 </div>
               )}
+
+              {/* Add Presets */}
+              <div style={{ marginTop: 4, borderTop: "1px solid var(--color-line)", paddingTop: 16 }}>
+                <button
+                  type="button"
+                  onClick={() => setShowPresets(s => !s)}
+                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}
+                >
+                  <label style={{ ...labelStyle, marginBottom: 0, cursor: "pointer" }}>Add Presets</label>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--color-tan)" strokeWidth="2" strokeLinecap="round" style={{ transform: showPresets ? "rotate(180deg)" : "none", transition: "transform .15s" }}><polyline points="6 9 12 15 18 9" /></svg>
+                </button>
+
+                {showPresets && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 14 }}>
+                    <div style={{ fontSize: 12, color: "var(--color-tan)" }}>
+                      Apply preset tables, progress milestones, or a payment schedule to this project. Existing data is kept; presets are added.
+                    </div>
+
+                    {/* Table presets */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Table Presets</div>
+                      {!presetsLoaded ? (
+                        <div style={{ fontSize: 12, color: "var(--color-tan)" }}>Loading…</div>
+                      ) : tablePresets.length === 0 ? (
+                        <div style={{ fontSize: 12, color: "var(--color-tan)" }}>No table presets available.</div>
+                      ) : tablePresets.map(p => (
+                        <label key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                          <input type="checkbox" checked={selectedTablePresetIds.includes(p.id)} onChange={() => toggleTablePreset(p.id)} style={{ width: 16, height: 16, accentColor: "var(--color-forest)" }} />
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</div>
+                            <div style={{ fontSize: 12, color: "var(--color-tan)" }}>{p.table_owner_role.replace(/_/g, " ")} · {p.table_preset_columns?.length ?? 0} columns</div>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+
+                    {/* Progress timeline presets */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Progress Timeline Presets</div>
+                      {!presetsLoaded ? (
+                        <div style={{ fontSize: 12, color: "var(--color-tan)" }}>Loading…</div>
+                      ) : pipelinePresets.length === 0 ? (
+                        <div style={{ fontSize: 12, color: "var(--color-tan)" }}>No pipeline presets available.</div>
+                      ) : pipelinePresets.map(p => (
+                        <label key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+                          <input type="checkbox" checked={selectedPipelinePresetIds.includes(p.id)} onChange={() => togglePipelinePreset(p.id)} style={{ width: 16, height: 16, accentColor: "var(--color-forest)" }} />
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</div>
+                            <div style={{ fontSize: 12, color: "var(--color-tan)" }}>{p.checkpoint_template_items?.length ?? 0} milestones</div>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+
+                    {/* Payment preset */}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <div style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Payment Milestone Preset</div>
+                      <select value={selectedPaymentPresetId} onChange={e => setSelectedPaymentPresetId(e.target.value)} style={{ ...inputStyle, fontSize: 13, appearance: "none" as const }}>
+                        <option value="">Custom / no payment preset</option>
+                        {paymentPresets.map(p => (
+                          <option key={p.id} value={p.id}>{p.name} ({p.payment_milestone_preset_items?.length ?? 0} milestones)</option>
+                        ))}
+                      </select>
+                      {selectedPaymentPresetId && !form.budget_total && (
+                        <div style={{ fontSize: 12, color: "var(--color-rust)" }}>Set a project budget above to apply a payment preset.</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
 
               {error && <div style={{ padding: "10px 14px", borderRadius: 10, background: "#C5543B18", color: "var(--color-rust)", fontSize: 13 }}>{error}</div>}
 
