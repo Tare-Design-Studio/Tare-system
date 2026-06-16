@@ -50,3 +50,9 @@ proxy.ts
 hey-claude-read-the-jaunty-firefly.md
 /ArchitectOS copy/
 /Tare Logo-*.png
+
+# DB backups
+*.dump
+
+# Credentials — never commit
+USER_LOGINS.txt

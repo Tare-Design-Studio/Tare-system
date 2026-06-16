@@ -1,4 +1,24 @@
 # DEMO_VS_PROD.md
+(Updated: 2026-06-11 — demo seed v2 over the live Tare client)
+
+## Demo seed v2 — enrichment over the LIVE Tare client (2026-06-11)
+
+After migrations 073/074 wiped everything and seeded the **real** Tare client (20 real users, 45 real projects with only name/slug/scope/stage/status), the system had zero customers/enquiries/milestones/payments/updates. This seed adds thorough demonstration data **on top of the real data** for a demo, fully reversible.
+
+- **Generator:** `scripts/seed-demo.ts` (idempotent — self-deletes its namespace + reverts enrichment, then re-inserts). Run: `DATABASE_URL=... npx tsx scripts/seed-demo.ts`. `--sql` flag writes `supabase/demo_seed_v2.generated.sql` (artifact only; NOT in migrations/).
+- **Teardown:** `supabase/demo_teardown_v2.sql` (manual — kept OUT of migrations/ for the same reason as the 069 teardown). Run: `psql "$DATABASE_URL" -f supabase/demo_teardown_v2.sql`.
+- **APPLIED then TORN DOWN on cloud Supabase 2026-06-11.** Demo data is currently **NOT live** — `supabase/demo_teardown_v2.sql` was run; 0 namespaced rows remain, 0 projects carry enrichment, real 20 users / 45 projects intact. Re-run the seed (`npx tsx scripts/seed-demo.ts`) to bring it back.
+- **Namespace:** every demo CHILD row uses the fixed `dec0de00-…` UUID namespace; teardown deletes strictly by it (FK-ordered) so real users/projects are never deleted.
+- **Enriched in place:** 9 REAL projects get `customer_id/project_type/budget_total/start_date/expected_end_date/whatsapp_group_url` set (HARSHA, VARUN, NIHARIKA, SURESH, RANGA SRINIVAS — execution; MOHAN, PRAKASH, SHEELA, M.G.R RESTAURANT — design). Teardown nulls those 6 columns back (base seed left them NULL).
+- **Authors/assignees = REAL Tare users** (Nayan owner; Divya/Anitha/Sowmiya/Noor/Zahra/Bhoomika etc. team; Srinivas/Manjunath/Siddiq/Adarsha site engineers). The seed never creates demo users — teardown removes content only.
+- **Coverage:** 10 customers (3 portal-enabled, 16-char hashes), 12 enquiries (full pipeline incl. converted/lost), 12 enquiry_reminders (incl. 5 `site_visit` for SE dashboards), 23 assignments, 63 checkpoints + 252 items, 63 payment_schedule + 34 payment_records, 42 updates (+5 site-image media_assets), 20 material_plan + 20 material_consumption (one tripping the >15% excess flag on HARSHA cement), 25 expenses (approved/pending/rejected), 20 site_check_ins (closed sessions w/ duration + 1 open today + 1 out-of-geofence on NIHARIKA), 10 bridge_messages, 4 calendar_events, 1 broadcast + 10 recipients, 7 member_tasks, 5 team_daily_tasks, 4 personal_reminders, 75 attendance_logs (5 days × 11 team + 4 SE), 10 team_performance_monthly (2 months × 5).
+- **Site-engineer dashboard** explicitly populated: SE assignments, site check-in/out + per-site hours, SE-authored site-image/progress updates, Site Execution Checklist tables, material plan/consumption, SE expenses, scheduled site visits, bridge threads.
+- **Customer portal** verified working (HARSHA hash `dec0de0000000001` → 1 project, 7 milestones, 7 payments).
+
+⚠️ Tear down before any prod cutover: `psql "$DATABASE_URL" -f supabase/demo_teardown_v2.sql`.
+
+---
+
 (Updated: 2026-06-01 — Phase 10 in progress)
 
 > Note (2026-06-01): Migration 070 backfills the 4 demo `site_check_ins` rows (069) to closed 8h sessions (`checked_out_at`, `duration_minutes=480`) so the new per-site-hours feature has realistic data and the open-session unique index applies cleanly. No teardown change needed — demo rows are still deleted by namespace.
@@ -42,7 +62,8 @@ v1 production launches empty — demo data is for demonstrations only and must b
 | 2026-05-11 | NotificationBell static bell replaced | `app/(app)/TopBar.tsx` | Live — real Realtime-backed bell; no demo data |
 | 2026-05-12 | Performance page | `app/(app)/performance/PerformanceClient.tsx` | Live — real DB; no demo data; empty until Owner enters monthly KPIs |
 | 2026-05-12 | Audit log page | `app/(app)/audit/AuditClient.tsx` | Live — real DB; no demo data; populated by audit triggers |
-| 2026-06-01 | Demo data set (reversible) | `supabase/migrations/069_demo_seed.sql`, `supabase/demo_teardown.sql` | APPLIED (069 live) — `dec0de00-…` namespace; teardown is manual, run before prod |
+| 2026-06-01 | Demo data set (reversible) | `supabase/migrations/069_demo_seed.sql`, `supabase/demo_teardown.sql` | SUPERSEDED — 069's users/projects were wiped by 073/074; the 069 teardown is now a no-op |
+| 2026-06-11 | Demo seed v2 over live Tare client | `scripts/seed-demo.ts`, `supabase/demo_teardown_v2.sql`, `supabase/demo_seed_v2.generated.sql` | TORN DOWN (not live) — was applied for a demo then removed via teardown_v2; re-run seed-demo.ts to restore. `dec0de00-…` namespace |
 
 ---
 

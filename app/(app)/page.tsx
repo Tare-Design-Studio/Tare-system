@@ -558,8 +558,8 @@ export default async function DashboardPage() {
       .from("projects")
       .select("id, name, slug, project_type, status, current_stage, site_location, project_checkpoints(completed_at)")
       .is("deleted_at", null)
-      .order("created_at", { ascending: false })
-      .limit(20),
+      .neq("status", "completed")
+      .order("created_at", { ascending: false }),
     supabase
       .from("v_payment_status")
       .select("amount_due, amount_received"),

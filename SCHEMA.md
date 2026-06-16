@@ -1,5 +1,38 @@
 # SCHEMA.md
-(Updated: 2026-06-01 — migrations 067 + 068 + 070 written, NOT yet applied)
+(Updated: 2026-06-08 — migration 075: audit_log capped at 100 per tenant ON INSERT; all existing audit rows cleared)
+
+### Migration 075 — audit_log cap 100, enforced on insert (applied 2026-06-08, supersedes 072)
+- Cap lowered **500 → 100** per tenant, and enforcement moved from the daily cron job to an **AFTER INSERT statement-level trigger** (`trg_audit_log_cap` → `enforce_audit_log_cap()` → `prune_audit_log_to_cap()`). Every new audit row immediately evicts the oldest rows beyond the newest 100 per `tenant_id`.
+- The `audit-log-retention` pg_cron job is unscheduled (no longer needed). `prune_audit_log_to_cap()` kept (now caps at 100) for ad-hoc use.
+- Safe for the hash chain: forward validation derives `prev_hash` from the newest surviving row, so pruning oldest never breaks it (same reasoning as 072). No recursion — `audit_trigger()` is on other tables, not on `audit_log`.
+- All pre-existing audit_log rows (500) were deleted as a one-time op alongside this migration (backup: `tare_auditlog_backup_*.dump`). Next insert anchors a fresh chain.
+- Verified: 105 single inserts settle at exactly 100; bulk insert keeps newest rows, evicts oldest.
+
+### Data: Tare employees seeded (2026-06-07)
+- `scripts/seed-users.ts` created 20 real auth + app users from the employee sheet (tenant `Tare Design Studio`). Flow mirrors `app/api/invite/route.ts`: `auth.admin.createUser` (email_confirm, shared temp password) → `public.users` → `user_capabilities` (manual) → `team_member_tags` (trigger 065 syncs `source='tag'` caps).
+- Roles: owner=1 (Nayan Kumar H.T.), site_engineer=4 (Srinivas Prasad, Manjunath S, Mohammed Sidddiq, Adarsha Pejawar), team_member=15. Tags: Adarsha=project_manager, Manasa Suresh=accountant. Ravindranath P is `is_active=false`.
+- Two rows had no email in the sheet → placeholder emails `manjunath.s@tare.local`, `keerthi.kumar@tare.local` (update before those two need real logins).
+
+### Data: Tare projects seeded (2026-06-07)
+- `scripts/seed-projects.ts` loaded 45 projects from `PROJECTS.xlsx` (name/slug/scope/stage/status only; customer/budget/type/dates left null). All `status=active`, `scope=design_and_execution`.
+- 40 from Sheet 1 (TOTAL PROJECTS) + 5 from Sheet 3 (PIPELINE) = 38 in `design` stage. The 7 Sheet-2 "CONSTRUCTION UNDER MEDHYA" names are the SAME Sheet-1 projects upgraded to `current_stage=execution` (VARUN, NIHARIKA, MONISHA, SUNIL-CONVENTION→from "SUNIL", HARSHA, SURESH, RANGA SRINIVAS). No duplicate rows created.
+- Slugs are slugified names, deduped with `-N` suffix on collision; unique per `(tenant_id, slug)`.
+
+### Migration 074 — wipe all users + auth (applied 2026-06-07)
+- One-time wipe of every user, ahead of loading the new client's users. Structure unchanged.
+- **Deleted:** `auth.users` (login accounts) → cascades via `public.users.id → auth.users (ON DELETE CASCADE)` to `public.users`, and onward to `user_capabilities`, `user_sessions`, `team_member_tags`, `push_subscriptions`. Tenant now has ZERO users — no login possible until new users are loaded.
+- **Kept:** tenants (+config), enquiry_intake, audit_log/audit_export_log, all presets/templates.
+- **FK change (permanent):** `audit_log.actor_id` FK changed from `NO ACTION` → **`ON DELETE SET NULL`** (matches its design intent, "null for system/cron"). Lets user deletes null the actor reference via FK action instead of a manual UPDATE — preserving the append-only hash chain (invariant #3). **Invariant: never manually UPDATE audit_log; rely on this SET NULL FK for actor cleanup.**
+- **Blockers cleared first** (all `NO ACTION` FKs into `users`): nulled `created_by` on the 4 kept preset/template tables; pre-deleted `user_capabilities`, `user_sessions`, `team_member_tags` (their `granted_by`/`revoked_by` cols block the cascade though their rows were going anyway).
+- Apply: `DATABASE_URL=... npx tsx scripts/migrate.ts`
+
+### Migration 073 — wipe client/operational data (applied 2026-06-07)
+- One-time data wipe ahead of onboarding a new client. **Structure unchanged** — TRUNCATE/DELETE only.
+- **Wiped (36 data tables):** projects + all children (assignments, checkpoints, checkpoint_items, work_log, project_table* ×5), material_plan, material_consumption, expenses, site_check_ins, payment_schedule, payment_records, customers, enquiries (+ phones/remarks/reminders), calendar_events, updates, media_assets, bridge_messages, owner_broadcasts (+recipients), team_daily_tasks, member_tasks, personal_reminders, attendance_logs, team_performance_monthly, notifications (+recipients), public_abuse_log, public_rate_limit_buckets.
+- **Kept:** tenants, users, **user_capabilities (tenant-wide rows preserved; project-scoped rows dropped)**, user_sessions, team_member_tags, enquiry_intake (config), push_subscriptions, audit_log (append-only, invariant #3), audit_export_log, and ALL presets/templates (checkpoint_templates+items, table_presets+children, material_plan_presets+items, payment_milestone_presets+items).
+- **Gotcha encoded in the migration:** `user_capabilities` has FK → `projects` (on_delete=NO ACTION) and is the *only* external table referencing the wipe set. `TRUNCATE ... CASCADE` is table-level and would wipe ALL of user_capabilities; TRUNCATE without CASCADE refuses. Migration stashes tenant-wide cap rows in a TEMP table, truncates `user_capabilities` inside the self-contained list (no CASCADE), then re-inserts them. **Invariant: never TRUNCATE projects with CASCADE — it nukes user_capabilities.**
+- audit_log temporarily exceeds 500/tenant from the wipe's own audit entries; pg_cron `prune_audit_log_to_cap()` (072) restores the cap at 03:30 UTC.
+- Apply: `DATABASE_URL=... npx tsx scripts/migrate.ts`
 
 ## Status: Phase 10 migrations (043–050) + 051–066 + 999_add + 999_zz applied to cloud Supabase. Migrations 067 + 068 + 070 written, awaiting apply.
 
@@ -38,7 +71,12 @@
 - `shift_table_columns_after(p_table_id, p_after_order)` — opens a slot by `display_order + 1` for columns after the given order (used when inserting a column between two columns).
 - `delete_table_column(p_table_id, p_column_id)` — hard-deletes a column and shifts later columns `display_order - 1`. Orphaned cell values keyed by the column id remain in row JSONB, never rendered.
 
-### Migration 062 — audit log retention (applied 2026-05-18)
+### Migration 072 — audit log row cap (applied 2026-06-01)
+- Replaces the 30-day time retention (migration 062) with a **per-tenant 500-row cap**.
+- pg_cron job `audit-log-retention` (`30 3 * * *`) now runs `prune_audit_log_to_cap()`: keeps newest 500 rows per `tenant_id` (`row_number() OVER (PARTITION BY tenant_id ORDER BY occurred_at DESC, id DESC) > 500` deleted).
+- Hard-delete only, no archive. Forward hash chain stays valid (new inserts chain off the newest surviving row).
+
+### Migration 062 — audit log retention (applied 2026-05-18, superseded by 072)
 - pg_cron job `audit-log-retention` (`30 3 * * *`): `DELETE FROM audit_log WHERE occurred_at < now() - interval '30 days'`.
 - Hard-delete only, no archive. Hash chain stays valid for surviving rows.
 
@@ -254,7 +292,7 @@ Append-only. No UPDATE or DELETE RLS policies exist.
 
 **Chain mechanics:** Per-tenant `pg_advisory_xact_lock` taken inside `audit_trigger()` before reading `prev_hash`. After monthly archive truncation, first new row anchors to `audit_export_log.last_row_hash`. Zero-hash for very first row.
 
-**Retention:** pg_cron job `audit-log-retention` hard-deletes rows older than 30 days daily at 03:30 UTC (migration 062). No archive.
+**Retention:** pg_cron job `audit-log-retention` caps the table at the newest **500 rows per tenant** daily at 03:30 UTC via `prune_audit_log_to_cap()` (migration 072, supersedes the 30-day rule from 062). No archive.
 
 ### `audit_export_log`
 Records each monthly Drive archive: `first_row_hash`, `last_row_hash`, `export_sha256`, `drive_file_id`.
@@ -592,6 +630,7 @@ Sub-role tags for team members granting additional capabilities.
 
 **Helper:** `has_member_tag(p_tag text)` — STABLE SECURITY DEFINER, checks current user's tags.
 **Note:** assigning a tag writes its capability set into `user_capabilities` (`source='tag'`) via migration 065 triggers — tags now drive `has_capability()` / RLS, not just navbar visibility. (Updated: 2026-05-18)
+**Trigger:** `trg_set_tenant_from_tag_user` (076) — BEFORE INSERT, populates `tenant_id` from the target `user_id` (the table had NO tenant trigger, so UI tag grants failed with a NOT NULL violation; the tag API only sends `{user_id, tag, granted_by}`). Runs before the 065 capability-sync triggers. (Updated: 2026-06-08)
 
 ### `member_tasks` (038_member_tasks.sql)
 Persistent personal tasks for team members (not date-scoped; carry over until done).

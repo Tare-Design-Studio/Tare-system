@@ -1,5 +1,14 @@
 # PROJECT_STATE.md
-(Updated: 2026-06-01 — site check-out + per-site hours batch)
+(Updated: 2026-06-11 — demo seed v2 over live Tare client)
+
+### Demo seed v2 — reversible enrichment over the live Tare client (2026-06-11)
+
+**Built:**
+- `scripts/seed-demo.ts` — idempotent generator that enriches 9 of the 45 REAL Tare projects in place (customer/type/budget/dates/whatsapp) and attaches full demonstration data using the REAL 20 Tare users as authors/assignees. ~919 rows, all under the `dec0de00-…` UUID namespace. Covers customers, enquiries (+site-visit reminders), checkpoints+items, payment schedule+records, updates (+site images), material plan/consumption (one excess-flagged), expenses (approved/pending/rejected), site check-ins (closed+open+out-of-geofence), drawing register + site execution tables, bridge, calendar, broadcast+recipients, member/daily tasks, personal reminders, attendance (11 team + 4 SE × 5 days), 2 months performance.
+- Site-engineer dashboard + team-member attendance explicitly enriched (per request). Customer portal verified (16-char hashes).
+- **APPLIED to cloud Supabase 2026-06-11.** Teardown: `supabase/demo_teardown_v2.sql` (manual, kept OUT of migrations/). Generator/teardown both `SET LOCAL session_replication_role = replica` to bypass auth.uid()-based RLS while providing all columns.
+- All migrations through 076 confirmed applied (prior 067/068/070 "not yet applied" notes were stale).
+- No schema change — data only. See DEMO_VS_PROD.md.
 
 ### Site check-out + per-site hours (2026-06-01)
 

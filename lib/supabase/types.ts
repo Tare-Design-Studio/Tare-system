@@ -4368,6 +4368,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      prune_audit_log_to_cap: { Args: never; Returns: undefined }
       public_rate_limit_hit: {
         Args: {
           p_identifier: string
