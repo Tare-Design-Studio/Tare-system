@@ -10,15 +10,15 @@
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.5.1",
-    "@supabase/ssr": "^0.10.2",
+    "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.105.3",
     "dotenv": "^17.4.2",
     "googleapis": "^171.4.0",
-    "libphonenumber-js": "^1.12.43",
+    "libphonenumber-js": "^1.13.7",
     "next": "^16.2.9",
-    "pg": "^8.20.0",
-    "react": "19.2.4",
-    "react-dom": "19.2.4",
+    "pg": "^8.22.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
     "uuid": "^14.0.0",
     "web-push": "^3.6.7",
     "zod": "^4.4.3"
@@ -34,7 +34,7 @@
     "eslint": "^9",
     "eslint-config-next": "^16.2.9",
     "tailwindcss": "^4",
-    "tsx": "^4.22.0",
+    "tsx": "^4.22.4",
     "typescript": "^5"
   }
 }
