@@ -46,7 +46,6 @@ next-env.d.ts
 # scratch / dev-only — not for production repo
 test-db.js
 test-db2.js
-proxy.ts
 hey-claude-read-the-jaunty-firefly.md
 /ArchitectOS copy/
 /ArchitectOS copy */
