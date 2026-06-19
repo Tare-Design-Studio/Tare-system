@@ -45,7 +45,8 @@ export default async function ProjectsPage() {
        project_assignments ( user_id, users!user_id ( full_name ) )`
     )
     .is("deleted_at", null)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .range(0, 499); // bounded read — cap at 500
 
   const rows = (projects ?? []) as unknown as ProjectRow[];
   const activeCount = rows.filter(p => p.status === "active").length;

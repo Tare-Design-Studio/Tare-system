@@ -97,26 +97,46 @@ export default function CustomersPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
 
-  const load = useCallback(async () => {
+  const reqRef = useRef<AbortController | null>(null);
+
+  const load = useCallback(async (q = "", signal?: AbortSignal) => {
     setLoading(true);
-    const res = await fetch("/api/customers?include=projects");
-    if (res.ok) {
-      const data = await res.json();
-      setCustomers(data.customers ?? []);
-      if (!selectedId && (data.customers ?? []).length > 0) {
-        setSelectedId(data.customers[0].id);
+    const url = q.trim()
+      ? `/api/customers?search=${encodeURIComponent(q.trim())}`
+      : "/api/customers";
+    try {
+      const res = await fetch(url, { signal });
+      if (res.ok) {
+        const data = await res.json();
+        setCustomers(data.customers ?? []);
+        setSelectedId((prev) =>
+          prev ?? ((data.customers ?? [])[0]?.id ?? null)
+        );
       }
+      setLoading(false);
+    } catch (err) {
+      // Ignore aborts from a superseding request; only the latest settles state.
+      if ((err as Error)?.name !== "AbortError") setLoading(false);
     }
-    setLoading(false);
-  }, [selectedId]);
+  }, []);
 
-  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Debounced server-side search so lookups work beyond the 500-row cap.
+  // Also performs the initial load (search === "" → unfiltered). AbortController
+  // cancels any in-flight request so a slow earlier response can't clobber a
+  // newer one (out-of-order race).
+  useEffect(() => {
+    const t = setTimeout(() => {
+      reqRef.current?.abort();
+      const ctrl = new AbortController();
+      reqRef.current = ctrl;
+      load(search, ctrl.signal);
+    }, search ? 250 : 0);
+    return () => clearTimeout(t);
+  }, [search, load]);
 
-  const filtered = customers.filter(c =>
-    !search || c.name.toLowerCase().includes(search.toLowerCase()) ||
-    (c.phone ?? "").includes(search) ||
-    (c.email ?? "").toLowerCase().includes(search.toLowerCase())
-  );
+  // Server already filtered when a query is present; keep client filter as a
+  // no-op pass-through so the rendered list matches the loaded set.
+  const filtered = customers;
 
   const selected = customers.find(c => c.id === selectedId) ?? null;
 

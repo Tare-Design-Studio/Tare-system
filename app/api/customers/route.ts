@@ -1,21 +1,36 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
-export async function GET() {
+export async function GET(req: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { data, error } = await supabase
+  // Bounded read (cap 500) with optional server-side search so name/phone/email
+  // lookups keep working past the cap.
+  const { searchParams } = new URL(req.url);
+  const search = (searchParams.get("search") ?? "").trim();
+  const page = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
+  const limit = Math.min(500, Math.max(1, parseInt(searchParams.get("limit") ?? "500")));
+  const offset = (page - 1) * limit;
+
+  let query = supabase
     .from("customers")
     .select(`
       id, name, phone, email, address, created_at,
       projects ( id, name, status, current_stage, v_payment_status ( is_paid, amount_due, amount_received ) )
-    `)
-    .order("created_at", { ascending: false });
+    `, { count: "exact" })
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
 
+  if (search) {
+    const esc = search.replace(/[%_,]/g, (m) => `\\${m}`);
+    query = query.or(`name.ilike.%${esc}%,phone.ilike.%${esc}%,email.ilike.%${esc}%`);
+  }
+
+  const { data, error, count } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ customers: data ?? [] });
+  return NextResponse.json({ customers: data ?? [], meta: { total: count ?? 0, page, limit } });
 }
 
 export async function POST(req: Request) {

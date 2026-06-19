@@ -42,7 +42,7 @@ const CreateProjectSchema = z.object({
   payment_preset_id: z.string().uuid().nullable().optional(),
 });
 
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -52,7 +52,14 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: projects, error } = await supabase
+  // Bounded read: cap at 500 rows so the list never loads an unbounded set.
+  // Optional ?page/?limit for explicit paging (matches the audit API convention).
+  const { searchParams } = new URL(request.url);
+  const page = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
+  const limit = Math.min(500, Math.max(1, parseInt(searchParams.get("limit") ?? "500")));
+  const offset = (page - 1) * limit;
+
+  const { data: projects, error, count } = await supabase
     .from("projects")
     .select(
       `
@@ -65,16 +72,18 @@ export async function GET() {
         users!user_id ( full_name )
       ),
       project_checkpoints ( id, name, sequence_order, due_date, completed_at, requires_approval, approved_at )
-    `
+    `,
+      { count: "exact" }
     )
     .is("deleted_at", null)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ projects });
+  return NextResponse.json({ projects, meta: { total: count ?? 0, page, limit } });
 }
 
 export async function POST(request: Request) {

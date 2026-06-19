@@ -7,6 +7,8 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  // Bounded read: the UI is a Kanban board (not paginated), so cap the active
+  // enquiry set at 500 rather than loading an unbounded list.
   const { data, error } = await supabase
     .from("enquiries")
     .select(`
@@ -17,7 +19,8 @@ export async function GET() {
     `)
     .is("converted_to_customer_id", null)
     .is("deleted_at", null)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .range(0, 499);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);

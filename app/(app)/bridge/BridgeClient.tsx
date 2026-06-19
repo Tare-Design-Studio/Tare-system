@@ -124,10 +124,15 @@ export function BridgeClient({ projects, currentUserId }: Props) {
   useEffect(() => {
     if (!activeProject) return;
     setLoading(true);
-    fetch(`/api/projects/${activeProject.id}/bridge`)
+    // Abort on project switch so a slow response can't overwrite the newer
+    // project's messages (out-of-order race).
+    const ctrl = new AbortController();
+    fetch(`/api/projects/${activeProject.id}/bridge`, { signal: ctrl.signal })
       .then(r => r.json())
       .then(d => setMessages(d.messages ?? []))
-      .finally(() => setLoading(false));
+      .catch(err => { if (err?.name !== "AbortError") setMessages([]); })
+      .finally(() => { if (!ctrl.signal.aborted) setLoading(false); });
+    return () => ctrl.abort();
   }, [activeProject]);
 
   useEffect(() => {
