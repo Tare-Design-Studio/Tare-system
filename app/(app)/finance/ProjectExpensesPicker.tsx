@@ -46,7 +46,7 @@ export function ProjectExpensesPicker({ projects }: { projects: PickerProject[] 
           className="dropdown-mobile-safe"
           style={{
             position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 50,
-            width: 260, maxHeight: 320, overflowY: "auto", padding: 6,
+            width: 260, maxWidth: "calc(100vw - 24px)", maxHeight: 320, overflowY: "auto", padding: 6,
             borderRadius: 14, background: "var(--color-paper-light)",
             border: "1px solid var(--color-line)",
             boxShadow: "0 8px 28px -8px rgba(30,28,24,.28)",

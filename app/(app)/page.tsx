@@ -553,7 +553,7 @@ export default async function DashboardPage() {
   const canBroadcast = canBroadcastRes.data === true;
   const overviewNowMs = serverNowMs();
 
-  const [projectsRes, scheduleRes, expensesRes, calendarRes, membersRes, attendanceRes, memberTasksRes, tagsRes, siteCheckInsRes, dashUpdatesRes, enquiriesCountRes, updatesTodayCountRes, activeProjectsCountRes, broadcastsRes] = await Promise.all([
+  const [projectsRes, scheduleRes, expensesRes, calendarRes, membersRes, attendanceRes, memberTasksRes, tagsRes, siteCheckInsRes, dashUpdatesRes, enquiriesCountRes, updatesTodayCountRes, activeProjectsCountRes, broadcastsRes, broadcastAssignmentsRes] = await Promise.all([
     supabase
       .from("projects")
       .select("id, name, slug, project_type, status, current_stage, site_location, project_checkpoints(completed_at)")
@@ -623,6 +623,12 @@ export default async function DashboardPage() {
         owner_broadcast_recipients (user_id, is_acknowledged, users:user_id (id, full_name))`)
       .order("created_at", { ascending: false })
       .limit(1),
+    // Project → assigned members, for broadcast-by-project targeting (owner compose).
+    canBroadcast
+      ? db
+        .from("project_assignments")
+        .select("user_id, projects:project_id(id, name, status)")
+      : Promise.resolve({ data: null, error: null }),
   ]);
 
   const projects: DashProject[] = (projectsRes.data ?? []) as DashProject[];
@@ -724,6 +730,20 @@ export default async function DashboardPage() {
     .filter((m) => m.id !== user.id)
     .map((m) => ({ id: m.id, full_name: m.full_name }));
 
+  // Group project assignments → { id, name, memberIds[] } for broadcast targeting.
+  type AssignmentRow = { user_id: string; projects: { id: string; name: string; status: string } | null };
+  const projectMembersMap = new Map<string, { id: string; name: string; memberIds: string[] }>();
+  for (const row of ((broadcastAssignmentsRes.data ?? []) as AssignmentRow[])) {
+    const p = row.projects;
+    if (!p || p.status === "completed" || row.user_id === user.id) continue;
+    const existing = projectMembersMap.get(p.id) ?? { id: p.id, name: p.name, memberIds: [] };
+    if (!existing.memberIds.includes(row.user_id)) existing.memberIds.push(row.user_id);
+    projectMembersMap.set(p.id, existing);
+  }
+  const broadcastProjects = [...projectMembersMap.values()]
+    .filter((p) => p.memberIds.length > 0)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
   return (
     <>
       <div className="mobile-only">
@@ -737,6 +757,12 @@ export default async function DashboardPage() {
           teamMembers={teamMembers}
           totalMembers={teamRows.length}
           updates={recentUpdates}
+          broadcasts={broadcastsForPanel}
+          broadcastTeamMembers={broadcastTeamMembers}
+          broadcastProjects={broadcastProjects}
+          canBroadcast={canBroadcast}
+          currentUserId={user.id}
+          nowMs={overviewNowMs}
         />
       </div>
       <div className="desktop-only">
@@ -770,6 +796,7 @@ export default async function DashboardPage() {
               <BroadcastsPanel
                 broadcasts={broadcastsForPanel}
                 teamMembers={broadcastTeamMembers}
+                projects={broadcastProjects}
                 canCompose={canBroadcast}
                 currentUserId={user.id}
                 refreshLimit={1}

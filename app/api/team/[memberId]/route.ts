@@ -1,5 +1,94 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
+
+const EditSchema = z.object({
+  full_name: z.string().min(1).max(100).optional(),
+  role_label: z.string().max(100).nullable().optional(),
+  phone: z.string().max(40).nullable().optional(),
+  experience_years: z.number().int().min(0).max(80).nullable().optional(),
+  salary_inr: z.number().min(0).nullable().optional(),
+});
+
+// PATCH — edit a team member / site engineer's details (owner / team:edit_user).
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ memberId: string }> }
+) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { data: canEdit } = await supabase.rpc("has_capability", { p_capability: "team:edit_user" });
+  if (!canEdit) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const { memberId } = await params;
+  if (memberId === user.id) return NextResponse.json({ error: "Cannot edit your own record here" }, { status: 400 });
+
+  let body: unknown;
+  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON" }, { status: 400 }); }
+  const parsed = EditSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Validation failed" }, { status: 400 });
+  }
+  const patch = parsed.data;
+  if (Object.keys(patch).length === 0) return NextResponse.json({ error: "No fields to update" }, { status: 400 });
+
+  const admin = createServiceClient();
+  // Guard against editing the owner or a deleted record.
+  const { data: target } = await admin.from("users").select("role, deleted_at").eq("id", memberId).maybeSingle();
+  if (!target || target.deleted_at) return NextResponse.json({ error: "Member not found" }, { status: 404 });
+  if (target.role === "owner") return NextResponse.json({ error: "Cannot edit the owner" }, { status: 403 });
+
+  const { data, error } = await admin
+    .from("users")
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .update(patch as any)
+    .eq("id", memberId)
+    .select("id, full_name, role, role_label, phone, experience_years, salary_inr")
+    .single();
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data);
+}
+
+// DELETE — soft-delete a member and revoke all access (owner / team:deactivate_user).
+// Phrase-gated on the client; we re-check the capability here.
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ memberId: string }> }
+) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { data: canDeactivate } = await supabase.rpc("has_capability", { p_capability: "team:deactivate_user" });
+  if (!canDeactivate) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const { memberId } = await params;
+  if (memberId === user.id) return NextResponse.json({ error: "Cannot delete your own account" }, { status: 400 });
+
+  const admin = createServiceClient();
+  const { data: target } = await admin.from("users").select("role, deleted_at").eq("id", memberId).maybeSingle();
+  if (!target || target.deleted_at) return NextResponse.json({ error: "Member not found" }, { status: 404 });
+  if (target.role === "owner") return NextResponse.json({ error: "Cannot delete the owner" }, { status: 403 });
+
+  // Soft-delete the profile + deactivate so they vanish from directories and lose access.
+  const { error: delErr } = await admin
+    .from("users")
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .update({ deleted_at: new Date().toISOString(), is_active: false } as any)
+    .eq("id", memberId);
+  if (delErr) return NextResponse.json({ error: delErr.message }, { status: 500 });
+
+  // Revoke capabilities so RLS denies any lingering session immediately.
+  await admin.from("user_capabilities").delete().eq("user_id", memberId);
+
+  // Ban the auth user so existing sessions cannot refresh (24855 days ≈ permanent).
+  await admin.auth.admin.updateUserById(memberId, { ban_duration: "876000h" }).catch(() => {});
+
+  return NextResponse.json({ success: true });
+}
 
 function rangeStart(range: string): string {
   const now = new Date();

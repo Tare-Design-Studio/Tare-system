@@ -7,6 +7,8 @@ import { InviteForm } from "./InviteForm";
 import { BroadcastsPanel } from "./BroadcastsPanel";
 import { DailyTasksWidget } from "./DailyTasksWidget";
 import { TagsPanel } from "./TagsPanel";
+import { MemberManageMenu } from "./MemberManageMenu";
+import { MemberEditModeProvider } from "./MemberEditMode";
 import { DownloadReportButton } from "./DownloadReportButton";
 import { availableReportMonths } from "@/lib/reports/monthMeta";
 import styles from "./team-access.module.css";
@@ -72,7 +74,7 @@ export default async function TeamPage() {
   const [membersRes, broadcastsRes, dailyTasksRes, attendanceRes, memberTasksRes, tagRowsRes, siteCheckInsRes, projectAssignmentsRes] = await Promise.all([
     supabase
       .from("users")
-      .select("id, full_name, role, role_label, is_active, last_login_at")
+      .select("id, full_name, role, role_label, is_active, last_login_at, phone, experience_years, salary_inr")
       .is("deleted_at", null)
       .order("full_name"),
 
@@ -131,7 +133,7 @@ export default async function TeamPage() {
   ]);
 
   // Already name-ordered by the query; re-rank owner → team members → site engineers.
-  type MemberRow = { id: string; full_name: string; role: string; role_label: string | null; is_active: boolean; last_login_at: string | null };
+  type MemberRow = { id: string; full_name: string; role: string; role_label: string | null; is_active: boolean; last_login_at: string | null; phone: string | null; experience_years: number | null; salary_inr: number | null };
   const rows = [...((membersRes.data ?? []) as MemberRow[])].sort(
     (a, b) => (ROLE_RANK[a.role] ?? 99) - (ROLE_RANK[b.role] ?? 99)
   );
@@ -243,17 +245,14 @@ export default async function TeamPage() {
       <div className={styles.grid12}>
         <div className={styles.col12}>
           <div className={styles.card}>
-            <div className={styles.cardTitle}>
-              <div className={styles.cardTitleText}>
-                <h2 className="font-serif">Members</h2>
-                <p>Directory · roles · invite status</p>
-              </div>
-              {isOwner && (
+            <MemberEditModeProvider
+              enabled={!!canManage}
+              cornerSlot={isOwner && (
                 <Link href="/settings/access-matrix" className={styles.cornerButton} aria-label="Open access matrix">
                   <Icon name="arrowUR" size={15} />
                 </Link>
               )}
-            </div>
+            >
             <div className={styles.memberList}>
               {rows.map((m) => {
                 const chip = ROLE_CHIP[m.role] ?? { label: m.role, tone: "indigo" as const };
@@ -361,11 +360,25 @@ export default async function TeamPage() {
                       {canManageTags && m.role !== "owner" && (
                         <TagsPanel userId={m.id} userName={m.full_name} currentTags={memberTags} />
                       )}
+                      {canManage && m.role !== "owner" && m.id !== user.id && (
+                        <MemberManageMenu
+                          member={{
+                            id: m.id,
+                            full_name: m.full_name,
+                            role: m.role,
+                            role_label: m.role_label,
+                            phone: m.phone,
+                            experience_years: m.experience_years,
+                            salary_inr: m.salary_inr,
+                          }}
+                        />
+                      )}
                     </div>
                   </div>
                 );
               })}
             </div>
+            </MemberEditModeProvider>
           </div>
         </div>
 

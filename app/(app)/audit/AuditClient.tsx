@@ -124,32 +124,6 @@ function SurfaceButton({
   );
 }
 
-function FilterChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        minHeight: 28,
-        padding: "5px 11px",
-        borderRadius: 999,
-        border: active ? "1px solid var(--color-ink)" : "1px solid var(--color-line)",
-        background: active ? "var(--color-ink)" : "var(--color-paper-light)",
-        color: active ? "#F3EFE7" : "var(--color-ink)",
-        fontSize: 12,
-        fontWeight: 500,
-        whiteSpace: "nowrap",
-        cursor: "pointer",
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
 function Card({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
   return (
     <div
@@ -278,6 +252,19 @@ export default function AuditClient({ initialRows, totalCount, users, canExport 
     outline: "none",
   };
 
+  const selectStyle: React.CSSProperties = {
+    width: "100%",
+    padding: "9px 12px",
+    borderRadius: 12,
+    border: "1px solid var(--color-line)",
+    background: "var(--color-paper-light)",
+    fontSize: 13,
+    fontFamily: "inherit",
+    color: "var(--color-ink)",
+    outline: "none",
+    cursor: "pointer",
+  };
+
   return (
     <div style={{ padding: "0 0 40px" }}>
       <PageHeader
@@ -293,25 +280,33 @@ export default function AuditClient({ initialRows, totalCount, users, canExport 
         )}
       />
 
-      <div style={{ display: "flex", gap: 32, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 28, background: "rgba(30,28,24,.02)", padding: "20px 24px", borderRadius: 18, border: "1px solid var(--color-line)" }}>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ display: "flex", gap: 24, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 28, background: "rgba(30,28,24,.02)", padding: "20px 24px", borderRadius: 18, border: "1px solid var(--color-line)" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 180, flex: "1 1 180px" }}>
           <span style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 1, fontWeight: 600 }}>Actor</span>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <FilterChip label="All" active={!actorId} onClick={() => setActorFilter("")} />
-            {users.slice(0, 8).map((u) => (
-              <FilterChip key={u.id} label={u.full_name} active={actorId === u.id} onClick={() => setActorFilter(u.id)} />
+          <select
+            value={actorId}
+            onChange={(e) => setActorFilter(e.target.value)}
+            style={selectStyle}
+          >
+            <option value="">All actors</option>
+            {users.map((u) => (
+              <option key={u.id} value={u.id}>{u.full_name}</option>
             ))}
-          </div>
+          </select>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 180, flex: "1 1 180px" }}>
           <span style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 1, fontWeight: 600 }}>Action</span>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <FilterChip label="All" active={!action} onClick={() => setActionFilter("")} />
+          <select
+            value={action}
+            onChange={(e) => setActionFilter(e.target.value)}
+            style={selectStyle}
+          >
+            <option value="">All actions</option>
             {ACTIONS.map((a) => (
-              <FilterChip key={a} label={a.replace(/_/g, " ").toUpperCase()} active={action === a} onClick={() => setActionFilter(a)} />
+              <option key={a} value={a}>{a.replace(/_/g, " ").toUpperCase()}</option>
             ))}
-          </div>
+          </select>
         </div>
       </div>
 

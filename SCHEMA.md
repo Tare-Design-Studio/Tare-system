@@ -1,5 +1,10 @@
 # SCHEMA.md
-(Updated: 2026-06-08 — migration 075: audit_log capped at 100 per tenant ON INSERT; all existing audit rows cleared)
+(Updated: 2026-06-19 — migration 077: 30-day removed-employee purge cron)
+
+### Migration 077 — removed-employee 30-day purge (applied 2026-06-19)
+- `purge_removed_employees()` SECURITY DEFINER function + pg_cron job `removed-employee-purge` (`0 4 * * *`, daily 04:00 UTC).
+- For each `public.users` row with `deleted_at < now() - interval '30 days'` and `role <> 'owner'`: de-identifies the row (`full_name='Deleted Employee'`, NULLs `role_label/phone/experience_years/skill_score/salary_inr`, `is_active=false`), then attempts `DELETE FROM auth.users` (cascades to `public.users` + capabilities/sessions/tags/push when unreferenced). Per-row `EXCEPTION WHEN foreign_key_violation` keeps the anonymized row for members still referenced by authored history (`updates.author_id`, `owner_broadcasts.author_id`, `payment_records.recorded_by`, … — all NOT NULL NO ACTION FKs). The job therefore always succeeds.
+- Pairs with the team DELETE API (`DELETE /api/team/[memberId]`), which soft-deletes + revokes capabilities + bans the auth login immediately; 077 finalises cleanup 30 days later.
 
 ### Migration 075 — audit_log cap 100, enforced on insert (applied 2026-06-08, supersedes 072)
 - Cap lowered **500 → 100** per tenant, and enforcement moved from the daily cron job to an **AFTER INSERT statement-level trigger** (`trg_audit_log_cap` → `enforce_audit_log_cap()` → `prune_audit_log_to_cap()`). Every new audit row immediately evicts the oldest rows beyond the newest 100 per `tenant_id`.

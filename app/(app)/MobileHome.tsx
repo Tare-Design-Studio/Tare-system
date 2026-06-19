@@ -1,7 +1,11 @@
 import Link from "next/link";
 import { Avatar } from "@/components/atoms";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { BroadcastsPanel } from "./team/BroadcastsPanel";
 import { signOut } from "@/app/(auth)/actions";
+
+type BroadcastTeamMember = { id: string; full_name: string };
+type BroadcastProject = { id: string; name: string; memberIds: string[] };
 
 /* ── Types ───────────────────────────────────────────────────────── */
 
@@ -125,6 +129,14 @@ interface MobileHomeProps {
   teamMembers: MobileTeamMember[];
   totalMembers: number;
   updates: MobileUpdate[];
+  // Broadcast card (owner overview only — omitted for team-member view)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  broadcasts?: any[];
+  broadcastTeamMembers?: BroadcastTeamMember[];
+  broadcastProjects?: BroadcastProject[];
+  canBroadcast?: boolean;
+  currentUserId?: string;
+  nowMs?: number;
 }
 
 function computeGreeting(): string {
@@ -148,6 +160,12 @@ export default function MobileHome({
   teamMembers,
   totalMembers,
   updates,
+  broadcasts,
+  broadcastTeamMembers,
+  broadcastProjects = [],
+  canBroadcast = false,
+  currentUserId,
+  nowMs,
 }: MobileHomeProps) {
   const initials = firstName.slice(0, 2).toUpperCase();
   const days = ["M", "T", "W", "T", "F", "S", "S"];
@@ -367,6 +385,31 @@ export default function MobileHome({
               </div>
             </div>
           </Link>
+        </>
+      )}
+
+      {/* Broadcasts (owner overview) */}
+      {broadcasts && currentUserId && (
+        <>
+          <div style={{ padding: "0 16px" }}>
+            <SectionTitle href="/broadcasts" style={{ marginTop: 22 }}>Broadcasts</SectionTitle>
+          </div>
+          <div style={{ margin: "0 16px" }}>
+            <div style={{
+              background: "var(--color-paper-light)", borderRadius: 20, padding: 16,
+              boxShadow: "0 1px 0 #FFF inset, 0 8px 20px -10px rgba(30,28,24,.1)",
+            }}>
+              <BroadcastsPanel
+                broadcasts={broadcasts}
+                teamMembers={broadcastTeamMembers ?? []}
+                projects={broadcastProjects}
+                canCompose={canBroadcast}
+                currentUserId={currentUserId}
+                refreshLimit={1}
+                nowMs={nowMs ?? Date.now()}
+              />
+            </div>
+          </div>
         </>
       )}
 

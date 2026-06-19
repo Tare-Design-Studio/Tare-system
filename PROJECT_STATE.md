@@ -1,5 +1,25 @@
 # PROJECT_STATE.md
-(Updated: 2026-06-19 — mobile modal/dropdown fixes; PWA stays black w/ diamond icon)
+(Updated: 2026-06-19 — edit-mode toggle for member manage; customer delete-under-pencil; case-insensitive delete phrase; migration 077 30-day purge)
+
+### Manage-UX polish + 30-day employee purge (2026-06-19)
+
+**Built:**
+- **Members card edit-mode toggle** — per-row pencil (`MemberManageMenu`) is now hidden until a **top pencil** in the Members card title is clicked. New client `MemberEditModeProvider` (`team/MemberEditMode.tsx`) renders the card title + a toggle pencil (shown only when `canManage`) and exposes `useMemberEditMode()` via context; `MemberManageMenu` returns `null` unless edit mode is on (stays mounted while a modal is open). `team/page.tsx` Members card body wrapped in the provider; the access-matrix corner link moved into the provider's `cornerSlot`.
+- **Customer delete moved under the pencil** — `customers/page.tsx` detail header no longer shows a standalone trash button; the pencil is now a small menu (outside-click/Esc close) with **Edit details** + **Delete customer**.
+- **Delete phrase is case-insensitive** — both `MemberManageMenu` and the customer `DeleteCustomerModal` compare `phrase.trim().toLowerCase() === "delete-employee-data"`, so typing `DELETE-EMPLOYEE-DATA` works (was an exact-case match that left the confirm button disabled — the "not working" report).
+- **30-day DB purge** — migration **077** (APPLIED to cloud Supabase 2026-06-19; cron job + function verified live): `purge_removed_employees()` + daily pg_cron `removed-employee-purge` (04:00 UTC) anonymize then attempt full delete of members soft-deleted >30 days. See SCHEMA.md migration 077.
+- tsc clean; `next build` clean (still needs `NODE_OPTIONS=--max-old-space-size=6144` locally).
+
+### Broadcast dropdowns, audit dropdowns, team/customer manage (2026-06-19)
+
+**Built:**
+- **Broadcast compose redesign** (`team/BroadcastsPanel.tsx`) — the long recipient pill row is replaced by a **multi-select names dropdown** (checkbox list, "Select all"/"Clear all", outside-click/Esc close) alongside the existing **project dropdown** (picking a project preselects its assigned members). Typed broadcast text, the project `<select>`, and the names dropdown are now **black (`#000`)** per request.
+- **Broadcast card on phones** — `MobileHome.tsx` now renders a Broadcasts card at the **bottom of the owner overview** (after Team). New optional props (`broadcasts`, `broadcastTeamMembers`, `broadcastProjects`, `canBroadcast`, `currentUserId`, `nowMs`); team-member MobileHome omits them (no card). `page.tsx` owner branch now fetches `project_assignments` (gated by `canBroadcast`), builds `broadcastProjects`, and passes them to **both** the desktop and mobile BroadcastsPanel (desktop overview card previously had no project dropdown — now it does too).
+- **Audit filters → dropdowns** (`audit/AuditClient.tsx`) — Actor and Action chip rows replaced by `<select>` dropdowns (all actors / all actions); removed the now-unused `FilterChip` component; added `selectStyle`.
+- **Finance expenses dropdown phone cutoff** — `ProjectExpensesPicker.tsx` panel gains `maxWidth: calc(100vw - 24px)` so it never overflows the right edge outside the ≤767px `.dropdown-mobile-safe` window (which still pins it left/right:12px).
+- **Team member edit/delete** — `team/page.tsx` rows (non-owner, not self, `canManage`) get a pencil **`MemberManageMenu`** (new client component): Edit details modal (full_name, role_label, phone, experience_years, salary_inr) + "Remove access" modal requiring the typed phrase **`delete-employee-data`**. New `PATCH /api/team/[memberId]` (`team:edit_user`) and `DELETE` (`team:deactivate_user`): DELETE soft-deletes (`deleted_at`, `is_active=false`), deletes `user_capabilities`, and bans the auth user (876000h) to revoke sessions — all via **service client**; owner/self guarded. Members query now selects `phone, experience_years, salary_inr`.
+- **Customer edit/delete** — `customers/page.tsx` detail header gains pencil (Edit) + trash (Delete) icon buttons. `EditCustomerModal` (PATCHes existing route). `DeleteCustomerModal` requires the same `delete-employee-data` phrase; blocks deletion when projects are linked. New `DELETE /api/customers/[id]` — `customer:view` gated, **service client** (authenticated has no DELETE grant), 409 when linked projects exist or on FK violation (`23503`).
+- No DB/schema change. tsc clean; `next build` clean (needs `NODE_OPTIONS=--max-old-space-size=6144` locally — default heap OOMs the build worker, unrelated to these changes).
 
 ### Mobile CSS fixes + PWA icon swap (2026-06-19)
 

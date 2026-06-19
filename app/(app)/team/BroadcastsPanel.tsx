@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Chip } from "@/components/atoms";
 
 type Recipient = {
@@ -52,6 +52,25 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, projects = [
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
+  const [namesOpen, setNamesOpen] = useState(false);
+  const namesRef = useRef<HTMLDivElement>(null);
+
+  // Close the names dropdown on outside click / Escape.
+  useEffect(() => {
+    if (!namesOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (namesRef.current && !namesRef.current.contains(e.target as Node)) setNamesOpen(false);
+    }
+    function onEsc(e: KeyboardEvent) {
+      if (e.key === "Escape") setNamesOpen(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [namesOpen]);
 
   function startEdit(b: Broadcast) {
     setEditingId(b.id);
@@ -140,7 +159,7 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, projects = [
             style={{
               width: "100%", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--color-line)",
               background: "var(--color-paper-light)", fontSize: 13, fontFamily: "inherit",
-              resize: "none", lineHeight: 1.5, boxSizing: "border-box",
+              resize: "none", lineHeight: 1.5, boxSizing: "border-box", color: "#000",
             }}
           />
           {projects.length > 0 && (
@@ -149,7 +168,7 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, projects = [
               onChange={e => selectProject(e.target.value)}
               style={{
                 width: "100%", padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-line)",
-                background: "var(--color-paper-light)", fontSize: 12, fontFamily: "inherit", color: "var(--color-ink)",
+                background: "var(--color-paper-light)", fontSize: 12, fontFamily: "inherit", color: "#000",
               }}
             >
               <option value="">Send to a project team…</option>
@@ -158,26 +177,73 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, projects = [
               ))}
             </select>
           )}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {teamMembers.map(m => (
-              <button
-                key={m.id}
-                onClick={() => toggleMember(m.id)}
+          {/* Recipients dropdown — multi-select by name instead of a long pill row */}
+          <div ref={namesRef} style={{ position: "relative" }}>
+            <button
+              type="button"
+              onClick={() => setNamesOpen(v => !v)}
+              style={{
+                width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
+                padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-line)",
+                background: "var(--color-paper-light)", fontSize: 12, fontFamily: "inherit", color: "#000", cursor: "pointer",
+              }}
+            >
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {selected.length === 0
+                  ? "Select recipients…"
+                  : selected.length === teamMembers.length
+                    ? "Everyone"
+                    : `${selected.length} selected`}
+              </span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+            </button>
+            {namesOpen && (
+              <div
                 style={{
-                  padding: "3px 8px", borderRadius: 8, fontSize: 11, fontWeight: 500, border: "none", cursor: "pointer",
-                  background: selected.includes(m.id) ? "var(--color-ink)" : "var(--color-paper-light)",
-                  color: selected.includes(m.id) ? "#F3EFE7" : "var(--color-ink)",
+                  position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 40,
+                  maxHeight: 220, overflowY: "auto", padding: 6, borderRadius: 10,
+                  background: "var(--color-paper-light)", border: "1px solid var(--color-line)",
+                  boxShadow: "0 8px 24px -8px rgba(30,28,24,.28)",
                 }}
               >
-                {m.full_name.split(" ")[0]}
-              </button>
-            ))}
-            <button
-              onClick={() => setSelected(teamMembers.map(m => m.id))}
-              style={{ padding: "3px 8px", borderRadius: 8, fontSize: 11, border: "none", cursor: "pointer", background: "transparent", color: "var(--color-tan)", textDecoration: "underline" }}
-            >
-              All
-            </button>
+                <button
+                  type="button"
+                  onClick={() => setSelected(selected.length === teamMembers.length ? [] : teamMembers.map(m => m.id))}
+                  style={{
+                    display: "block", width: "100%", textAlign: "left", padding: "7px 8px", borderRadius: 7,
+                    border: "none", background: "transparent", fontSize: 12, fontWeight: 600, fontFamily: "inherit",
+                    color: "var(--color-forest)", cursor: "pointer",
+                  }}
+                >
+                  {selected.length === teamMembers.length ? "Clear all" : "Select all"}
+                </button>
+                {teamMembers.map(m => {
+                  const on = selected.includes(m.id);
+                  return (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => toggleMember(m.id)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left",
+                        padding: "7px 8px", borderRadius: 7, border: "none", background: "transparent",
+                        fontSize: 12, fontFamily: "inherit", color: "#000", cursor: "pointer",
+                      }}
+                    >
+                      <span style={{
+                        width: 15, height: 15, borderRadius: 4, flexShrink: 0,
+                        border: on ? "none" : "1px solid var(--color-line)",
+                        background: on ? "var(--color-ink)" : "transparent",
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      }}>
+                        {on && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#F3EFE7" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>}
+                      </span>
+                      {m.full_name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
           <button
             onClick={sendBroadcast}

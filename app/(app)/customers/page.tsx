@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar, Chip } from "@/components/atoms";
 import { PageHeader } from "../PageHeader";
@@ -269,6 +269,25 @@ function CustomerDetailPanel({
   const outstanding = totalFee - totalPaid;
 
   const [showLinkModal, setShowLinkModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const hasLinkedProjects = (customer.projects?.length ?? 0) > 0;
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onDocClick(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+    }
+    function onEsc(e: KeyboardEvent) { if (e.key === "Escape") setMenuOpen(false); }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [menuOpen]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -302,7 +321,45 @@ function CustomerDetailPanel({
               </div>
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div ref={menuRef} style={{ position: "relative", display: "inline-flex" }}>
+              <button
+                onClick={() => setMenuOpen(v => !v)}
+                aria-label="Manage customer"
+                title="Manage customer"
+                style={{
+                  width: 34, height: 34, borderRadius: 10, display: "inline-flex", alignItems: "center", justifyContent: "center",
+                  border: "1px solid var(--color-line)", background: "transparent", color: "var(--color-tan)", cursor: "pointer",
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>
+              </button>
+              {menuOpen && (
+                <div
+                  role="menu"
+                  style={{
+                    position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 60, width: 180, padding: 6,
+                    borderRadius: 12, background: "var(--color-paper-light)", border: "1px solid var(--color-line)",
+                    boxShadow: "0 8px 28px -8px rgba(30,28,24,.28)",
+                  }}
+                >
+                  <button
+                    role="menuitem"
+                    onClick={() => { setMenuOpen(false); setShowEditModal(true); }}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 10px", borderRadius: 8, border: "none", background: "transparent", color: "var(--color-ink)", fontSize: 13, fontFamily: "inherit", cursor: "pointer" }}
+                  >
+                    Edit details
+                  </button>
+                  <button
+                    role="menuitem"
+                    onClick={() => { setMenuOpen(false); setShowDeleteModal(true); }}
+                    style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 10px", borderRadius: 8, border: "none", background: "transparent", color: "var(--color-rust)", fontSize: 13, fontFamily: "inherit", cursor: "pointer" }}
+                  >
+                    Delete customer
+                  </button>
+                </div>
+              )}
+            </div>
             <button
               onClick={() => setShowLinkModal(true)}
               style={{
@@ -433,6 +490,196 @@ function CustomerDetailPanel({
           onLinked={() => { setShowLinkModal(false); onUpdated(); }}
         />
       )}
+
+      {showEditModal && (
+        <EditCustomerModal
+          customer={customer}
+          onClose={() => setShowEditModal(false)}
+          onSaved={() => { setShowEditModal(false); onUpdated(); }}
+        />
+      )}
+
+      {showDeleteModal && (
+        <DeleteCustomerModal
+          customer={customer}
+          hasLinkedProjects={hasLinkedProjects}
+          onClose={() => setShowDeleteModal(false)}
+          onDeleted={() => { setShowDeleteModal(false); onUpdated(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+const DELETE_CUSTOMER_PHRASE = "delete-employee-data";
+
+function EditCustomerModal({
+  customer, onClose, onSaved,
+}: {
+  customer: Customer;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState({
+    name: customer.name,
+    phone: customer.phone ?? "",
+    email: customer.email ?? "",
+    address: customer.address ?? "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  function set(k: string, v: string) { setForm(f => ({ ...f, [k]: v })); }
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.name.trim()) { setError("Name is required"); return; }
+    setSaving(true); setError(null);
+    const res = await fetch(`/api/customers/${customer.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: form.name.trim(),
+        phone: form.phone.trim() || null,
+        email: form.email.trim() || null,
+        address: form.address.trim() || null,
+      }),
+    });
+    setSaving(false);
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      setError(j.error ?? "Failed to save");
+      return;
+    }
+    onSaved();
+  }
+
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(27,26,23,.5)", backdropFilter: "blur(4px)", padding: 24 }}
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <div className="modal-mobile-full" style={{ background: "var(--color-paper-light)", borderRadius: 22, padding: 32, width: "100%", maxWidth: 480, boxShadow: "0 32px 80px -20px rgba(27,26,23,.3)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
+          <h2 className="font-serif" style={{ fontSize: 28, fontWeight: 400, margin: 0, letterSpacing: -0.5 }}>Edit Customer</h2>
+          <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 8, background: "var(--color-bg)", border: "none", cursor: "pointer", color: "var(--color-tan)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
+        </div>
+        <form onSubmit={save} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div>
+            <label style={labelStyle}>Name *</label>
+            <input style={inputStyle} value={form.name} onChange={e => set("name", e.target.value)} required />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <label style={labelStyle}>Phone</label>
+              <input style={inputStyle} value={form.phone} onChange={e => set("phone", e.target.value)} placeholder="+91 98400…" />
+            </div>
+            <div>
+              <label style={labelStyle}>Email</label>
+              <input style={inputStyle} type="email" value={form.email} onChange={e => set("email", e.target.value)} placeholder="email@…" />
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>Address</label>
+            <input style={inputStyle} value={form.address} onChange={e => set("address", e.target.value)} placeholder="e.g. Whitefield, Bangalore" />
+          </div>
+          {error && (
+            <div style={{ padding: "10px 14px", borderRadius: 10, background: "#C5543B18", color: "var(--color-rust)", fontSize: 13 }}>{error}</div>
+          )}
+          <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
+            <button type="button" onClick={onClose} style={{ padding: "9px 18px", borderRadius: 10, border: "1px solid var(--color-line)", background: "transparent", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+            <button type="submit" disabled={saving} style={{ padding: "9px 20px", borderRadius: 10, background: saving ? "var(--color-tan)" : "var(--color-ink)", color: "#FBF8F2", fontSize: 13, fontWeight: 600, border: "none", cursor: saving ? "not-allowed" : "pointer" }}>
+              {saving ? "Saving…" : "Save Changes"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function DeleteCustomerModal({
+  customer, hasLinkedProjects, onClose, onDeleted,
+}: {
+  customer: Customer;
+  hasLinkedProjects: boolean;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [phrase, setPhrase] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const confirmed = phrase.trim().toLowerCase() === DELETE_CUSTOMER_PHRASE;
+
+  async function remove() {
+    if (!confirmed || deleting) return;
+    setDeleting(true); setError(null);
+    const res = await fetch(`/api/customers/${customer.id}`, { method: "DELETE" });
+    setDeleting(false);
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      setError(j.error ?? "Failed to delete");
+      return;
+    }
+    onDeleted();
+  }
+
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(27,26,23,.5)", backdropFilter: "blur(4px)", padding: 24 }}
+      onClick={e => e.target === e.currentTarget && onClose()}
+    >
+      <div className="modal-mobile-full" style={{ background: "var(--color-paper-light)", borderRadius: 22, padding: 32, width: "100%", maxWidth: 460, boxShadow: "0 32px 80px -20px rgba(27,26,23,.3)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <h2 className="font-serif" style={{ fontSize: 26, fontWeight: 400, margin: 0, letterSpacing: -0.5, color: "var(--color-rust)" }}>Delete Customer</h2>
+          <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 8, background: "var(--color-bg)", border: "none", cursor: "pointer", color: "var(--color-tan)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
+        </div>
+        {hasLinkedProjects ? (
+          <p style={{ fontSize: 13, lineHeight: 1.6, margin: "0 0 4px", color: "var(--color-ink)" }}>
+            <strong>{customer.name}</strong> still has linked project(s). Unlink them first, then delete.
+          </p>
+        ) : (
+          <p style={{ fontSize: 13, lineHeight: 1.6, margin: "0 0 16px", color: "var(--color-ink)" }}>
+            This permanently deletes <strong>{customer.name}</strong> and cannot be undone.
+          </p>
+        )}
+        {!hasLinkedProjects && (
+          <>
+            <label style={{ ...labelStyle, marginBottom: 6 }}>Type <code style={{ fontFamily: "var(--font-mono)", color: "var(--color-rust)", textTransform: "none" }}>{DELETE_CUSTOMER_PHRASE}</code> to confirm</label>
+            <input
+              style={{ ...inputStyle, borderColor: phrase && !confirmed ? "var(--color-rust)" : "var(--color-line)" }}
+              value={phrase}
+              onChange={e => setPhrase(e.target.value)}
+              placeholder={DELETE_CUSTOMER_PHRASE}
+              autoFocus
+            />
+          </>
+        )}
+        {error && (
+          <div style={{ padding: "10px 14px", borderRadius: 10, background: "#C5543B18", color: "var(--color-rust)", fontSize: 13, marginTop: 12 }}>{error}</div>
+        )}
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18 }}>
+          <button type="button" onClick={onClose} style={{ padding: "9px 18px", borderRadius: 10, border: "1px solid var(--color-line)", background: "transparent", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+          {!hasLinkedProjects && (
+            <button
+              type="button"
+              onClick={remove}
+              disabled={!confirmed || deleting}
+              style={{
+                padding: "9px 20px", borderRadius: 10, fontSize: 13, fontWeight: 600, border: "none",
+                background: confirmed ? "var(--color-rust)" : "var(--color-tan)", color: "#FBF8F2",
+                cursor: confirmed && !deleting ? "pointer" : "not-allowed", opacity: confirmed ? 1 : 0.7,
+              }}
+            >
+              {deleting ? "Deleting…" : "Delete Permanently"}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
