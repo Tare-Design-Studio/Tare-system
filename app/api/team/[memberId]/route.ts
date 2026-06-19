@@ -36,9 +36,14 @@ export async function PATCH(
   if (Object.keys(patch).length === 0) return NextResponse.json({ error: "No fields to update" }, { status: 400 });
 
   const admin = createServiceClient();
-  // Guard against editing the owner or a deleted record.
-  const { data: target } = await admin.from("users").select("role, deleted_at").eq("id", memberId).maybeSingle();
-  if (!target || target.deleted_at) return NextResponse.json({ error: "Member not found" }, { status: 404 });
+  // Caller's tenant, derived from session (service role bypasses RLS, so scope here).
+  const { data: caller } = await admin.from("users").select("tenant_id").eq("id", user.id).maybeSingle();
+  if (!caller?.tenant_id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // Guard against editing the owner, a deleted record, or a member in another tenant.
+  const { data: target } = await admin.from("users").select("role, deleted_at, tenant_id").eq("id", memberId).maybeSingle();
+  if (!target || target.deleted_at || target.tenant_id !== caller.tenant_id) {
+    return NextResponse.json({ error: "Member not found" }, { status: 404 });
+  }
   if (target.role === "owner") return NextResponse.json({ error: "Cannot edit the owner" }, { status: 403 });
 
   const { data, error } = await admin
@@ -69,8 +74,13 @@ export async function DELETE(
   if (memberId === user.id) return NextResponse.json({ error: "Cannot delete your own account" }, { status: 400 });
 
   const admin = createServiceClient();
-  const { data: target } = await admin.from("users").select("role, deleted_at").eq("id", memberId).maybeSingle();
-  if (!target || target.deleted_at) return NextResponse.json({ error: "Member not found" }, { status: 404 });
+  // Caller's tenant, derived from session (service role bypasses RLS, so scope here).
+  const { data: caller } = await admin.from("users").select("tenant_id").eq("id", user.id).maybeSingle();
+  if (!caller?.tenant_id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const { data: target } = await admin.from("users").select("role, deleted_at, tenant_id").eq("id", memberId).maybeSingle();
+  if (!target || target.deleted_at || target.tenant_id !== caller.tenant_id) {
+    return NextResponse.json({ error: "Member not found" }, { status: 404 });
+  }
   if (target.role === "owner") return NextResponse.json({ error: "Cannot delete the owner" }, { status: 403 });
 
   // Soft-delete the profile + deactivate so they vanish from directories and lose access.

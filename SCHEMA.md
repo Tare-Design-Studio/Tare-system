@@ -1,5 +1,5 @@
 # SCHEMA.md
-(Updated: 2026-06-19 — migration 077: 30-day removed-employee purge cron)
+(Updated: 2026-06-19 — migration 078: team_member_tags cross-tenant IDOR fix)
 
 ### Migration 077 — removed-employee 30-day purge (applied 2026-06-19)
 - `purge_removed_employees()` SECURITY DEFINER function + pg_cron job `removed-employee-purge` (`0 4 * * *`, daily 04:00 UTC).
@@ -697,3 +697,6 @@ Office check-in/out per team member per day with GPS validation.
 Content tables added to the `supabase_realtime` publication so the global client subscriber (`components/realtime/RealtimeRefresher.tsx`) can re-fetch the current page on change via `router.refresh()` (debounced 800ms, paused while tab hidden):
 `updates`, `notification_recipients`, `owner_broadcasts`, `owner_broadcast_recipients`, `member_tasks`, `team_daily_tasks`, `expenses`, `material_plan`, `material_consumption`, `site_check_ins`, `enquiries`, `enquiry_reminders`, `payment_records`, `payment_schedule`, `projects`, `project_assignments`, `calendar_events`, `personal_reminders`, `media_assets`.
 RLS applies to realtime — clients only receive events for rows they can read. Non-content/high-churn tables (audit_log, attendance_logs, user_capabilities, presets, users, tenants) intentionally excluded. (Updated: 2026-06-01)
+
+### team_member_tags tenant isolation (078_team_member_tags_tenant_isolation.sql)
+`owner_manage_tags` policy (orig. 037) gated only on `has_capability('access_control:manage')`, which validates the *caller's* tenant but placed **no predicate on the target row's tenant_id** → cross-tenant IDOR. Policy now also requires `tenant_id = (SELECT tenant_id FROM users WHERE id = auth.uid() AND deleted_at IS NULL)` in both USING and WITH CHECK. The `/api/team-member-tags` route also filters by caller tenant (defense in depth). Related: `/api/team/[memberId]` used the service-role client (RLS bypassed) to mutate a target user by id with no tenant check — also a cross-tenant IDOR, fixed in-code by requiring `target.tenant_id === caller.tenant_id`. (Updated: 2026-06-19)

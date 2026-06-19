@@ -1,5 +1,13 @@
 # PROJECT_STATE.md
-(Updated: 2026-06-19 — edit-mode toggle for member manage; customer delete-under-pencil; case-insensitive delete phrase; migration 077 30-day purge)
+(Updated: 2026-06-19 — security pass: cross-tenant IDOR fixes + CI security workflows)
+
+### Security audit pass (2026-06-19)
+Triggered by Transcripts.md (OWASP/IDOR/dependency/CI guidance). Findings + fixes:
+- **CRITICAL — cross-tenant IDOR, `/api/team/[memberId]` (PATCH+DELETE):** used service-role client (RLS bypassed) to mutate a target user by id with no tenant check. Owner in tenant A could edit/permanently-ban a tenant B member. **Fixed** — derive caller tenant from session, require `target.tenant_id === caller.tenant_id`.
+- **HIGH — cross-tenant IDOR, `team_member_tags`:** RLS `owner_manage_tags` policy lacked a tenant predicate; API didn't filter tenant. **Fixed** — migration `078_team_member_tags_tenant_isolation.sql` adds tenant predicate to USING/WITH CHECK; API (`app/api/team-member-tags/route.ts`) filters by caller tenant.
+- **Dependencies:** `npm audit` 8 → 2 vulns via non-breaking `npm audit fix` (cleared `ws` high, `qs`). Remaining 2 (postcss XSS + transitive) need `--force` → next@16.2.9 (major) — deferred, decide separately.
+- **CI added:** `.github/workflows/security.yml` (npm audit high-fail + TruffleHog secret scan), `.github/workflows/codeql.yml` (CodeQL security-extended), `.github/dependabot.yml` (weekly npm + actions).
+- **Audited all 18 service-role routes + 86 API routes.** Remaining service-role routes safe: project-scoped `has_capability(p_project_id)` or an authenticated/RLS read gates the row before the service write. Two unauthenticated routes (`auth/callback`, `public/enquiry/[slug]`) intentional. tenant_id is correctly session-derived everywhere else (never trusted from request body).
 
 ### Manage-UX polish + 30-day employee purge (2026-06-19)
 
