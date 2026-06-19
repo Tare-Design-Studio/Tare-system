@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import { headers } from 'next/headers'
+
+// Brute-force budget for the public portal: a 16-char hash is the only gate,
+// so cap guesses per IP. 60 hits / 60s is generous for a real customer
+// (a portal page makes a handful of calls) but kills an enumeration sweep.
+const PORTAL_RATE_LIMIT = 60
+const PORTAL_RATE_WINDOW_SECONDS = 60
 
 // GET /api/portal/[hash]
 // Public endpoint — no auth required.
@@ -17,6 +24,27 @@ export async function GET(
   const { hash } = await params
   if (!hash || hash.length !== 16) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
+  // IP-based rate limit BEFORE any lookup — reuses the existing
+  // public_rate_limit_hit() fixed-window limiter (migration 025). The function
+  // is REVOKE FROM PUBLIC, so it must be called via the service client.
+  // Fail-open on limiter error (don't let a limiter blip 500 a real customer),
+  // but a missing IP is treated as one shared bucket.
+  const service = createServiceClient()
+  const { data: hitCount, error: rlError } = await service.rpc('public_rate_limit_hit', {
+    // tenant is unknown before the hash lookup; the SQL function accepts NULL.
+    // The generated types mark it non-null, so cast just this arg object.
+    p_tenant_id: null,
+    p_kind: 'portal_view',
+    p_identifier: ip ?? 'unknown',
+    p_window_seconds: PORTAL_RATE_WINDOW_SECONDS,
+  } as unknown as { p_tenant_id: string; p_kind: string; p_identifier: string; p_window_seconds: number })
+  if (!rlError && typeof hitCount === 'number' && hitCount > PORTAL_RATE_LIMIT) {
+    return NextResponse.json(
+      { error: 'Too many requests' },
+      { status: 429, headers: { 'Retry-After': String(PORTAL_RATE_WINDOW_SECONDS) } }
+    )
   }
 
   const supabase = await createClient()
