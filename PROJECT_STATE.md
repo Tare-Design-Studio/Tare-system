@@ -1,5 +1,15 @@
 # PROJECT_STATE.md
-(Updated: 2026-06-11 — demo seed v2 over live Tare client)
+(Updated: 2026-06-19 — mobile modal/dropdown fixes; PWA stays black w/ diamond icon)
+
+### Mobile CSS fixes + PWA icon swap (2026-06-19)
+
+**Built:**
+- **PWA theme = black (unchanged from original)** — `manifest.ts` `background_color`/`theme_color` + `viewport.themeColor` stay `#000000`. (A gray `#B8B8B8` theme + gray in-app bg was tried then reverted per request — splash looked bad.) In-app page background is back to the original paper radial-gradient (`globals.css` `body` + `:root`).
+- **App icon = diamond mark on paper gradient, iPhone-style rounded** — all `public/icon-*`/`apple-icon`/`favicon-32`/`badge-72` PNGs regenerated from the trimmed `Tare-Logo-01.png` (yellow diamond) centered on the paper radial-gradient (mirrors `globals.css` body: `#F3EFE7` + green/cream radials). `any`-purpose icons (192/512/apple-source/favicon/badge) get a rounded-rect squircle mask (~22% radius) via `blend:'dest-in'`. **`apple-icon.png` is full-bleed square** (iOS applies its own squircle — don't pre-round). **`icon-maskable-512.png` is full-bleed square** (Android OS masks it; smaller logo frac for safe zone). Splash `background_color`/`theme_color` + `viewport.themeColor` = `#F3EFE7`; `appleWebApp.statusBarStyle` → `default` (dark icons, legible on light bg). `public/sw.js` `CACHE_VERSION` v3→v7. Source PNGs (`Tare-Logo-01.png`, etc.) live in repo root.
+- **`middleware.ts` deleted** — deprecated Next.js convention; conflicted with the canonical `proxy.ts` (Both-files-detected build error). `proxy.ts` is the single session-middleware chokepoint.
+- **Mobile modal "overflow at top" fix** — `.modal-mobile-full` (`globals.css`) now adds `padding-top: max(safe-area-inset-top,16px)` (47px floored under `@media (display-mode: standalone)`) + bottom safe-area pad + 20px side pad, so the modal header clears the iOS status bar/notch. Applies to all modals already using the class: EditProjectModal, NewProjectModal, customers, calendar, MilestonesCard, PerformanceClient, EnquiriesClient, PaymentsCard.
+- **Mobile dropdown side-cutoff fix** — new `.dropdown-mobile-safe` class pins right-anchored popovers to `left/right:12px` (fixed, `top` = safe-area+56px, `max-height:70dvh`) on phones. Applied to `NotificationBell` panel + finance `ProjectExpensesPicker`. (TeamStreamCard's small pencil menu left as-is — anchors inside its card, no cutoff.)
+- No DB/schema change. tsc clean; `next build` clean (pre-existing stray untracked `middleware.ts` conflicts with `proxy.ts` — unrelated, not modified).
 
 ### Demo seed v2 — reversible enrichment over the live Tare client (2026-06-11)
 

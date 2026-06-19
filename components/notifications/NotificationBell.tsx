@@ -134,7 +134,7 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div style={{
+        <div className="dropdown-mobile-safe" style={{
           position: "absolute", top: 48, right: 0, zIndex: 200,
           width: "min(360px, calc(100vw - 24px))", maxHeight: 480, overflowY: "auto",
           background: "var(--color-paper-light)",

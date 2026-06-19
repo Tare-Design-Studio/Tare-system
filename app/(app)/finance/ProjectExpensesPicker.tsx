@@ -43,6 +43,7 @@ export function ProjectExpensesPicker({ projects }: { projects: PickerProject[] 
       {open && (
         <div
           role="menu"
+          className="dropdown-mobile-safe"
           style={{
             position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 50,
             width: 260, maxHeight: 320, overflowY: "auto", padding: 6,

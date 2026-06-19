@@ -4,7 +4,7 @@
 //
 // IMPORTANT: bump CACHE_VERSION on every deploy that changes static assets.
 // Old caches are purged on activate, so the next launch picks up new CSS/JS.
-const CACHE_VERSION = "v3";
+const CACHE_VERSION = "v7";
 const STATIC_CACHE = `architectos-static-${CACHE_VERSION}`;
 
 // ── Lifecycle ────────────────────────────────────────────────────────

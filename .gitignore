@@ -56,3 +56,8 @@ hey-claude-read-the-jaunty-firefly.md
 
 # Credentials — never commit
 USER_LOGINS.txt
+
+# Sensitive business / personal data — never commit
+INVOICE.md
+PROJECTS.xlsx
+Employee Data - Google Sheets.pdf

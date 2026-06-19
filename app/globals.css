@@ -165,7 +165,9 @@ body {
     grid-column: 1 / -1 !important;
   }
 
-  /* Full-screen modals on mobile */
+  /* Full-screen modals on mobile.
+     Pad the top by the safe-area inset so the modal header is not hidden
+     under the iOS status bar / notch (the "overflowing at the top" bug). */
   .modal-mobile-full {
     position: fixed !important;
     inset: 0 !important;
@@ -175,6 +177,33 @@ body {
     border-radius: 0 !important;
     overflow-y: auto !important;
     margin: 0 !important;
+    padding-top: max(env(safe-area-inset-top, 0px), 16px) !important;
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 24px) !important;
+    padding-left: 20px !important;
+    padding-right: 20px !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Installed PWA: iOS draws content under a translucent status bar; floor the
+     modal's top padding at a real status-bar height so the header clears it. */
+  @media (display-mode: standalone) {
+    .modal-mobile-full {
+      padding-top: max(env(safe-area-inset-top, 0px), 47px) !important;
+    }
+  }
+
+  /* Dropdown / popover panels anchored to a trigger near the screen edge.
+     On phones, pin them within the viewport so they are not clipped off the
+     side. Overrides the inline right:0 / fixed width used by the panels. */
+  .dropdown-mobile-safe {
+    position: fixed !important;
+    top: calc(max(env(safe-area-inset-top, 0px), 47px) + 56px) !important;
+    left: 12px !important;
+    right: 12px !important;
+    bottom: auto !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: 70dvh !important;
   }
 
   /* Horizontal padding for edge-touching content */

@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   title: "Tare",
   description: "Architecture practice management system",
   manifest: "/manifest.webmanifest",
-  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Tare" },
+  appleWebApp: { capable: true, statusBarStyle: "default", title: "Tare" },
   icons: {
     icon: [
       { url: "/favicon-32.png", sizes: "32x32", type: "image/png" },
@@ -28,7 +28,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#000000",
+  themeColor: "#F3EFE7",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
