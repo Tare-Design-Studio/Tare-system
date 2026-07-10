@@ -1,5 +1,32 @@
 # PROJECT_STATE.md
-(Updated: 2026-06-19 — security pass: cross-tenant IDOR fixes + CI security workflows)
+(Updated: 2026-06-21 — Realtime per-route subscription scoping + notification sub dedup)
+
+### Realtime cost reduction (2026-06-21)
+
+Triggered by `pg_stat_statements` analysis: `realtime.list_changes` was ~80% of total DB time (282k calls) — driven by every connected client subscribing to all 18 published content tables regardless of route.
+
+**Built:**
+- **`RealtimeRefresher` now scopes subscriptions per route.** Reads `usePathname()` and subscribes only to the published tables the current route actually renders (map derived from each page's `.from()` calls). Re-subscribes on navigation. Routes with no published content (`/audit`, `/performance`, `/settings`) subscribe to nothing; unmapped routes fall back to all tables so none silently lose live updates. Cuts WAL work per connected client.
+- **Removed `notification_recipients` from `RealtimeRefresher`** — `NotificationBell` already has a dedicated subscription for it, so it was double-firing (full `router.refresh()` + bell refetch) on every notification insert. Table stays in publication 071 (the bell still needs it).
+- **`NotificationBell` channel name is now stable (`"notif_bell"`)** instead of `Date.now()_random`, so remounts reuse one channel instead of accumulating `realtime.subscription` rows.
+- No schema/migration change (publication 071 unchanged). tsc clean.
+
+**Pending / flagged (not yet investigated):**
+- [ ] `generate_personal_reminder_notifications()` cron cadence — 11.5k calls in the stats window; confirm the schedule isn't over-firing.
+- [ ] `UPDATE tenants SET updated_at = now()` averaging 92ms on a single-row PK update — likely lock/trigger contention; investigate concurrent writers / AFTER UPDATE triggers on `tenants`.
+
+### Hardening batch — request_id, rate limiting, pooler (2026-06-19)
+
+### Hardening batch — request_id, rate limiting, pooler (2026-06-19)
+
+**Built:**
+- **Audit `request_id` now actually populated on the general (authed) write path.** Root cause: `lib/auth/middleware.ts` set `x-request-id` only on the **response** headers, and `lib/supabase/server.ts` passed no `global.headers` to PostgREST — so the audit trigger's `current_setting('request.headers')->>'x-request-id'` was **always null** for authenticated writes. Fix: middleware now sets `x-request-id` on the forwarded **request** headers (same mechanism as `x-pathname`); `server.ts` reads it via `headers()` and forwards it to PostgREST through `global.headers`, so the trigger captures it. `/api/public/enquiry/[slug]` is excluded from middleware → now self-generates the id via `uuidv4()` instead of relying on an absent header.
+- **Rate limiting on login + MFA-verify + invite** (portal/enquiry were already covered by 025/030). New migration **079** (APPLIED to cloud Supabase 2026-06-19; function verified live) `check_auth_rate_limit()` SECURITY DEFINER wrapper over existing `public_rate_limit_hit()` + `public_abuse_log`; granted to `anon, authenticated`. New `lib/auth/rateLimit.ts` (`clientIp()`, `checkRateLimit()` — fails open). Login + MFA-verify server actions: 10 / 5 min per IP. `/api/invite`: 20 / hour per user (429). Hand-patched `check_auth_rate_limit` into `lib/supabase/types.ts` Functions block.
+- **Transaction-pooler verification harness** — new `scripts/pooler-check.ts` (uses existing `pg` dep, no new deps): confirms transaction-mode (port 6543) and runs a concurrent short-transaction probe reporting success/fail, distinct backend PIDs (multiplexing evidence), and p50/p95/max latency. Run before onboarding tenant #3.
+- tsc clean across all changes.
+
+**Pending:**
+- [ ] **Run the pooler load test before tenant #3** against the prod transaction-mode URI: `POOLER_URL="...:6543/postgres" CONCURRENCY=50 npx tsx scripts/pooler-check.ts` — needs prod creds + an agreed concurrency target; decide acceptable p95 + concurrency that maps to 3 tenants.
 
 ### Security audit pass (2026-06-19)
 Triggered by Transcripts.md (OWASP/IDOR/dependency/CI guidance). Findings + fixes:

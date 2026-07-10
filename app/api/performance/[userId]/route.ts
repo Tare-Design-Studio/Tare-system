@@ -23,10 +23,13 @@ export async function GET(
 
   const { userId } = await params;
 
-  // Own data: always allowed. Others: requires finance:view_dashboard.
+  // Own data: always allowed. Others: requires finance:view_dashboard OR team:edit_user.
   if (userId !== user.id) {
-    const { data: cap } = await supabase.rpc("has_capability", { p_capability: "finance:view_dashboard" });
-    if (!cap) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const [{ data: capFinance }, { data: capTeam }] = await Promise.all([
+      supabase.rpc("has_capability", { p_capability: "finance:view_dashboard" }),
+      supabase.rpc("has_capability", { p_capability: "team:edit_user" }),
+    ]);
+    if (!capFinance && !capTeam) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   const { searchParams } = new URL(req.url);

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { checkRateLimit, clientIp } from "@/lib/auth/rateLimit";
 
 import { TEAM_MEMBER_CAPABILITIES, SITE_ENGINEER_CAPABILITIES } from "@/lib/auth/capabilities";
 
@@ -27,6 +28,21 @@ export async function POST(request: Request) {
 
   if (!canCreate) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Throttle invite/email abuse: 20 invites / hour per user.
+  const ok = await checkRateLimit({
+    kind: "invite",
+    identifier: user.id,
+    limit: 20,
+    windowSeconds: 3600,
+    ip: await clientIp(),
+  });
+  if (!ok) {
+    return NextResponse.json(
+      { error: "Too many invitations. Please wait a while and try again." },
+      { status: 429 }
+    );
   }
 
   let body: unknown;

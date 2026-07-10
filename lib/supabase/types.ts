@@ -4301,6 +4301,18 @@ export type Database = {
         }
         Returns: string
       }
+      check_auth_rate_limit: {
+        Args: {
+          p_kind: string
+          p_identifier: string
+          p_limit: number
+          p_window_seconds: number
+          p_ip?: string | null
+          p_user_agent?: string | null
+          p_request_id?: string | null
+        }
+        Returns: boolean
+      }
       compact_old_notifications: { Args: never; Returns: undefined }
       current_user_tenant_id: { Args: never; Returns: string }
       delete_table_column: {

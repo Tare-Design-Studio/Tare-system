@@ -1,5 +1,5 @@
 # SCHEMA.md
-(Updated: 2026-06-19 — migration 078: team_member_tags cross-tenant IDOR fix)
+(Updated: 2026-06-19 — migration 079: auth rate limiting for login/invite (APPLIED))
 
 ### Migration 077 — removed-employee 30-day purge (applied 2026-06-19)
 - `purge_removed_employees()` SECURITY DEFINER function + pg_cron job `removed-employee-purge` (`0 4 * * *`, daily 04:00 UTC).
@@ -700,3 +700,6 @@ RLS applies to realtime — clients only receive events for rows they can read. 
 
 ### team_member_tags tenant isolation (078_team_member_tags_tenant_isolation.sql)
 `owner_manage_tags` policy (orig. 037) gated only on `has_capability('access_control:manage')`, which validates the *caller's* tenant but placed **no predicate on the target row's tenant_id** → cross-tenant IDOR. Policy now also requires `tenant_id = (SELECT tenant_id FROM users WHERE id = auth.uid() AND deleted_at IS NULL)` in both USING and WITH CHECK. The `/api/team-member-tags` route also filters by caller tenant (defense in depth). Related: `/api/team/[memberId]` used the service-role client (RLS bypassed) to mutate a target user by id with no tenant check — also a cross-tenant IDOR, fixed in-code by requiring `target.tenant_id === caller.tenant_id`. (Updated: 2026-06-19)
+
+### Auth rate limiting (079_auth_rate_limit.sql) — APPLIED 2026-06-19
+`check_auth_rate_limit(p_kind, p_identifier, p_limit, p_window_seconds, p_ip?, p_user_agent?, p_request_id?) RETURNS boolean` — thin SECURITY DEFINER wrapper over the existing `public_rate_limit_hit()` + `public_abuse_log` primitives (025), granted to `anon, authenticated` (login is pre-auth). Returns TRUE within limit, FALSE when throttled; fails open on missing identifier. Logs a `<kind>_rate_limited` abuse row when throttled. Used by: login + MFA-verify server actions (`kind=login` / `mfa_verify`, 10 / 5 min per IP) and `/api/invite` (`kind=invite`, 20 / hour per user). Portal/enquiry rate limiting was already covered by 025/030. (Updated: 2026-06-19)

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { parsePhoneNumber, isValidPhoneNumber } from "libphonenumber-js";
+import { v4 as uuidv4 } from "uuid";
 import { createClient } from "@/lib/supabase/server";
 
 type Params = { params: Promise<{ slug: string }> };
@@ -37,7 +38,9 @@ export async function POST(req: Request, { params }: Params) {
             ?? req.headers.get("x-real-ip")
             ?? null;
   const ua   = req.headers.get("user-agent") ?? null;
-  const reqId = req.headers.get("x-request-id") ?? null;
+  // This route is excluded from middleware (api/public), so generate the
+  // audit correlation id here rather than relying on an x-request-id header.
+  const reqId = req.headers.get("x-request-id") ?? uuidv4();
   const referer = req.headers.get("referer") ?? null;
 
   let body: unknown;

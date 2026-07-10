@@ -60,9 +60,8 @@ export function NotificationBell() {
   // Realtime subscription — reacts to INSERT on notification_recipients
   useEffect(() => {
     const sb = supabaseRef.current;
-    const channelName = `notif_bell_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
     const channel = sb
-      .channel(channelName)
+      .channel("notif_bell")
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "notification_recipients" },

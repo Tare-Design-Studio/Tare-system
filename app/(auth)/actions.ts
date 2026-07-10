@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit, clientIp } from "@/lib/auth/rateLimit";
 
 export type AuthState = { error: string } | null;
 
@@ -11,6 +12,21 @@ export async function signIn(prevState: AuthState, formData: FormData): Promise<
 
   if (!email || !password) {
     return { error: "Email and password are required." };
+  }
+
+  // Throttle credential-stuffing: 10 attempts / 5 min per IP.
+  const ip = await clientIp();
+  if (ip) {
+    const ok = await checkRateLimit({
+      kind: "login",
+      identifier: ip,
+      limit: 10,
+      windowSeconds: 300,
+      ip,
+    });
+    if (!ok) {
+      return { error: "Too many attempts. Please wait a few minutes and try again." };
+    }
   }
 
   const supabase = await createClient();
@@ -43,6 +59,21 @@ export async function verifyMfa(prevState: AuthState, formData: FormData): Promi
 
   if (!code || code.length !== 6) {
     return { error: "Enter the 6-digit code from your authenticator app." };
+  }
+
+  // Throttle TOTP brute-force: 10 attempts / 5 min per IP.
+  const ip = await clientIp();
+  if (ip) {
+    const ok = await checkRateLimit({
+      kind: "mfa_verify",
+      identifier: ip,
+      limit: 10,
+      windowSeconds: 300,
+      ip,
+    });
+    if (!ok) {
+      return { error: "Too many attempts. Please wait a few minutes and try again." };
+    }
   }
 
   const supabase = await createClient();

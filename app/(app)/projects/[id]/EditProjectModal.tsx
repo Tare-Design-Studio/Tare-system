@@ -8,6 +8,14 @@ type TablePresetOption = { id: string; name: string; table_owner_role: string; t
 type PipelinePresetOption = { id: string; name: string; checkpoint_template_items?: unknown[] };
 type PaymentPresetOption = { id: string; name: string; payment_milestone_preset_items?: { percentage: number }[] };
 
+type ExistingAssignment = {
+  id: string;
+  role_on_project: string;
+  users: { id: string; full_name: string; role: string } | null;
+};
+
+type TeamEntry = { user_id: string; role_on_project: string; name: string; assignment_id?: string };
+
 type ProjectType = "residential" | "commercial" | "industrial" | "institutional" | "interior" | "urban" | "landscape" | "other";
 
 const PROJECT_TYPES: { value: ProjectType; label: string }[] = [
@@ -26,6 +34,16 @@ const STAGES = [
   { value: "design", label: "Design" },
   { value: "execution", label: "Execution" },
 ] as const;
+
+const TEAM_ROLES = [
+  { value: "pm",             label: "Project Manager" },
+  { value: "lead_architect", label: "Lead Architect" },
+  { value: "design_support", label: "Design Support" },
+  { value: "drafting",       label: "Drafting" },
+  { value: "coordination",   label: "Coordination" },
+  { value: "team_member",    label: "Team Member" },
+  { value: "site_engineer",  label: "Site Engineer" },
+];
 
 const inputStyle: React.CSSProperties = {
   width: "100%", padding: "10px 14px", borderRadius: 12,
@@ -144,23 +162,66 @@ export default function EditProjectModal({
   const [selectedPipelinePresetIds, setSelectedPipelinePresetIds] = useState<string[]>([]);
   const [selectedPaymentPresetId, setSelectedPaymentPresetId] = useState("");
 
+  // Team assignment state
+  const [teamEntries, setTeamEntries] = useState<TeamEntry[]>([]);
+  const [originalTeamEntries, setOriginalTeamEntries] = useState<TeamEntry[]>([]);
+  const [allUsers, setAllUsers] = useState<{ id: string; full_name: string; role: string }[]>([]);
+  const [usersLoaded, setUsersLoaded] = useState(false);
+  const [addUserId, setAddUserId] = useState("");
+  const [addRole, setAddRole] = useState("team_member");
+
   useEffect(() => {
-    if (!open || presetsLoaded) return;
-    Promise.all([
-      fetch("/api/table-presets").then(r => r.json()).catch(() => ({ presets: [] })),
-      fetch("/api/pipeline-templates").then(r => r.json()).catch(() => ({ templates: [] })),
-      fetch("/api/payment-presets").then(r => r.json()).catch(() => []),
-    ]).then(([tableData, pipelineData, paymentData]) => {
-      setTablePresets(tableData.presets ?? []);
-      setPipelinePresets(pipelineData.templates ?? []);
-      setPaymentPresets(Array.isArray(paymentData) ? paymentData : []);
-      setPresetsLoaded(true);
-    }).catch(() => setPresetsLoaded(true));
-  }, [open, presetsLoaded]);
+    if (!open) return;
+    if (!presetsLoaded) {
+      Promise.all([
+        fetch("/api/table-presets").then(r => r.json()).catch(() => ({ presets: [] })),
+        fetch("/api/pipeline-templates").then(r => r.json()).catch(() => ({ templates: [] })),
+        fetch("/api/payment-presets").then(r => r.json()).catch(() => []),
+      ]).then(([tableData, pipelineData, paymentData]) => {
+        setTablePresets(tableData.presets ?? []);
+        setPipelinePresets(pipelineData.templates ?? []);
+        setPaymentPresets(Array.isArray(paymentData) ? paymentData : []);
+        setPresetsLoaded(true);
+      }).catch(() => setPresetsLoaded(true));
+    }
+    if (!usersLoaded) {
+      Promise.all([
+        fetch(`/api/projects/${project.id}/assignments`).then(r => r.json()).catch(() => ({ assignments: [] })),
+        fetch("/api/users").then(r => r.json()).catch(() => ({ users: [] })),
+      ]).then(([assignData, userData]) => {
+        const assignments: ExistingAssignment[] = assignData.assignments ?? [];
+        const entries: TeamEntry[] = assignments
+          .filter(a => a.users)
+          .map(a => ({
+            user_id: a.users!.id,
+            role_on_project: a.role_on_project,
+            name: a.users!.full_name,
+            assignment_id: a.id,
+          }));
+        setTeamEntries(entries);
+        setOriginalTeamEntries(entries);
+        setAllUsers(userData.users ?? []);
+        setUsersLoaded(true);
+      }).catch(() => setUsersLoaded(true));
+    }
+  }, [open, presetsLoaded, usersLoaded, project.id]);
 
   function toggleTablePreset(id: string) {
     setSelectedTablePresetIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   }
+  function addTeamEntry() {
+    if (!addUserId) return;
+    const u = allUsers.find(u => u.id === addUserId);
+    if (!u) return;
+    if (teamEntries.find(e => e.user_id === addUserId)) return;
+    setTeamEntries(prev => [...prev, { user_id: addUserId, role_on_project: addRole, name: u.full_name }]);
+    setAddUserId("");
+  }
+
+  function removeTeamEntry(userId: string) {
+    setTeamEntries(prev => prev.filter(e => e.user_id !== userId));
+  }
+
   function togglePipelinePreset(id: string) {
     setSelectedPipelinePresetIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   }
@@ -192,6 +253,7 @@ export default function EditProjectModal({
     setShowPresets(false);
     setSelectedTablePresetIds([]);
     setSelectedPipelinePresetIds([]);
+    setUsersLoaded(false);
     setSelectedPaymentPresetId("");
     setOpen(true);
   }
@@ -301,6 +363,25 @@ export default function EditProjectModal({
           throw new Error(message);
         }
       }
+
+      // Save team assignment changes
+      const toAdd = teamEntries.filter(e => !e.assignment_id && !originalTeamEntries.find(o => o.user_id === e.user_id));
+      const toRemove = originalTeamEntries.filter(o => !teamEntries.find(e => e.user_id === o.user_id) && o.assignment_id);
+
+      await Promise.all([
+        ...toAdd.map(e =>
+          fetch(`/api/projects/${project.id}/assignments`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_id: e.user_id, role_on_project: e.role_on_project }),
+          })
+        ),
+        ...toRemove.map(e =>
+          fetch(`/api/projects/${project.id}/assignments?assignment_id=${e.assignment_id}`, {
+            method: "DELETE",
+          })
+        ),
+      ]);
 
       setOpen(false);
       router.refresh();
@@ -439,6 +520,45 @@ export default function EditProjectModal({
                   <label style={labelStyle}>Site Longitude</label>
                   <input style={inputStyle} type="number" step="any" min="-180" max="180" value={form.site_lng} onChange={e => set("site_lng", e.target.value)} placeholder="e.g. 77.5946" />
                 </div>
+              </div>
+
+              {/* Team Assignment */}
+              <div style={{ padding: "16px", borderRadius: 14, background: "var(--bg-2)", border: "1px solid var(--line-2)", display: "flex", flexDirection: "column", gap: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Team</div>
+                {!usersLoaded ? (
+                  <div style={{ fontSize: 12, color: "var(--color-tan)" }}>Loading…</div>
+                ) : (
+                  <>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <select value={addUserId} onChange={e => setAddUserId(e.target.value)} style={{ ...inputStyle, fontSize: 12, flex: "1 1 150px" }}>
+                        <option value="">— Add person —</option>
+                        {allUsers.filter(u => !teamEntries.find(e => e.user_id === u.id)).map(u => (
+                          <option key={u.id} value={u.id}>{u.full_name}</option>
+                        ))}
+                      </select>
+                      <select value={addRole} onChange={e => setAddRole(e.target.value)} style={{ ...inputStyle, fontSize: 12, flex: "1 1 130px", appearance: "none" as const }}>
+                        {TEAM_ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                      </select>
+                      <button type="button" onClick={addTeamEntry} disabled={!addUserId} style={{ padding: "8px 14px", borderRadius: 10, background: addUserId ? "var(--color-ink)" : "var(--color-line)", color: "#FBF8F2", fontSize: 12, fontWeight: 600, border: "none", cursor: addUserId ? "pointer" : "default" }}>Add</button>
+                    </div>
+                    {teamEntries.length > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {teamEntries.map(e => (
+                          <div key={e.user_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 10px", borderRadius: 8, background: "var(--color-paper-light)" }}>
+                            <span style={{ fontSize: 13 }}>{e.name}</span>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                              <span style={{ fontSize: 11, color: "var(--color-tan)" }}>{e.role_on_project.replace(/_/g, " ")}</span>
+                              <button type="button" onClick={() => removeTeamEntry(e.user_id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-tan)", padding: 0, fontSize: 12 }}>✕</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {teamEntries.length === 0 && (
+                      <div style={{ fontSize: 12, color: "var(--color-tan)", fontStyle: "italic" }}>No team members assigned.</div>
+                    )}
+                  </>
+                )}
               </div>
 
               {/* Progress Timeline Editing */}

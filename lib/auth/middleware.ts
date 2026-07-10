@@ -8,6 +8,13 @@ export async function updateSession(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-pathname", request.nextUrl.pathname);
 
+  // Generate the audit correlation id up front and forward it DOWNSTREAM on the
+  // request headers (not just the response) so route handlers / server components
+  // can read it via headers() and hand it to PostgREST — otherwise the audit
+  // trigger's request.headers->>'x-request-id' is always null on authed writes.
+  const requestId = uuidv4();
+  requestHeaders.set("x-request-id", requestId);
+
   let supabaseResponse = NextResponse.next({ request: { headers: requestHeaders } });
 
   const supabase = createServerClient(
@@ -30,8 +37,7 @@ export async function updateSession(request: NextRequest) {
   // Refresh session — required for SSR session maintenance
   const { data: { user } } = await supabase.auth.getUser();
 
-  // Inject audit headers so PostgREST / triggers can capture them
-  const requestId = uuidv4();
+  // Echo audit headers on the response too (useful for client-side correlation)
   supabaseResponse.headers.set("x-request-id", requestId);
   if (user) {
     supabaseResponse.headers.set("x-user-id", user.id);

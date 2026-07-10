@@ -8,8 +8,12 @@ export default async function PerformancePage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: cap } = await supabase.rpc("has_capability", { p_capability: "finance:view_dashboard" });
-  if (!cap) redirect("/");
+  // Allow access if user has finance:view_dashboard OR team:edit_user (admin tag)
+  const [{ data: capFinance }, { data: capTeam }] = await Promise.all([
+    supabase.rpc("has_capability", { p_capability: "finance:view_dashboard" }),
+    supabase.rpc("has_capability", { p_capability: "team:edit_user" }),
+  ]);
+  if (!capFinance && !capTeam) redirect("/");
 
   // All team members for this tenant (for the month selector + member list)
   const { data: members } = await supabase
