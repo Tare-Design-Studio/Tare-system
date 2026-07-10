@@ -137,7 +137,8 @@ export function RealtimeRefresher() {
       timerRef.current = setTimeout(flush, DEBOUNCE_MS);
     };
 
-    const channel = supabase.channel("page_refresher");
+    const channelName = `page_refresher_${Math.random().toString(36).substring(2)}`;
+    const channel = supabase.channel(channelName);
     for (const table of tables) {
       channel.on(
         "postgres_changes",

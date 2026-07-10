@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import PaymentsCard from "@/components/payments/PaymentsCard";
 import { ConfirmPopover, Icon } from "@/components/atoms";
@@ -133,9 +133,15 @@ export default function CustomerDetail({
     }
   }
 
-  const portalUrl = portalHash && portalEnabled
-    ? `${typeof window !== "undefined" ? window.location.origin : ""}/c/customer/${portalHash}`
-    : null;
+  const [portalUrl, setPortalUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (portalHash && portalEnabled) {
+      setPortalUrl(`${window.location.origin}/c/customer/${portalHash}`);
+    } else {
+      setPortalUrl(null);
+    }
+  }, [portalHash, portalEnabled]);
 
   const totalFee = paymentSchedule.reduce((n: number, r: AnyRow) => n + (r.amount_due ?? 0), 0);
   const totalPaid = paymentSchedule.reduce((n: number, r: AnyRow) => n + (r.amount_received ?? 0), 0);
