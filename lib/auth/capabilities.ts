@@ -89,6 +89,9 @@ export const CAPABILITIES = [
   "member_tasks:write_own",
   "member_tasks:view_all",
 
+  // Owner → member task assignment + review (migration 083)
+  "tasks:assign",
+
   // Personal reminders (strictly private)
   "personal_reminders:write_own",
 
@@ -173,6 +176,7 @@ export const TAG_CAPABILITIES: Record<string, Capability[]> = {
     "customer_payments:view",
     "daily_tasks:view_all",
     "member_tasks:view_all",
+    "tasks:assign",
     "office_attendance:view_all",
   ],
 };

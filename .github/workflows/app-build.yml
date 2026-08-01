@@ -1,0 +1,76 @@
+name: App build
+
+# The gate that was missing: two workflows existed (codeql, security) and neither
+# of them built the app. A type error or a production-only build failure could
+# merge clean. `next build` catches what `next dev` silently allows — e.g. a
+# `useSearchParams` without `<Suspense>` fails the production build only.
+#
+# Typecheck runs against source with a cold checkout, so it cannot inherit a
+# stale `.next/` the way a local run can — a Finder-duplicate inside
+# `.next/types/` can produce a false TS2300 that hard-stops a local check.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: typecheck + lint + build
+    runs-on: ubuntu-latest
+
+    env:
+      # Build-time placeholders. `next build` evaluates modules that read these
+      # at import time; it never opens a connection. Real values live in Vercel.
+      NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Lint (report-only — see note)
+        # NON-BLOCKING on purpose, and this is a debt marker, not a preference.
+        # As of 2026-08-01 `npm run lint` reports 663 errors + 75 warnings, all
+        # pre-existing (no-explicit-any, unused vars, exhaustive-deps,
+        # set-state-in-effect). Blocking on that would red-gate every PR on day
+        # one, and a gate that always fails gets ignored — so it reports instead.
+        #
+        # TO CLOSE: drive the count to zero, then delete `continue-on-error`.
+        # Do not add new lint errors in the meantime — the count only goes down.
+        continue-on-error: true
+        run: npm run lint
+
+      - name: Build
+        # Uses the package.json script as-is. It carries
+        # NODE_OPTIONS=--max-old-space-size=8192 deliberately: the Next 16
+        # typecheck/collect phase OOMs on the default heap. Do not override it
+        # here — an override would silently drop the flag.
+        run: npm run build
+
+      - name: Assert no Finder duplicates in the source tree
+        # macOS "file 2.ext" copies inside app/ or lib/ create duplicate route
+        # and identifier definitions, which surface as phantom TS2300
+        # duplicate-identifier errors that point at code you never wrote.
+        # Build output and archives are excluded — only source counts.
+        run: |
+          dupes=$(find app lib scripts supabase components 2>/dev/null \
+            -name '* [0-9].*' -print)
+          if [ -n "$dupes" ]; then
+            echo "Finder duplicate files in source tree:"
+            echo "$dupes"
+            exit 1
+          fi
+          echo "No duplicates in source tree."

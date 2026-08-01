@@ -1,0 +1,149 @@
+name: DB tests (pgtap)
+
+# Runs the database guardrails on a real Postgres with the full migration chain
+# applied, from empty. These are the fail-closed backstops for the RLS model:
+#   001 — capability enforcement (has_capability, audit_log append-only, grants)
+#   002 — every tenant_id table has RLS, has it FORCED, and has a scoped policy
+#         or a deny-all posture
+#
+# This is a single-tenant deployment, so there is no cross-tenant probe: the
+# risk it defends against does not exist here. What does still matter is that no
+# migration can ship a table the Data API serves without RLS — 002 is that gate.
+#
+# Applying the chain from an empty database is itself a test: it proves a fresh
+# provision still works, which nothing else in CI checks.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  pgtap:
+    name: pgtap RLS guardrails
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --name pgtap_pg
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # Local service container — not a secret. Session-mode equivalent for migrations.
+      # sslmode=disable: the stock postgres:16 image serves no TLS, and
+      # scripts/migrate.ts otherwise forces an SSL handshake (needed for
+      # Supabase) that this server rejects.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres?sslmode=disable
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+
+      - name: Install psql client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Install pgtap into the postgres service container
+        # The service container is a stock postgres:16 image — it has no pgtap.
+        # Installing postgresql-16-pgtap on the runner HOST puts the extension
+        # files on the wrong filesystem; the service's Postgres looks for
+        # /usr/share/postgresql/16/extension/pgtap.control inside its own
+        # container. `docker exec` into the named service container (pgtap_pg,
+        # set via `options: --name` above) and install it there instead.
+        #
+        # pgtap is not installed on the production database and does not need to
+        # be — it exists only for this job.
+        run: |
+          docker exec pgtap_pg sh -c "apt-get update && apt-get install -y postgresql-16-pgtap"
+
+      - name: Create pgtap extension
+        run: psql "$DATABASE_URL" -c "CREATE EXTENSION IF NOT EXISTS pgtap;"
+
+      - name: Create the Supabase surface (auth, pg_cron stub, realtime publication)
+        # The migration chain targets a Supabase database: it FKs to auth.users,
+        # calls auth.uid() in its RLS policies, calls cron.schedule (migrations
+        # 009/017/033/041/062/072/075/077/084/085), and adds tables to the
+        # supabase_realtime publication (071). None of that exists on a stock
+        # postgres:16.
+        #
+        # pg_cron specifically CANNOT be installed into a service container:
+        # it requires shared_preload_libraries and a server restart, which the
+        # `services:` block gives no hook for. ci-bootstrap.sql therefore
+        # provides cron.schedule/unschedule/job as inert stubs — the calls
+        # succeed and record, but no job ever fires. Scheduling has no bearing
+        # on the RLS coverage this suite asserts.
+        #
+        # This shim lives outside supabase/migrations/ so migrate.ts can never
+        # pick it up and it can never run against a real Supabase project.
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/ci-bootstrap.sql
+
+      - name: Apply migration chain
+        # Runs every numbered migration in order, exactly like a fresh provision.
+        #
+        # Migration 014 seeds Phase 1 presets and aborts with "Tenant
+        # tare-design-studio not found" unless that tenant row exists — in
+        # production scripts/setup-owner.ts creates it via the Admin API. CI has
+        # no such step, so the first pass is EXPECTED to stop at 014; seed the
+        # tenant, then resume. migrate.ts tracks applied files in _migrations and
+        # skips them, so the second pass continues from 014 rather than replaying.
+        #
+        # `|| true` on the first pass is therefore intentional. The second pass
+        # has no such guard: if anything from 014 onward fails, the job fails.
+        run: |
+          npx tsx scripts/migrate.ts || true
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/ci-seed-tenant.sql
+          npx tsx scripts/migrate.ts
+
+      - name: Assert the whole chain actually applied
+        # Belt to the braces above: if the first pass died somewhere BEFORE 014
+        # for an unrelated reason, the `|| true` would have swallowed it and the
+        # second pass would resume from that point — so compare the count of
+        # applied migrations against the files on disk.
+        run: |
+          on_disk=$(ls supabase/migrations/*.sql | wc -l | tr -d ' ')
+          applied=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM _migrations;")
+          echo "migrations on disk: $on_disk / applied: $applied"
+          if [ "$on_disk" != "$applied" ]; then
+            echo "Migration chain incomplete — $applied of $on_disk applied."
+            psql "$DATABASE_URL" -c "SELECT filename FROM _migrations ORDER BY filename;"
+            exit 1
+          fi
+
+      - name: Run pgtap guardrails
+        # Uses the repo's own runner, not pg_prove. 002 builds a TEMP TABLE with
+        # ON COMMIT DROP and then reads it from a later DO block: pg_prove sends
+        # each statement separately, so the temp table would already be gone and
+        # the file would report "planned N tests but ran 0". run-pgtap.ts sends
+        # each file as ONE multi-statement query, keeping the whole file in a
+        # single transaction, which is how these tests are written to run.
+        #
+        # It exits non-zero on any failure; the ALL PASS grep is a second belt so
+        # a run that asserts nothing can never look like a pass.
+        run: |
+          set -o pipefail
+          npx tsx scripts/run-pgtap.ts | tee pgtap.out
+
+          if ! grep -q "ALL PASS" pgtap.out; then
+            echo "pgtap did not report ALL PASS — the RLS gate did not run clean."
+            exit 1
+          fi

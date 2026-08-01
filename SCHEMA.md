@@ -1,5 +1,6 @@
 # SCHEMA.md
-(Updated: 2026-06-19 — migration 079: auth rate limiting for login/invite (APPLIED))
+(Updated: 2026-08-01 — migrations 080–086 APPLIED: FORCE RLS on all tables, is_paid forced-derived,
+task assignment lifecycle, auto performance KPI, app_errors, self-review block)
 
 ### Migration 077 — removed-employee 30-day purge (applied 2026-06-19)
 - `purge_removed_employees()` SECURITY DEFINER function + pg_cron job `removed-employee-purge` (`0 4 * * *`, daily 04:00 UTC).
@@ -648,9 +649,17 @@ Persistent personal tasks for team members (not date-scoped; carry over until do
 | completed | boolean | DEFAULT false |
 | completed_at | timestamptz | auto-set by trigger |
 | created_at / updated_at | timestamptz | auto-touched |
+| assigned_by | uuid | → users. **NULL = self-set todo** (legacy behaviour, no lifecycle) (083) |
+| tag | text | NOT NULL DEFAULT 'other', CHECK drawing/review/site/admin/other (083) |
+| due_date | date | (083) |
+| status | text | NOT NULL DEFAULT 'open', CHECK open/accepted/in_progress/pending_review/completed (083) |
+| accepted_at / started_at / submitted_at | timestamptz | lifecycle clock; logged = submitted_at − accepted_at (083) |
+| review_status | text | CHECK NULL or clean/revision/error (083) |
+| reviewed_by | uuid | → users (083) |
+| reviewed_at | timestamptz | (083) |
 
-**Trigger:** `handle_member_task_update` — sets completed_at on flip, nulls on uncheck.
-**RLS:** member reads/writes own; owner reads all via `daily_tasks:view_all`.
+**Trigger:** `handle_member_task_update` — sets completed_at on flip, nulls on uncheck; since 083 also stamps the lifecycle timestamps and keeps `completed` ↔ `status` in lockstep.
+**RLS:** member reads/writes own; owner reads all via `daily_tasks:view_all`. Since 083: `owner_assign_tasks` (INSERT for others, needs `tasks:assign`) and `owner_review_tasks` (UPDATE, needs `tasks:assign` **and `assigned_by IS NOT NULL`**).
 
 ### `personal_reminders` (039_personal_reminders.sql)
 Private calendar reminders visible only to the creating user. In-app notification only.
@@ -703,3 +712,124 @@ RLS applies to realtime — clients only receive events for rows they can read. 
 
 ### Auth rate limiting (079_auth_rate_limit.sql) — APPLIED 2026-06-19
 `check_auth_rate_limit(p_kind, p_identifier, p_limit, p_window_seconds, p_ip?, p_user_agent?, p_request_id?) RETURNS boolean` — thin SECURITY DEFINER wrapper over the existing `public_rate_limit_hit()` + `public_abuse_log` primitives (025), granted to `anon, authenticated` (login is pre-auth). Returns TRUE within limit, FALSE when throttled; fails open on missing identifier. Logs a `<kind>_rate_limited` abuse row when throttled. Used by: login + MFA-verify server actions (`kind=login` / `mfa_verify`, 10 / 5 min per IP) and `/api/invite` (`kind=invite`, 20 / hour per user). Portal/enquiry rate limiting was already covered by 025/030. (Updated: 2026-06-19)
+
+### FORCE RLS on all tables (081_force_rls_all_tables.sql)
+`ENABLE ROW LEVEL SECURITY` does **not** apply to the table owner — owner-role queries bypass every
+policy unless `FORCE` is also set. This schema had FORCE on only **11 of 55** RLS-enabled tables. 081
+loops the live catalog and forces RLS on every table where `relrowsecurity` is true but
+`relforcerowsecurity` is false. Verified: 11 → 55 forced, 55 enabled.
+
+**`service_role` is unaffected.** It (and `postgres`) carry the `BYPASSRLS` role attribute, which is a
+different mechanism from the owner exemption FORCE removes. Confirmed empirically: after FORCE,
+`service_role` still reads all rows (projects=148 before and after). The ~20 routes using
+`createServiceClient()` are therefore unchanged. Idempotent — re-running picks up tables added later.
+(Updated: 2026-08-01)
+
+### payment_schedule.is_paid forced derived (082_payment_is_paid_force_derived.sql)
+**Money bug.** `is_paid` was recomputed only by `trg_payment_records_recompute` on `payment_records`
+(027). Nothing guarded `payment_schedule` itself, so a direct UPDATE persisted — a milestone could read
+PAID with **zero payment records**, and would then show as paid in the app, the customer portal
+(030/048/061) and the unpaid-milestone push notifications (033).
+
+**Fix:** `force_payment_is_paid_derived()` + `trg_payment_schedule_force_is_paid` (BEFORE UPDATE)
+overwrite any client-supplied `is_paid` with `SUM(payment_records.amount_paid) >= amount_due`. The
+column is now authoritative on every write path; INSERT keeps DEFAULT false.
+
+Trigger order: fires before `trg_payment_schedule_set_tenant` / `_touch` (alphabetical), harmless —
+it only writes `NEW.is_paid`, which neither reads. The 035 audit trigger is AFTER UPDATE, so it records
+the *derived* value, not the forged one.
+
+Verified against production in a rolled-back transaction: new row false; forged `is_paid=true` blocked;
+partial 400/1000 false; full 1000/1000 true; unrelated UPDATE on a paid row stays true.
+
+App-side: `PATCH /api/projects/[id]/payments/[scheduleId]/status` previously wrote `is_paid` directly
+while gated on `finance:view_dashboard` (a **view** capability). Now gated on `customer_payments:edit`,
+writes only `triggered_at`, and returns the persisted `is_paid` rather than echoing the request.
+(Updated: 2026-08-01)
+
+### Task assignment lifecycle (083_task_assignment_lifecycle.sql)
+Turns `member_tasks` from self-set todos into an owner→member assignment system: assign → accept →
+in_progress → pending_review → completed, with fixed tags, due dates, time logging, and an owner review
+(clean/revision/error). **Additive** — pre-existing tasks default to `status='open'`, `tag='other'`,
+`assigned_by IS NULL` and behave exactly as before.
+
+New capability **`tasks:assign`** (owner + project_manager). Mirrored in `lib/auth/capabilities.ts` —
+DB `tag_capability_set()` and that file must always agree.
+
+Notifications via SECURITY DEFINER wrappers `emit_task_assigned_notification()` /
+`emit_task_review_notification()` (the app runs as `authenticated`, which is REVOKEd from
+`emit_notification()`).
+
+**Privilege-escalation fix folded in from upstream.** The upstream 086 shipped `owner_review_tasks`
+gated only on tenant + `tasks:assign` — a capability held by *members*, not just owners. With no
+OLD-vs-NEW comparison possible in RLS, such a member could rewrite `user_id` (steal/reassign any task),
+forge `accepted_at`/`submitted_at`, or mark their own work 'clean' — and 084 feeds those straight into
+the KPI. This repo never applied the broken form: 083 writes the corrected policy directly
+(`assigned_by IS NOT NULL` in USING and WITH CHECK) plus `guard_member_task_review()` /
+`trg_guard_member_task_review`, which rejects a reviewer altering `user_id`, `tenant_id`, or the clock.
+
+**Trigger name order is load-bearing.** `member_task_before_update` (038) must fire before
+`trg_guard_member_task_review` so the guard compares against values the lifecycle trigger already
+stamped. `'m' < 't'` holds by construction — do not rename either. (Updated: 2026-08-01)
+
+### Auto-derived task performance (084_task_performance_auto.sql)
+Fills `team_performance_monthly` from completed `member_tasks` so the Performance page and
+`v_kpi_scores` (034) populate automatically instead of being typed by hand. New column
+`is_manual_override` — when the owner hand-edits a month via `POST /api/performance`, recompute leaves
+that row alone.
+
+**View** `v_task_performance_monthly` — per (user, month): tag-weighted volume (drawing=3, review=2,
+site=2, admin=1, other=1), error/revision counts, on-time %, overdue days.
+**Functions** `recompute_task_kpi(uuid, date)` (upsert one user/month) and `recompute_all_task_kpi()`
+(nightly backstop, pg_cron `20 2 * * *`). Caps: weighted volume 200 (where efficiency saturates at
+100), site_delay_days 30.
+
+Upstream's single trigger fired only `WHEN (NEW.status='completed')`, so **un-completing** a task left
+a stale KPI until the nightly job. Folded in from upstream 089: split AFTER INSERT / AFTER UPDATE
+triggers with `WHEN (NEW.status='completed' OR OLD.status='completed')`, and the fuller function that
+also recomputes the OLD month and handles reassignment between members.
+
+`recompute_task_kpi()` looks up by `(user_id, period_month)` with **no tenant predicate** and is
+SECURITY DEFINER — safe only while 034's `UNIQUE (user_id, period_month)` holds (confirmed at
+034:22). If that constraint is ever widened, this lookup and its ON CONFLICT targets break.
+(Updated: 2026-08-01)
+
+### Application error log (085_app_errors.sql)
+`app_errors` — self-hosted error capture (no Sentry). Server code calls `logError()`
+(`lib/log/logError.ts`) which writes via the **service-role** client; `lib/log/withRouteErrorLog.ts`
+wraps route handlers and `POST /api/log-client-error` accepts browser-side reports.
+
+`tenant_id` is NULLABLE (errors before a tenant resolves: auth callback, public enquiry, proxy).
+RLS enabled **and forced**, read gated on `audit_log:view`; no write policy, so `authenticated` is
+deny-all for writes. Explicit `REVOKE ALL ... FROM anon` because `999_zz_explicit_data_api_grants.sql`
+only covers tables existing at that time.
+
+**Two known gaps:** the app has no `error.tsx` / `global-error.tsx` boundaries, so nothing currently
+calls `/api/log-client-error`; and `x-user-id` is set on the *response* not the request
+(`lib/auth/middleware.ts:43`), so `withRouteErrorLog` records `user_id` as null for server-thrown
+errors. `log-client-error` populates it correctly via `getUser()`. (Updated: 2026-08-01)
+
+### Block task self-review (086_block_task_self_review.sql)
+Fix-forward for 083 — a **KPI-inflation hole** found in review after 083 was already applied.
+
+083 stopped a *reviewer* rewriting a task's owner or time log, and gated `owner_review_tasks` on
+`assigned_by IS NOT NULL`. Neither closed **self**-review, for two reasons:
+1. `member_own_tasks` (038) is `FOR ALL USING (user_id = auth.uid())` and **PERMISSIVE** — Postgres
+   OR's permissive policies, so a member's UPDATE of their own row is authorised by that policy no
+   matter what `owner_review_tasks` requires.
+2. `guard_member_task_review()` returned early when `auth.uid() = OLD.user_id` by design.
+
+So any member holding `tasks:assign` (the `project_manager` / `accountant` / `admin` tags — **not
+only the owner**) could mark their own assigned task `review_status='clean'`, which 084 feeds
+straight into `v_kpi_scores`. Self-serve leaderboard inflation.
+
+086 extends the guard: the review **verdict** is rejected on your own row when
+`OLD.assigned_by IS NOT NULL`. Deliberately narrow — fires only when `review_status` actually
+changes, so accept/start/submit/edit/delete on your own task still work, and self-set todos
+(`assigned_by IS NULL`) are untouched. `auth.uid() IS NULL` (service-role/cron) stays exempt.
+`app/api/member-tasks/[id]/route.ts` enforces the same rule at the API layer (defense in depth).
+
+Verified on production in a rolled-back transaction, acting as a real member via
+`request.jwt.claims`: self-review blocked; own title edit, own submit, own self-set tick all still
+allowed; owner review of a member's task allowed; owner forging the member's `accepted_at` blocked.
+(Updated: 2026-08-01)
