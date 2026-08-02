@@ -71,3 +71,36 @@ Gotchas + fixes. Each: symptom → cause → fix.
 - **Fix:** `pkill -f 'next dev'; pkill -f 'next-server'`, then `rm -rf .next`,
   then `npm run build`.
 - **Rule:** stop the dev server before building for deploy.
+
+### 7. `git status` / `git push` hangs forever, or `fatal: mmap failed: Operation canceled`
+- **Symptom:** `git status`, `git add -A`, and `git push` hang until killed. Some
+  runs instead die with `fatal: mmap failed: Operation canceled`. A killed run
+  leaves `.git/index.lock`, which then blocks *every* later git command with
+  "Unable to create index.lock: File exists" — a second, misleading failure.
+- **Cause:** this repo has **~4400 loose objects and zero pack files**
+  (`git count-objects -v` → `in-pack: 0, packs: 0`, ~206 MB). Any operation that
+  enumerates objects has to mmap thousands of individual files, and the memory
+  mapping gets refused under a constrained/sandboxed environment.
+- **Tell:** `git count-objects -v` shows `packs: 0`. `ps -o %cpu,rss -p <pid>` on
+  the `git pack-objects` child shows **~0% CPU and a few MB RSS** — blocked, not
+  working. A genuinely slow pack burns CPU; this one does not.
+- **Fix that works:** push with git's memory use capped —
+  ```bash
+  git -c core.packedGitLimit=64m -c core.packedGitWindowSize=32m \
+      -c pack.windowMemory=64m -c pack.threads=1 -c pack.deltaCacheSize=16m \
+      push <remote> main
+  ```
+  Verified 2026-08-02: this pushed a 73-file / 6900-line commit to both remotes
+  after unconstrained pushes stalled indefinitely.
+- **Do NOT bother with `git gc` / `git repack -a -d` first.** Tried it: the
+  repack stalls in exactly the same way (0% CPU, no temp pack written), because
+  it is the same enumerate-and-mmap step that is failing. Kill it and go straight
+  to the constrained push — nothing is lost, the loose objects stay intact.
+- **Staging also hangs, separately.** `git add -A` walks the whole working tree
+  (734 MB `.next`, 718 MB `node_modules`, both correctly gitignored, plus three
+  `ArchitectOS copy*` dirs). **`git add <explicit paths>` returns instantly** —
+  stage by path, not with `-A`.
+- **Always `rm -f .git/index.lock` before retrying** after killing a git command,
+  or the next command fails for the wrong reason and sends you chasing ghosts.
+- Worth doing on a machine without the sandbox: a real `git repack -a -d` to get
+  this repo down to one pack, which removes the root cause.

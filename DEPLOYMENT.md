@@ -65,6 +65,26 @@ the Vercel deploy.
 
 To push to only one remote: `git push org main` or `git push client main`.
 
+### If the push hangs (it has, twice)
+
+`git push`, `git status` and `git add -A` can hang indefinitely on this repo, or
+fail with `fatal: mmap failed: Operation canceled`. Cause: ~4400 loose objects and
+**zero pack files** (`git count-objects -v` → `packs: 0`), so git has to mmap
+thousands of files. Push with its memory capped instead:
+
+```bash
+git -c core.packedGitLimit=64m -c core.packedGitWindowSize=32m \
+    -c pack.windowMemory=64m -c pack.threads=1 -c pack.deltaCacheSize=16m \
+    push org main
+```
+
+Also: stage with **explicit paths** (`git add app lib supabase …`), never
+`git add -A` — the full-tree walk is what hangs. And `rm -f .git/index.lock`
+after killing any git command, or every later command fails for the wrong reason.
+
+`git gc` / `git repack` do **not** help — they stall on the same step. Full
+write-up in `learnings.md` §7.
+
 Commit message format (`<type>`: feat, fix, refactor, docs, test, chore, perf, ci):
 
 ```
