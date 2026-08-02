@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Chip } from "@/components/atoms";
+import VoiceRecorder from "@/components/broadcasts/VoiceRecorder";
+import VoiceNote from "@/components/broadcasts/VoiceNote";
 
 type Recipient = {
   user_id: string;
@@ -12,6 +14,8 @@ type Recipient = {
 type Broadcast = {
   id: string;
   body: string;
+  voice_path?: string | null;
+  voice_duration_s?: number | null;
   created_at: string;
   edited_at?: string | null;
   users: { id: string; full_name: string } | null;
@@ -106,6 +110,14 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, projects = [
     if (!proj) return;
     const known = new Set(teamMembers.map(m => m.id));
     setSelected(proj.memberIds.filter(id => known.has(id)));
+  }
+
+  async function refreshList() {
+    const listRes = await fetch(`/api/broadcasts?limit=${refreshLimit}`);
+    if (listRes.ok) {
+      const { broadcasts: fresh } = await listRes.json();
+      setBroadcasts(fresh);
+    }
   }
 
   async function sendBroadcast() {
@@ -257,6 +269,12 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, projects = [
             {sending ? "Sending…" : "Send Broadcast"}
           </button>
           {sent && <div style={{ fontSize: 12, color: "var(--color-forest)" }}>Broadcast sent.</div>}
+
+          {/* Voice broadcast — separate send path (multipart), so it does not
+              share the text composer's recipient selection. */}
+          <div style={{ borderTop: "1px solid var(--color-line)", paddingTop: 12, marginTop: 4 }}>
+            <VoiceRecorder onSent={refreshList} />
+          </div>
         </div>
       )}
 

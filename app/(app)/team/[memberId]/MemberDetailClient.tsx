@@ -85,6 +85,8 @@ type AttendanceLog = {
   check_in_at: string | null;
   check_out_at: string | null;
   total_minutes: number | null;
+  overtime_minutes: number | null;
+  is_late: boolean | null;
   check_in_within_geofence: boolean | null;
   check_out_within_geofence: boolean | null;
 };
@@ -211,19 +213,26 @@ function AttendanceCard({ attendance }: { attendance: AttendanceLog[] }) {
   const geofenceViolations = attendance.filter(
     (r) => r.check_in_within_geofence === false || r.check_out_within_geofence === false
   ).length;
+  // Overtime (091): minutes past the tenant's workday end, derived server-side.
+  const overtimeMinutes = attendance.reduce((s, r) => s + (r.overtime_minutes ?? 0), 0);
+  const otDays = attendance.filter((r) => (r.overtime_minutes ?? 0) > 0).length;
+  const lateDays = attendance.filter((r) => r.is_late).length;
 
   return (
     <div className={styles.card}>
       <div className={styles.cardTitle}>
         <div className={styles.cardTitleText}>
           <h2 className="font-serif">Attendance</h2>
-          <p>Office check-in / check-out logs</p>
+          <p>Office check-in / check-out logs · overtime</p>
         </div>
       </div>
       <div className={styles.statTiles}>
         <StatTile label="Days Present" value={daysPresent} unit="d" />
         <StatTile label="Total Hours" value={fmtHours(totalMinutes)} />
         <StatTile label="Avg / Day" value={fmtHours(avgMinutes)} />
+        <StatTile label="Overtime" value={fmtHours(overtimeMinutes)} />
+        <StatTile label="OT Days" value={otDays} unit="d" />
+        <StatTile label="Late Days" value={lateDays} unit="d" />
         <StatTile label="Geofence Flags" value={geofenceViolations} />
       </div>
       {attendance.length > 0 && (
@@ -235,7 +244,7 @@ function AttendanceCard({ attendance }: { attendance: AttendanceLog[] }) {
               <div
                 key={row.id}
                 className={`${styles.attendanceDay} ${hasCheckout ? styles.attendanceDayPresent : styles.attendanceDayPartial}`}
-                title={`${row.work_date} · ${fmtHours(row.total_minutes)}`}
+                title={`${row.work_date} · ${fmtHours(row.total_minutes)}${(row.overtime_minutes ?? 0) > 0 ? ` · +${fmtHours(row.overtime_minutes)} OT` : ""}${row.is_late ? " · late" : ""}`}
               >
                 {day}
               </div>

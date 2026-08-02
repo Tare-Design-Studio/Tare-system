@@ -10,7 +10,7 @@ const InviteSchema = z.object({
   email: z.string().email(),
   full_name: z.string().min(1).max(100),
   role: z.enum(["team_member", "site_engineer"]),
-  password: z.string().min(8).optional(),
+  password: z.string().min(6).optional(),
 });
 
 export async function POST(request: Request) {

@@ -2,24 +2,24 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { serverNowMs } from "@/lib/serverNow";
-import { Avatar, Chip, Icon } from "@/components/atoms";
+import { Icon } from "@/components/atoms";
 import { InviteForm } from "./InviteForm";
 import { BroadcastsPanel } from "./BroadcastsPanel";
 import { DailyTasksWidget } from "./DailyTasksWidget";
-import { TagsPanel } from "./TagsPanel";
-import { MemberManageMenu } from "./MemberManageMenu";
-import { MemberEditModeProvider } from "./MemberEditMode";
 import { DownloadReportButton } from "./DownloadReportButton";
+import { TeamBoard, type BoardMember, type LeaderRow } from "./TeamBoard";
+import { scoreToGrade, type MemberTaskMetrics } from "./taskTime";
+import LeaveApprovalCard from "./LeaveApprovalCard";
 import { availableReportMonths } from "@/lib/reports/monthMeta";
 import styles from "./team-access.module.css";
 import { PageHeader } from "../PageHeader";
 
 export const metadata = { title: "Team — ArchitectOS" };
 
-const ROLE_CHIP: Record<string, { label: string; tone: "forest" | "indigo" | "amber" }> = {
-  owner: { label: "Owner", tone: "forest" },
-  team_member: { label: "Team Member", tone: "indigo" },
-  site_engineer: { label: "Site Engineer", tone: "amber" },
+const ROLE_BASE: Record<string, string> = {
+  owner: "Owner",
+  team_member: "Team Member",
+  site_engineer: "Site Engineer",
 };
 
 const roleTone = (role: string): "forest" | "amber" | "indigo" =>
@@ -45,25 +45,24 @@ function formatHours(minutes: number) {
   return mins ? `${hours}h ${mins}m` : `${hours}h`;
 }
 
-// Pinned timezone keeps server/client render identical (no hydration drift).
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
-}
-
 export default async function TeamPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
   // Check capability
-  const [capManage, capBroadcast, capTags] = await Promise.all([
+  const [capManage, capBroadcast, capTags, capAssign, capLeave] = await Promise.all([
     supabase.rpc("has_capability", { p_capability: "team:create_user" }),
     supabase.rpc("has_capability", { p_capability: "broadcast:create" }),
     supabase.rpc("has_capability", { p_capability: "team_member_tags:manage" }),
+    supabase.rpc("has_capability", { p_capability: "tasks:assign" }),
+    supabase.rpc("has_capability", { p_capability: "leave:approve" }),
   ]);
   const canManage = capManage.data;
   const canBroadcast = capBroadcast.data;
   const canManageTags = capTags.data === true;
+  const canAssign = capAssign.data === true;
+  const canApproveLeave = capLeave.data === true;
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const currentMonthStart = todayStr.slice(0, 7) + "-01";
@@ -80,7 +79,7 @@ export default async function TeamPage() {
 
     supabase
       .from("owner_broadcasts")
-      .select(`id, body, created_at, edited_at,
+      .select(`id, body, voice_path, voice_duration_s, created_at, edited_at,
         users:author_id (id, full_name),
         owner_broadcast_recipients (user_id, is_acknowledged, users:user_id (id, full_name))`)
       .order("created_at", { ascending: false })
@@ -103,11 +102,15 @@ export default async function TeamPage() {
         .not("check_in_at", "is", null)
       : Promise.resolve({ data: null, error: null }),
 
-    // Member tasks summary (owner view)
+    // Member tasks summary (owner view). Lifecycle columns come from migration
+    // 083; review_status feeds the quality half of the derived score.
     canManage
       ? db
         .from("member_tasks")
-        .select("user_id, title, completed, created_at, completed_at, users!user_id(full_name)")
+        .select(
+          "user_id, title, completed, created_at, completed_at, tag, due_date, status, " +
+          "review_status, assigned_by, accepted_at, submitted_at, users!user_id(full_name)"
+        )
         .order("created_at", { ascending: false })
       : Promise.resolve({ data: null, error: null }),
 
@@ -154,22 +157,49 @@ export default async function TeamPage() {
     existing.check_ins += row.check_in_count ?? 1;
     attendanceByUser.set(row.user_id, existing);
   }
-  // Aggregate member tasks per user: active (unchecked) tasks + latest completed.
-  type TaskRow = { user_id: string; title: string; completed: boolean; created_at: string; completed_at: string | null; users: { full_name: string } | null };
-  type MemberTaskSummary = {
-    activeTasks: { title: string; created_at: string }[];
-    latestCompleted: { title: string; at: string } | null;
+  // Aggregate member tasks per user: active tasks, completed tasks with the time
+  // actually taken, plus the quality signals (review verdicts, on-time %) that
+  // the derived score reads.
+  type TaskRow = {
+    user_id: string; title: string; completed: boolean; created_at: string; completed_at: string | null;
+    tag: string | null; due_date: string | null; status: string | null; review_status: string | null;
+    assigned_by: string | null; accepted_at: string | null; submitted_at: string | null;
+    users: { full_name: string } | null;
   };
+  type TaskSummary = MemberTaskMetrics & { dueCompleted: number; onTimeCompleted: number };
   const taskRows = (memberTasksRes.data ?? []) as TaskRow[];
-  const tasksByUser = new Map<string, MemberTaskSummary>();
+  const tasksByUser = new Map<string, TaskSummary>();
   for (const row of taskRows) {
-    const existing = tasksByUser.get(row.user_id) ?? { activeTasks: [], latestCompleted: null };
+    const existing = tasksByUser.get(row.user_id) ?? {
+      activeTasks: [], completedTasks: [], completedCount: 0, avgTakenMs: null,
+      tagCounts: {}, onTimePct: null, errorCount: 0, revisionCount: 0,
+      dueCompleted: 0, onTimeCompleted: 0,
+    };
+    const tag = row.tag ?? "other";
+    const assigned = !!row.assigned_by;
     if (!row.completed) {
-      existing.activeTasks.push({ title: row.title, created_at: row.created_at });
+      existing.activeTasks.push({
+        title: row.title, createdAt: row.created_at,
+        tag, dueDate: row.due_date, assigned, status: row.status ?? "open",
+      });
     } else {
       const at = row.completed_at ?? row.created_at;
-      if (!existing.latestCompleted || new Date(at).getTime() > new Date(existing.latestCompleted.at).getTime()) {
-        existing.latestCompleted = { title: row.title, at };
+      // Assigned tasks log time from acceptance; self-set tasks from creation.
+      const startedAt = assigned && row.accepted_at ? row.accepted_at : row.created_at;
+      const takenMs = Math.max(0, new Date(at).getTime() - new Date(startedAt).getTime());
+      const late = !!row.due_date && new Date(at) > new Date(`${row.due_date}T23:59:59`);
+      existing.completedTasks.push({
+        title: row.title, takenMs, tag,
+        review: row.review_status as MemberTaskMetrics["completedTasks"][number]["review"],
+        late, assigned,
+      });
+      existing.completedCount += 1;
+      existing.tagCounts![tag] = (existing.tagCounts![tag] ?? 0) + 1;
+      if (row.review_status === "error") existing.errorCount! += 1;
+      if (row.review_status === "revision") existing.revisionCount! += 1;
+      if (row.due_date) {
+        existing.dueCompleted += 1;
+        if (!late) existing.onTimeCompleted += 1;
       }
     }
     tasksByUser.set(row.user_id, existing);
@@ -177,6 +207,13 @@ export default async function TeamPage() {
   // taskRows arrive newest-first; show active tasks oldest-first (date added order).
   for (const summary of tasksByUser.values()) {
     summary.activeTasks.reverse();
+    if (summary.completedTasks.length) {
+      const sum = summary.completedTasks.reduce((s, t) => s + t.takenMs, 0);
+      summary.avgTakenMs = Math.round(sum / summary.completedTasks.length);
+    }
+    summary.onTimePct = summary.dueCompleted > 0
+      ? Math.round((summary.onTimeCompleted / summary.dueCompleted) * 100)
+      : null;
   }
 
   type TagRow = { user_id: string; tag: string };
@@ -207,6 +244,113 @@ export default async function TeamPage() {
   const broadcastProjects = [...projectMembersMap.values()]
     .filter((p) => p.memberIds.length > 0)
     .sort((a, b) => a.name.localeCompare(b.name));
+
+  // ── Derived scores ──────────────────────────────────────────────────────
+  // This deployment has NOT ported v_kpi_scores (upstream 087) or login_streaks
+  // (088), so the score is computed here from what migrations 083/084 do give
+  // us: task quality + on-time delivery, blended with attendance consistency.
+  // Nothing is fabricated — a member with no completed tasks scores on
+  // consistency alone.
+  const ownerRow = rows.find((m) => m.role === "owner");
+  const nonOwnerRows = rows.filter((m) => m.role !== "owner");
+
+  // Consistency (0–100): presence + check-ins, capped. Office-based only — a
+  // member working from site simply has no attendance rows and isn't penalised.
+  function consistencyScore(id: string): number {
+    const att = attendanceByUser.get(id);
+    const checkIns = siteCheckInsByUser.get(id) ?? 0;
+    const days = att?.days ?? 0;
+    const raw = days * 4 + Math.round((att?.total_minutes ?? 0) / 60) + checkIns * 2;
+    return Math.max(0, Math.min(100, raw));
+  }
+
+  // Delivery (0–100) from completed work: volume credit, on-time bonus, and
+  // penalties for owner-flagged revisions and errors. Mirrors the weighting in
+  // v_task_performance_monthly (084).
+  function deliveryScore(id: string): number | null {
+    const t = tasksByUser.get(id);
+    if (!t || t.completedCount === 0) return null;
+    const volume = Math.min(60, t.completedCount * 6);
+    const onTime = t.onTimePct != null ? Math.round((t.onTimePct / 100) * 30) : 20;
+    const penalty = (t.errorCount ?? 0) * 8 + (t.revisionCount ?? 0) * 4;
+    return Math.max(0, Math.min(100, volume + onTime + 10 - penalty));
+  }
+
+  function memberScore(id: string): number {
+    const consistency = consistencyScore(id);
+    const delivery = deliveryScore(id);
+    if (delivery === null) return consistency;
+    return Math.max(0, Math.min(100, Math.round(delivery * 0.85 + consistency * 0.15)));
+  }
+
+  const emptyMetrics: MemberTaskMetrics = {
+    activeTasks: [], completedTasks: [], completedCount: 0, avgTakenMs: null,
+    tagCounts: {}, onTimePct: null, errorCount: 0, revisionCount: 0,
+  };
+
+  const boardMembers: BoardMember[] = nonOwnerRows.map((m) => {
+    const att = attendanceByUser.get(m.id);
+    const memberTags = tagsByUser.get(m.id) ?? [];
+    const siteVisits = siteCheckInsByUser.get(m.id) ?? 0;
+    const score = memberScore(m.id);
+    const t = tasksByUser.get(m.id);
+    const tasks: MemberTaskMetrics = t
+      ? {
+          activeTasks: t.activeTasks.slice(0, 5),
+          completedTasks: t.completedTasks.slice(0, 5),
+          completedCount: t.completedCount,
+          avgTakenMs: t.avgTakenMs,
+          tagCounts: t.tagCounts,
+          onTimePct: t.onTimePct,
+          errorCount: t.errorCount,
+          revisionCount: t.revisionCount,
+        }
+      : emptyMetrics;
+    // Quality grade leans on review verdicts alone, so it reads differently from
+    // the blended delivery grade.
+    const qualityPenalty = (t?.errorCount ?? 0) * 10 + (t?.revisionCount ?? 0) * 5;
+    return {
+      id: m.id,
+      name: m.full_name,
+      roleLabel: [ROLE_BASE[m.role] ?? m.role, ...memberTags.map((tag) => TAG_LABELS[tag] ?? tag)].join(" · "),
+      initials: initials(m.full_name),
+      tone: roleTone(m.role),
+      presentDays: att?.days ?? 0,
+      hours: formatHours(att?.total_minutes ?? 0),
+      checkIns: att?.check_ins ?? 0,
+      siteVisits,
+      grade: scoreToGrade(score),
+      score,
+      quality: scoreToGrade(Math.max(0, score - qualityPenalty)),
+      tasks,
+      role: m.role,
+      role_label: m.role_label,
+      phone: m.phone,
+      experience_years: m.experience_years,
+      salary_inr: m.salary_inr,
+      tags: memberTags,
+      isActive: m.is_active,
+      isSelf: m.id === user.id,
+      linkable: m.id !== user.id,
+    };
+  });
+
+  const leaders: LeaderRow[] = boardMembers
+    .map((m) => ({ m, score: m.score }))
+    .sort((a, b) => b.score - a.score || a.m.name.localeCompare(b.m.name))
+    .slice(0, 5)
+    .map(({ m, score }, _i, arr) => {
+      const top = arr[0]?.score || 1;
+      return {
+        id: m.id,
+        name: m.name,
+        initials: m.initials,
+        tone: m.tone,
+        score,
+        grade: scoreToGrade(score),
+        pct: Math.max(6, Math.round((score / (top || 1)) * 100)),
+      };
+    });
 
   return (
     <div className={styles.surface}>
@@ -242,223 +386,50 @@ export default async function TeamPage() {
 
 
 
-      <div className={styles.grid12}>
-        <div className={styles.col12}>
-          <div className={styles.card}>
-            <MemberEditModeProvider
-              enabled={!!canManage}
-              cornerSlot={isOwner && (
-                <Link href="/settings/access-matrix" className={styles.cornerButton} aria-label="Open access matrix">
-                  <Icon name="arrowUR" size={15} />
-                </Link>
-              )}
-            >
-            <div className={styles.memberList}>
-              {rows.map((m) => {
-                const chip = ROLE_CHIP[m.role] ?? { label: m.role, tone: "indigo" as const };
-                const attendance = attendanceByUser.get(m.id);
-                const taskSummary = tasksByUser.get(m.id);
-                const memberTags = tagsByUser.get(m.id) ?? [];
-                const activeTasks = taskSummary?.activeTasks ?? [];
-                const latestCompleted = taskSummary?.latestCompleted ?? null;
-                const siteCheckIns = siteCheckInsByUser.get(m.id) ?? 0;
-                const isLinkable = m.role !== "owner" && m.id !== user.id;
-                return (
-                  <div
-                    key={m.id}
-                    className={styles.memberRow}
-                  >
-                    <Avatar
-                      initials={initials(m.full_name)}
-                      tone={roleTone(m.role)}
-                    />
-                    <div style={{ minWidth: 0 }}>
-                      <div className={styles.memberName}>
-                        {isLinkable ? (
-                          <Link href={`/team/${m.id}`} style={{ color: "inherit", textDecoration: "none" }}>
-                            {m.full_name}
-                          </Link>
-                        ) : (
-                          m.full_name
-                        )}
-                      </div>
-                      <div className={styles.memberMeta}>
-                        {chip.label}
-                        {memberTags.length > 0 && (
-                          <span className={styles.memberTagLine}>
-                            {memberTags.map((tag) => TAG_LABELS[tag] ?? tag).join(" · ")}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    {m.role !== "owner" && (
-                    <div className={styles.memberStats}>
-                      {m.role === "site_engineer" ? (
-                        <>
-                          <div className={styles.memberStat}>
-                            <span>Present</span>
-                            <strong>{attendance?.days ?? 0}d</strong>
-                          </div>
-                          <div className={styles.memberStat}>
-                            <span>Hours</span>
-                            <strong>{formatHours(attendance?.total_minutes ?? 0)}</strong>
-                          </div>
-                          <div className={styles.memberStat}>
-                            <span>Check-ins</span>
-                            <strong>{attendance?.check_ins ?? 0}</strong>
-                          </div>
-                          <div className={styles.memberStat}>
-                            <span>Site visits</span>
-                            <strong>{siteCheckIns}</strong>
-                          </div>
-                        </>
-                      ) : (
-                        <>
-                          <div className={styles.memberStat}>
-                            <span>Present</span>
-                            <strong>{attendance?.days ?? 0}d</strong>
-                          </div>
-                          <div className={styles.memberStat}>
-                            <span>Hours</span>
-                            <strong>{formatHours(attendance?.total_minutes ?? 0)}</strong>
-                          </div>
-                          <div className={styles.memberStat}>
-                            <span>Check-ins</span>
-                            <strong>{attendance?.check_ins ?? 0}</strong>
-                          </div>
-                          <div className={styles.memberTask}>
-                            {activeTasks.length > 0 ? (
-                              <>
-                                <span>Active tasks</span>
-                                <div className={styles.memberTaskList}>
-                                  {activeTasks.map((t, i) => (
-                                    <div key={i} className={styles.memberTaskItem}>
-                                      <strong>{t.title}</strong>
-                                      <em>{formatDate(t.created_at)}</em>
-                                    </div>
-                                  ))}
-                                </div>
-                              </>
-                            ) : latestCompleted ? (
-                              <>
-                                <span>Last completed</span>
-                                <strong>{latestCompleted.title}</strong>
-                              </>
-                            ) : (
-                              <>
-                                <span>Tasks</span>
-                                <strong>No tasks</strong>
-                              </>
-                            )}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                    )}
-                    <div className={styles.inlineChips}>
-                      {!m.is_active && <Chip label="Pending" tone="sand" size="sm" />}
-                      {canManageTags && m.role !== "owner" && (
-                        <TagsPanel userId={m.id} userName={m.full_name} currentTags={memberTags} />
-                      )}
-                      {canManage && m.role !== "owner" && m.id !== user.id && (
-                        <MemberManageMenu
-                          member={{
-                            id: m.id,
-                            full_name: m.full_name,
-                            role: m.role,
-                            role_label: m.role_label,
-                            phone: m.phone,
-                            experience_years: m.experience_years,
-                            salary_inr: m.salary_inr,
-                          }}
-                        />
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+      {canApproveLeave && <LeaveApprovalCard />}
+
+      <TeamBoard
+        ownerName={ownerRow?.full_name ?? "You"}
+        ownerInitials={initials(ownerRow?.full_name ?? "You")}
+        members={boardMembers}
+        leaders={leaders}
+        canManage={!!canManage}
+        canManageTags={canManageTags}
+        canAssign={canAssign}
+        currentUserId={user.id}
+        nowMs={serverNowMs()}
+      >
+        <div className={styles.card}>
+          <div className={styles.cardTitle}>
+            <div className={styles.cardTitleText}>
+              <h2 className="font-serif">Broadcasts</h2>
+              <p>{canBroadcast ? "Compose & latest update" : "Latest owner update"}</p>
             </div>
-            </MemberEditModeProvider>
+            <Link href="/broadcasts" className={styles.cornerButton} aria-label="Open broadcasts">
+              <Icon name="arrowUR" size={15} />
+            </Link>
           </div>
+          <BroadcastsPanel
+            broadcasts={broadcasts as Parameters<typeof BroadcastsPanel>[0]["broadcasts"]}
+            teamMembers={rows.filter((m) => m.id !== user.id).map((m) => ({ id: m.id, full_name: m.full_name }))}
+            projects={broadcastProjects}
+            canCompose={!!canBroadcast}
+            currentUserId={user.id}
+            refreshLimit={1}
+            nowMs={serverNowMs()}
+          />
         </div>
 
-
-
-        <div className={styles.col8}>
-          <div className={styles.card}>
-            <div className={styles.cardTitle}>
-              <div className={styles.cardTitleText}>
-                <h2 className="font-serif">Performance</h2>
-                <p>Monthly snapshot</p>
-              </div>
-              <Link href="/performance" className={styles.cornerButton} aria-label="Open performance">
-                <Icon name="arrowUR" size={15} />
-              </Link>
-            </div>
-            <div className={styles.tableWrap}>
-              <table className={styles.table}>
-                <thead>
-                  <tr>
-                    <th>Member</th>
-                    <th>Delivery</th>
-                    <th>Quality</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.filter((m) => m.role !== "owner").slice(0, 5).map((m, i) => (
-                    <tr key={m.id}>
-                      <td>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <Avatar initials={initials(m.full_name)} tone={roleTone(m.role)} size={28} />
-                          <span style={{ fontWeight: 600 }}>{m.full_name}</span>
-                        </div>
-                      </td>
-                      <td><Chip label={i % 3 === 0 ? "A+" : "A"} tone="forest" size="sm" /></td>
-                      <td><Chip label={i % 4 === 0 ? "B+" : "A"} tone={i % 4 === 0 ? "amber" : "mint"} size="sm" /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        <div className={styles.card}>
+          <div className={styles.cardTitle}>
+            <div className={styles.cardTitleText}>
+              <h2 className="font-serif">My tasks today</h2>
+              <p>{todayStr} · self-reported daily log</p>
             </div>
           </div>
+          <DailyTasksWidget initial={dailyTasks} todayStr={todayStr} />
         </div>
-
-        <div className={styles.col4}>
-          <div className={styles.card}>
-            <div className={styles.cardTitle}>
-              <div className={styles.cardTitleText}>
-                <h2 className="font-serif">Broadcasts</h2>
-                <p>{canBroadcast ? "Compose & latest update" : "Latest owner update"}</p>
-              </div>
-              <Link href="/broadcasts" className={styles.cornerButton} aria-label="Open broadcasts">
-                <Icon name="arrowUR" size={15} />
-              </Link>
-            </div>
-            <BroadcastsPanel
-              broadcasts={broadcasts as Parameters<typeof BroadcastsPanel>[0]["broadcasts"]}
-              teamMembers={rows.filter(m => m.id !== user.id).map(m => ({ id: m.id, full_name: m.full_name }))}
-              projects={broadcastProjects}
-              canCompose={!!canBroadcast}
-              currentUserId={user.id}
-              refreshLimit={1}
-              nowMs={serverNowMs()}
-            />
-          </div>
-        </div>
-
-        <div className={styles.col12}>
-          <div className={styles.card}>
-            <div className={styles.cardTitle}>
-              <div className={styles.cardTitleText}>
-                <h2 className="font-serif">My Tasks Today</h2>
-                <p>{todayStr} · self-reported daily log</p>
-              </div>
-            </div>
-            <DailyTasksWidget initial={dailyTasks} todayStr={todayStr} />
-          </div>
-        </div>
-
-      </div>
-    </div >
+      </TeamBoard>
+    </div>
   );
 }

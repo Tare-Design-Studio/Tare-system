@@ -1,4 +1,130 @@
 # PROJECT_STATE.md
+(Updated: 2026-08-02 — client change requests: leave/OT/presence, project categories, editable KPI,
+client feedback, voice broadcasts, drawing roles, geofence-by-Maps-link, projects search,
+multi-office attendance)
+
+### Client change-request batch (2026-08-02)
+
+Sixteen requests from the client, delivered in four passes. **Migrations 088–093 APPLIED to cloud
+Supabase**; `lib/supabase/types.ts` hand-patched (no Docker for `supabase gen types`). tsc clean.
+
+Client-facing summary of this batch lives in `WHATS-NEW.md` (plain language, no jargon).
+
+**Data fix.** Usha S's login email corrected `s.usha1086@` → `s.usha1068@` in **both**
+`auth.users` and `auth.identities` (identity_data carries a duplicate copy — updating only
+auth.users leaves a stale address behind). `scripts/seed-users.ts` corrected so a re-run cannot
+reintroduce it.
+
+**Passwords.** Minimum lowered to **6** characters. It was inconsistent before: 12 in settings, 8 in
+the invite form, the invite API zod schema, the accept form and `setPassword`. All five now agree.
+Note the Supabase project's own auth minimum still applies server-side — if it is set above 6, the
+dashboard is the place to change it.
+
+**Geofence instead of raw lat/lng.** New `lib/geo/mapsUrl.ts` (`parseMapsUrl`) + shared
+`components/geo/GeofencePicker.tsx`: paste a Google Maps link, coordinates fill in, radius picked
+from 100m/200m/500m/1km. Wired into New Project, Edit Project, and Settings → Workspace (office).
+Columns already existed (010) — no migration. The parser prefers the `!3d!4d` marker over the `@`
+map centre, decodes percent-encoding first, and reports short `maps.app.goo.gl` links explicitly
+(they carry no coordinates until redirected).
+
+**Projects search.** Name / project type / assigned member, composed with the existing filters.
+
+**Attendance domain (088).** Leave requests + balance, overtime past the workday end, late marking,
+configurable office hours. Members get a Leave card (request, withdraw, see pending) and a
+"Who's in today" presence board; owners get an approval queue on /team and OT tiles on the member
+detail page. See SCHEMA.md 088 for the self-approval guard and why overtime is trigger-derived.
+
+**Project categories (089).** All 19 non-owner members were granted `project:view_all`, so everyone
+now sees every project. Owners can narrow a member to specific project types in the Access Matrix;
+**clearing the selection restores full access** (no rows = unrestricted).
+
+**Editable KPI (090).** `kpi_settings` per tenant, edited under Settings → Performance scoring.
+Weights must total 100%. Default weights reproduce the old hardcoded scores exactly — verified live:
+a sample row scored 66.80 before and after, and moved to 78.80 only once weights were changed.
+
+**Client feedback (091).** Rating + comment under each **completed** milestone in the customer
+portal, submitted through a SECURITY DEFINER function that re-derives the customer from the portal
+hash. Optionally feeds the KPI as a fourth pillar (off by default).
+
+**Voice broadcasts (091).** 60-second cap enforced in the browser, in the API, and by a DB CHECK.
+Audio in `media-private`, played back through a short-lived signed URL; the signing route refuses
+paths outside the caller's own tenant prefix.
+
+**Drawing roles (091).** Members tag a task as design / detail / technical / checked from the Tasks
+card; `v_drawing_role_monthly` gives the monthly split.
+
+**Review finding, fixed in-session (092).** 088's `REVOKE UPDATE (overtime_minutes, is_late,
+workday_end_snapshot) FROM authenticated` was a no-op: a pre-existing table-level UPDATE grant
+covers all columns, and a column-level REVOKE does not subtract from it. Not exploitable — the
+BEFORE trigger recomputes those values regardless, proven by writing 9999 and reading back the
+recomputed figure — but the documented second layer did not exist. 092 revokes table-wide UPDATE
+and re-grants the 13 columns the app actually writes. Check-in/check-out verified still functional.
+
+**Multi-office attendance (093).** The studio works out of more than one office (Mysore,
+Bangalore), so the single `tenants.office_lat/lng` pair no longer fits. New `offices` table, one
+row per office, managed under Settings → Office locations. Check-in resolves the office **by GPS**
+— nearest active office whose own radius contains the member — rather than letting them pick from
+a list. No match is recorded as remote/on-site, not rejected. `attendance_logs` gains
+`check_in_office_id` / `check_out_office_id`; both had to be added to 092's column-grant list or
+check-in would 403. Offices are retired (`is_active=false`), never deleted, so attendance history
+survives an office closing. The `tenants.office_*` columns are deprecated but left in place — 069
+still writes them. Verified live: two offices ~140km apart resolve independently, out-of-range
+returns no match, a plain member is blocked from writing an office but can still read the list,
+and the 092 overtime guard still holds.
+
+**Open — needs the founder, not code:**
+- [ ] **Confirm the office locations.** The one saved coordinate pair, `12.301284, 77.627762`, is
+      ~70 km south of Bangalore — so it is either Mysore or simply wrong, but it cannot be
+      Bangalore. 093 carried it into `offices` as **"Main office (confirm location)"**. Add the real
+      Mysore and Bangalore offices under Settings → Office locations (paste each Maps link), then
+      rename or deactivate the placeholder. Until then, office check-ins record as "not at a
+      registered office" and lateness is measured against the wrong place. The check-in *window*
+      (09:30–18:00, 15 min grace) is configurable under Settings → Workspace.
+- [ ] Decide whether the 6-character password floor should also be lowered in the Supabase
+      dashboard's auth settings (it enforces its own minimum independently).
+- [ ] `lib/supabase/types.ts` `member_tasks` was already missing the 083 lifecycle columns before
+      this batch (`status`, `tag`, `review_status`, …). Pre-existing drift, not introduced here —
+      worth a real `supabase gen types` run once Docker is available.
+
+
+### Completed projects — lifecycle milestones backfilled + marked complete (2026-07-20)
+
+For every `status='completed'` project, ensured the **"Standard Architectural Lifecycle"** milestone set (system `checkpoint_templates`, 8 items) exists and marked all milestones complete. `scripts/complete_lifecycle_for_completed.py` (Python + psycopg2, dry-run + `--commit`). Backup: `backups/checkpoints_completed_backup_20260720_114039.json` (8 rows — the only pre-existing checkpoints on completed projects).
+
+**Applied to cloud Supabase 2026-07-20. Data only — no schema change.**
+- **91** completed projects had 0 checkpoints → applied the template via `apply_checkpoint_template(project, template, project.start_date)` RPC. **1** (`jevvan-40-35-vijaynagar-4th-stage`) already had 8 → kept them, no duplicate set.
+- Marked **736 milestones** (92×8) complete: `started_at = completed_at = approved_at = project.start_date` (the historical MONTH-YEAR), `completion_percentage=100`, `approved_by = owner (Nayan Kumar H.T., b58964be…)`.
+- **Trigger-safe**: `enforce_checkpoint_progression()` (043) is BEFORE UPDATE and requires sequential completion, so the script UPDATEs each project's checkpoints in `sequence_order` (1→8), committing per project — the audit trigger stays intact (no `session_replication_role` bypass). The `"FInish"` typo in template item 8 was applied as-is (existing system preset, not silently corrected).
+- **Verified**: all 92 completed projects have exactly 8 milestones, all `complete` (view `v_project_checkpoint_status`), 0 pending. Non-completed projects' 152 checkpoints untouched.
+
+### Derived customers, linked 1:1 to projects (2026-07-20)
+
+### Derived customers, linked 1:1 to projects (2026-07-20)
+
+The client workbook has **no customer contact fields** (only project names — see the load entry below). Per owner decision, created one `customers` row per project from the (cleaned, Title-cased) project name and set `projects.customer_id` to link them. `scripts/derive_customers.py` (Python + psycopg2, dry-run + `--commit`). Backups: `backups/customers_backup_20260720_112804.json` (1 row), `backups/projects_backup_20260720_112804.json` (148 rows).
+
+**Applied to cloud Supabase 2026-07-20. Data only — no schema change.**
+- Created **147 customers**, linked **147 projects** (only projects with `customer_id IS NULL` — the pre-existing NIHARIKA→"Niharika" link was left untouched). Post-load: **148 customers, all 148 live projects linked 1:1** (0 unlinked, 0 orphan customers, no customer on >1 project).
+- **`phone` / `email` / `address` are NULL** — the source had none. Fill in when contact details arrive.
+- Caveat: some project "names" are institutions/buildings, not people (e.g. "M.G.R Restaurant", "Darwad-Park Development", "Sunil-Convention", "Rainbow Clinic", "Sangeetha School"). These became stand-in customer rows named after the project — rename/merge as real contacts are collected. Script is idempotent (re-run only affects still-unlinked projects).
+
+### Client data load — PROJECTS-UPTO-DATE.xlsx (2026-07-20)
+
+### Client data load — PROJECTS-UPTO-DATE.xlsx (2026-07-20)
+
+Client sent an updated portfolio workbook (`PROJECTS-UPTO-DATE.xlsx`, 2 sheets). Reconciled against the 45 live projects (from the original `PROJECTS.xlsx`) and loaded via `scripts/import_projects_upto_date.py` (Python + psycopg2; node_modules not installed in this checkout — dry-run + `--commit` gated). Backup of the pre-load `projects` table: `backups/projects_backup_20260720_112250.json` (45 rows).
+
+**Applied to cloud Supabase 2026-07-20. Data only — no schema change.**
+- **`running ` sheet (42 rows)** → 30 UPDATEs (enriched existing live projects with `project_type` + `start_date` from Year; upgraded `design→execution` where the sheet showed construction; only filled NULLs) + 11 INSERTs as new `status=active`. Spelling variants folded to existing projects via `RUNNING_CANON` (e.g. `mgr restorent→M.G.R RESTAURANT`, `satyanarayan→SATHYANARAYAN`, `dr. sunil→SUNIL-CONVENTION`, `rehaman→REHMAN`, `santhose thotappa→SANTHOSH`).
+- **`completed` sheet (92 historical rows, 2018–2024)** → INSERTed as `status=completed`, `current_stage=execution`, `site_location = LOCATION · SITE-MEASUREMENT`, `start_date = MONTH-YEAR`. The 2 shifted/junk rows at the sheet tail (`vishal flat int`, `harsha` with no valid month-year) were excluded. 4 dropout-flagged rows loaded as completed (SUNIL BRICK, IRFAN, RUCHI KRS BACK WATERS, SHRAVYA).
+- **Name-collision safety**: 6 completed rows share a name with a LIVE active project (RANJITH, LOKESH, MOHAN, HARSHA, SANDEEP, VIJAY RAMEGOWDA) — inserted with suffixed slugs (`mohan-2`, …). Verified: the live rows kept their status/stage; **no live project overwritten**.
+- **Post-load**: 148 live projects (56 active + 92 completed), 0 duplicate slugs.
+
+**Flagged for owner to verify (loaded as separate rows, NOT merged — could be a duplicate/new phase of an existing project):** `lakshman vijanagar 3rd stage` (vs LAKSHMAN- VIJAYANAGAR), `sandeep layout` (vs SANDEEP LAYOUT- TADAHALLI), `darwad hotel` / `darwad coproration` (vs the Darwad commercial/record-room projects), `kabini clubhose` (vs RAMESH KABINI FARM). To merge one: soft-delete the extra row, or re-slug — the intent was to avoid silently guessing.
+
+_Note: the workbook carries a `fee` column (all null) and per-discipline progress phrases (`Aarc.design/int.design/ext`) not mapped to columns — no home in the current `projects` schema. Not loaded. Customer/enquiry/payment data is still absent (sheet has none); those tables remain empty as before._
+
+### Realtime cost reduction (2026-06-21) — prior entry below
 (Updated: 2026-06-21 — Realtime per-route subscription scoping + notification sub dedup)
 
 ### Realtime cost reduction (2026-06-21)
@@ -540,7 +666,8 @@ Built:
 
 Pending (Phase 9 "done means" gates):
 - [ ] Migrations 037–041 applied (`DATABASE_URL=... npx tsx scripts/migrate.ts`)
-- [ ] Set office GPS coords: `UPDATE tenants SET office_lat=<lat>, office_lng=<lng> WHERE slug='tare-design-studio'`
+- [ ] Set office GPS coords — **superseded by 093**: add each office under Settings → Office
+      locations (the `tenants.office_*` columns are deprecated and no longer read)
 - [ ] Regenerate types: `npx supabase gen types typescript --project-id hsgetpednslqecfcnlyz --schema public > lib/supabase/types.ts`
 - [ ] Test: team member check-in within 200m logs `check_in_within_geofence=true`
 - [ ] Test: team member cannot see Finance/Customers/Audit/Performance/Enquiries/Team nav

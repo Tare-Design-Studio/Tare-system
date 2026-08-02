@@ -184,6 +184,7 @@ export default function ProjectsClient({ initialProjects, nowMs }: { initialProj
   const [statusFilter, setStatusFilter] = useState("All");
   const [stageFilter, setStageFilter] = useState("All");
   const [scopeFilter, setScopeFilter] = useState<"All" | "design_only" | "design_and_execution">("All");
+  const [search, setSearch] = useState("");
 
   const statuses = ["All", "Active", "On Hold", "Completed"];
   const stages = ["All", "Design", "Execution", "Completed"];
@@ -193,15 +194,48 @@ export default function ProjectsClient({ initialProjects, nowMs }: { initialProj
     { value: "design_and_execution", label: "Design + Execution" },
   ];
 
+  const q = search.trim().toLowerCase();
+
   const filtered = initialProjects.filter((p) => {
     const sMatch = statusFilter === "All" || p.status.toLowerCase() === statusFilter.toLowerCase().replace(" ", "_");
     const stMatch = stageFilter === "All" || p.current_stage.toLowerCase() === stageFilter.toLowerCase();
     const scMatch = scopeFilter === "All" || (p.scope ?? "design_and_execution") === scopeFilter;
-    return sMatch && stMatch && scMatch;
+    const qMatch =
+      q === "" ||
+      p.name.toLowerCase().includes(q) ||
+      (p.project_type ?? "").toLowerCase().includes(q) ||
+      p.project_assignments.some((a) => (a.users?.full_name ?? "").toLowerCase().includes(q));
+    return sMatch && stMatch && scMatch && qMatch;
   });
 
   return (
     <>
+      {/* Search */}
+      <div style={{ position: "relative", marginBottom: 16, maxWidth: 420 }}>
+        <Icon
+          name="search"
+          size={16}
+          style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", opacity: 0.4, pointerEvents: "none" }}
+        />
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search projects, type or team member…"
+          style={{
+            width: "100%",
+            padding: "10px 12px 10px 36px",
+            fontSize: 14,
+            fontFamily: "inherit",
+            color: "var(--color-ink)",
+            background: "var(--color-paper)",
+            border: `1px solid var(--color-line)`,
+            borderRadius: 10,
+            outline: "none",
+          }}
+        />
+      </div>
+
       {/* Filters */}
       <div className="scroll-x-mobile" style={{ display: "flex", gap: 16, marginBottom: 24, alignItems: "center", paddingBottom: 8 }}>
         <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
@@ -238,7 +272,9 @@ export default function ProjectsClient({ initialProjects, nowMs }: { initialProj
       {filtered.length === 0 && (
         <div style={{ textAlign: "center", padding: "80px 0", color: "var(--color-tan)" }}>
           <Icon name="briefcase" size={48} style={{ opacity: 0.1, marginBottom: 16 }} />
-          <div style={{ fontSize: 16, fontWeight: 500 }}>No projects match your filters</div>
+          <div style={{ fontSize: 16, fontWeight: 500 }}>
+            {q ? `No projects match “${search.trim()}”` : "No projects match your filters"}
+          </div>
         </div>
       )}
     </>

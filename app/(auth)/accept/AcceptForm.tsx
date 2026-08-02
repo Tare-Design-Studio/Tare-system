@@ -138,7 +138,7 @@ export function AcceptForm({ name }: { name: string }) {
             Hi {name}. Choose a password for your ArchitectOS account.
           </p>
           <p style={{ fontSize: 12, color: "var(--color-tan)", marginBottom: 28, lineHeight: 1.5 }}>
-            Minimum 8 characters.
+            Minimum 6 characters.
           </p>
 
           <form action={formAction} style={{ display: "flex", flexDirection: "column", gap: 18 }}>

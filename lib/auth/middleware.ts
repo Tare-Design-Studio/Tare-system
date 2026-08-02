@@ -8,6 +8,13 @@ export async function updateSession(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-pathname", request.nextUrl.pathname);
 
+  // Drop any client-supplied x-user-id. These headers are copied from the
+  // inbound request, so without this an anonymous caller could send
+  // `x-user-id: <someone-else>` and have it forwarded downstream verbatim —
+  // it is only overwritten below when a session exists. Consumers treat this
+  // header as middleware-issued, so it must never carry attacker input.
+  requestHeaders.delete("x-user-id");
+
   // Generate the audit correlation id up front and forward it DOWNSTREAM on the
   // request headers (not just the response) so route handlers / server components
   // can read it via headers() and hand it to PostgREST — otherwise the audit
@@ -36,6 +43,18 @@ export async function updateSession(request: NextRequest) {
 
   // Refresh session — required for SSR session maintenance
   const { data: { user } } = await supabase.auth.getUser();
+
+  // Forward the user id DOWNSTREAM on the request headers, the same way
+  // x-request-id is forwarded above — NextResponse.next() snapshots the headers
+  // it is given, so the response must be rebuilt after setting it. Without the
+  // rebuild, withRouteErrorLog's req.headers.get("x-user-id") is always null and
+  // every server-thrown error lands in app_errors with no user attached.
+  if (user) {
+    requestHeaders.set("x-user-id", user.id);
+    const rebuilt = NextResponse.next({ request: { headers: requestHeaders } });
+    supabaseResponse.cookies.getAll().forEach((cookie) => rebuilt.cookies.set(cookie));
+    supabaseResponse = rebuilt;
+  }
 
   // Echo audit headers on the response too (useful for client-side correlation)
   supabaseResponse.headers.set("x-request-id", requestId);

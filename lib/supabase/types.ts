@@ -32,15 +32,20 @@ export type Database = {
       attendance_logs: {
         Row: {
           accumulated_minutes: number
+          is_late: boolean | null
+          overtime_minutes: number | null
+          workday_end_snapshot: string | null
           check_in_at: string | null
           check_in_count: number
           check_in_lat: number | null
           check_in_lng: number | null
           check_in_within_geofence: boolean | null
+          check_in_office_id: string | null
           check_out_at: string | null
           check_out_lat: number | null
           check_out_lng: number | null
           check_out_within_geofence: boolean | null
+          check_out_office_id: string | null
           created_at: string
           id: string
           last_check_in_at: string | null
@@ -52,15 +57,20 @@ export type Database = {
         }
         Insert: {
           accumulated_minutes?: number
+          is_late?: boolean | null
+          overtime_minutes?: number | null
+          workday_end_snapshot?: string | null
           check_in_at?: string | null
           check_in_count?: number
           check_in_lat?: number | null
           check_in_lng?: number | null
           check_in_within_geofence?: boolean | null
+          check_in_office_id?: string | null
           check_out_at?: string | null
           check_out_lat?: number | null
           check_out_lng?: number | null
           check_out_within_geofence?: boolean | null
+          check_out_office_id?: string | null
           created_at?: string
           id?: string
           last_check_in_at?: string | null
@@ -72,15 +82,20 @@ export type Database = {
         }
         Update: {
           accumulated_minutes?: number
+          is_late?: boolean | null
+          overtime_minutes?: number | null
+          workday_end_snapshot?: string | null
           check_in_at?: string | null
           check_in_count?: number
           check_in_lat?: number | null
           check_in_lng?: number | null
           check_in_within_geofence?: boolean | null
+          check_in_office_id?: string | null
           check_out_at?: string | null
           check_out_lat?: number | null
           check_out_lng?: number | null
           check_out_within_geofence?: boolean | null
+          check_out_office_id?: string | null
           created_at?: string
           id?: string
           last_check_in_at?: string | null
@@ -103,6 +118,67 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_logs_check_in_office_id_fkey"
+            columns: ["check_in_office_id"]
+            isOneToOne: false
+            referencedRelation: "offices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_logs_check_out_office_id_fkey"
+            columns: ["check_out_office_id"]
+            isOneToOne: false
+            referencedRelation: "offices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      offices: {
+        Row: {
+          address: string | null
+          created_at: string
+          geofence_radius_m: number
+          id: string
+          is_active: boolean
+          lat: number
+          lng: number
+          name: string
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          address?: string | null
+          created_at?: string
+          geofence_radius_m?: number
+          id?: string
+          is_active?: boolean
+          lat: number
+          lng: number
+          name: string
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          address?: string | null
+          created_at?: string
+          geofence_radius_m?: number
+          id?: string
+          is_active?: boolean
+          lat?: number
+          lng?: number
+          name?: string
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "offices_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
             referencedColumns: ["id"]
           },
         ]
@@ -1476,6 +1552,7 @@ export type Database = {
         Row: {
           completed: boolean
           completed_at: string | null
+          drawing_role: Database["public"]["Enums"]["drawing_role"] | null
           created_at: string
           id: string
           tenant_id: string
@@ -1486,6 +1563,7 @@ export type Database = {
         Insert: {
           completed?: boolean
           completed_at?: string | null
+          drawing_role?: Database["public"]["Enums"]["drawing_role"] | null
           created_at?: string
           id?: string
           tenant_id: string
@@ -1496,6 +1574,7 @@ export type Database = {
         Update: {
           completed?: boolean
           completed_at?: string | null
+          drawing_role?: Database["public"]["Enums"]["drawing_role"] | null
           created_at?: string
           id?: string
           tenant_id?: string
@@ -1682,6 +1761,8 @@ export type Database = {
           edited_at: string | null
           id: string
           tenant_id: string
+          voice_duration_s: number | null
+          voice_path: string | null
         }
         Insert: {
           attachment_url?: string | null
@@ -1689,6 +1770,8 @@ export type Database = {
           body: string
           created_at?: string
           edited_at?: string | null
+          voice_duration_s?: number | null
+          voice_path?: string | null
           id?: string
           tenant_id: string
         }
@@ -1698,6 +1781,8 @@ export type Database = {
           body?: string
           created_at?: string
           edited_at?: string | null
+          voice_duration_s?: number | null
+          voice_path?: string | null
           id?: string
           tenant_id?: string
         }
@@ -3609,8 +3694,197 @@ export type Database = {
           },
         ]
       }
+      client_feedback: {
+        Row: {
+          checkpoint_id: string | null
+          comment: string | null
+          customer_id: string
+          id: string
+          project_id: string
+          rating: number
+          submitted_at: string
+          tenant_id: string
+        }
+        Insert: {
+          checkpoint_id?: string | null
+          comment?: string | null
+          customer_id: string
+          id?: string
+          project_id: string
+          rating: number
+          submitted_at?: string
+          tenant_id: string
+        }
+        Update: {
+          checkpoint_id?: string | null
+          comment?: string | null
+          customer_id?: string
+          id?: string
+          project_id?: string
+          rating?: number
+          submitted_at?: string
+          tenant_id?: string
+        }
+        Relationships: []
+      }
+      kpi_settings: {
+        Row: {
+          delay_penalty: number
+          efficiency_multiplier: number
+          error_penalty: number
+          include_client_rating: boolean
+          revision_penalty: number
+          tenant_id: string
+          updated_at: string
+          updated_by: string | null
+          weight_client_rating: number
+          weight_delivery: number
+          weight_efficiency: number
+          weight_quality: number
+        }
+        Insert: {
+          delay_penalty?: number
+          efficiency_multiplier?: number
+          error_penalty?: number
+          include_client_rating?: boolean
+          revision_penalty?: number
+          tenant_id: string
+          updated_at?: string
+          updated_by?: string | null
+          weight_client_rating?: number
+          weight_delivery?: number
+          weight_efficiency?: number
+          weight_quality?: number
+        }
+        Update: {
+          delay_penalty?: number
+          efficiency_multiplier?: number
+          error_penalty?: number
+          include_client_rating?: boolean
+          revision_penalty?: number
+          tenant_id?: string
+          updated_at?: string
+          updated_by?: string | null
+          weight_client_rating?: number
+          weight_delivery?: number
+          weight_efficiency?: number
+          weight_quality?: number
+        }
+        Relationships: []
+      }
+      leave_requests: {
+        Row: {
+          created_at: string
+          days: number
+          decided_at: string | null
+          decided_by: string | null
+          decision_note: string | null
+          end_date: string
+          id: string
+          kind: Database["public"]["Enums"]["leave_kind"]
+          reason: string
+          start_date: string
+          status: Database["public"]["Enums"]["leave_status"]
+          tenant_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          days: number
+          decided_at?: string | null
+          decided_by?: string | null
+          decision_note?: string | null
+          end_date: string
+          id?: string
+          kind?: Database["public"]["Enums"]["leave_kind"]
+          reason: string
+          start_date: string
+          status?: Database["public"]["Enums"]["leave_status"]
+          tenant_id?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          days?: number
+          decided_at?: string | null
+          decided_by?: string | null
+          decision_note?: string | null
+          end_date?: string
+          id?: string
+          kind?: Database["public"]["Enums"]["leave_kind"]
+          reason?: string
+          start_date?: string
+          status?: Database["public"]["Enums"]["leave_status"]
+          tenant_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_project_categories: {
+        Row: {
+          created_at: string
+          id: string
+          project_type: Database["public"]["Enums"]["project_type"]
+          tenant_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          project_type: Database["public"]["Enums"]["project_type"]
+          tenant_id?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          project_type?: Database["public"]["Enums"]["project_type"]
+          tenant_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
+      v_leave_balance: {
+        Row: {
+          entitled_days: number | null
+          pending_count: number | null
+          pending_days: number | null
+          remaining_days: number | null
+          tenant_id: string | null
+          used_days: number | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
+      v_overtime_monthly: {
+        Row: {
+          days_with_overtime: number | null
+          late_days: number | null
+          overtime_minutes: number | null
+          period_month: string | null
+          tenant_id: string | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
+      v_drawing_role_monthly: {
+        Row: {
+          checked_count: number | null
+          design_count: number | null
+          detailing_count: number | null
+          period_month: string | null
+          technical_count: number | null
+          tenant_id: string | null
+          total_count: number | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
       v_attendance_monthly: {
         Row: {
           avg_minutes_per_day: number | null
@@ -3855,6 +4129,7 @@ export type Database = {
           deadline_met_pct: number | null
           delivery_score: number | null
           drawings_completed: number | null
+          client_rating_score: number | null
           efficiency_score: number | null
           errors: number | null
           full_name: string | null
@@ -4369,6 +4644,10 @@ export type Database = {
         Returns: boolean
       }
       has_member_tag: { Args: { p_tag: string }; Returns: boolean }
+      resolve_office_at: {
+        Args: { p_tenant_id: string; p_lat: number; p_lng: number }
+        Returns: string
+      }
       is_assigned_to_project: {
         Args: { p_project_id: string }
         Returns: boolean
@@ -4420,6 +4699,9 @@ export type Database = {
     }
     Enums: {
       app_role: "owner" | "team_member" | "site_engineer"
+      drawing_role: "design" | "detailing" | "technical" | "checked"
+      leave_kind: "casual" | "sick" | "earned" | "unpaid" | "comp_off"
+      leave_status: "pending" | "approved" | "rejected" | "cancelled"
       notification_severity: "info" | "warning" | "critical"
       project_stage: "design" | "execution"
       project_status:

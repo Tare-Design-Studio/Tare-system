@@ -2,6 +2,8 @@ import Link from "next/link";
 import BroadcastsCard from "./team-member/BroadcastsCard";
 import TasksCard from "./team-member/TasksCard";
 import AttendanceCard from "./team-member/AttendanceCard";
+import LeaveCard from "./team-member/LeaveCard";
+import PresenceCard from "./team-member/PresenceCard";
 import RemindersCard from "./team-member/RemindersCard";
 import AddUpdateCard from "./team-member/AddUpdateCard";
 
@@ -176,6 +178,12 @@ export default function TeamMemberHome({
         <div style={{ gridColumn: "span 4", display: "flex", flexDirection: "column", gap: 18 }}>
           {/* Attendance check-in/out */}
           <AttendanceCard todayAttendance={todayAttendance} />
+
+          {/* Leave request + balance */}
+          <LeaveCard />
+
+          {/* Who is at work today */}
+          <PresenceCard />
 
           {/* Broadcasts — latest with ack button */}
           <BroadcastsCard broadcasts={broadcasts} />

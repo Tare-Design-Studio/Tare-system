@@ -11,6 +11,10 @@ type AttendanceLog = {
   accumulated_minutes: number | null;
   last_check_in_at: string | null;
   check_in_count: number;
+  // Only present on the response to a check-in/out, not on the server-rendered
+  // row: which office the GPS matched, and whether it matched one at all.
+  office_name?: string | null;
+  within_geofence?: boolean | null;
 };
 
 function fmt(iso: string | null) {
@@ -124,6 +128,19 @@ export default function AttendanceCard({ todayAttendance }: { todayAttendance: A
           </div>
         )}
       </div>
+
+      {/* Which office the last check-in matched. Shown only after an action, so
+          the member can see the app put them at the right office — and notice
+          straight away if it did not. Out-of-geofence is stated plainly rather
+          than hidden; the check-in is still recorded either way. */}
+      {log?.within_geofence != null && (
+        <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11, marginBottom: 10, color: log.within_geofence ? "var(--color-forest)" : "var(--color-tan)" }}>
+          <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: log.within_geofence ? "var(--color-forest)" : "var(--color-tan)" }} />
+          {log.within_geofence && log.office_name
+            ? `At ${log.office_name}`
+            : "Not at a registered office — logged as remote or on site"}
+        </div>
+      )}
 
       {error && (
         <div style={{ fontSize: 11, color: "var(--color-rust)", marginBottom: 10 }}>{error}</div>

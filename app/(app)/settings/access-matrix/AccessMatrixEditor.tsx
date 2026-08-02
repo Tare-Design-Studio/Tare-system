@@ -6,6 +6,7 @@ import { Avatar, Chip, Icon } from "@/components/atoms";
 import { ConfirmPopover } from "@/components/atoms/ConfirmPopover";
 import { CAPABILITIES } from "@/lib/auth/capabilities";
 import styles from "../../team/team-access.module.css";
+import ProjectCategoryAccess from "./ProjectCategoryAccess";
 
 const VALID_TAGS = ["accountant", "admin", "project_manager"] as const;
 type Tag = (typeof VALID_TAGS)[number];
@@ -36,6 +37,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   site_check_in: "Site Check-In",
   office_attendance: "Office Attendance",
   member_tasks: "Member Tasks",
+  tasks: "Task Assignment",
   personal_reminders: "Personal Reminders",
   team_member_tags: "Tags",
   project_table: "Project Tables",
@@ -339,6 +341,8 @@ export function AccessMatrixEditor({ members, tagByUser, capsByUser }: AccessMat
           )}
         </ConfirmPopover>
       </div>
+
+      <ProjectCategoryAccess members={rows.map((m) => ({ id: m.id, full_name: m.full_name, role: m.role }))} />
     </>
   );
 }

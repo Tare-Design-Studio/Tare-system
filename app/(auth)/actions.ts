@@ -101,8 +101,8 @@ export async function setPassword(prevState: AuthState, formData: FormData): Pro
   const password = (formData.get("password") as string | null) ?? "";
   const confirm = (formData.get("confirm") as string | null) ?? "";
 
-  if (!password || password.length < 8) {
-    return { error: "Password must be at least 8 characters." };
+  if (!password || password.length < 6) {
+    return { error: "Password must be at least 6 characters." };
   }
   if (password !== confirm) {
     return { error: "Passwords do not match." };

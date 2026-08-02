@@ -450,9 +450,11 @@
   color: #fff;
 }
 
+/* Auto-fill so capability cards reflow with the viewport instead of being
+   pinned to two columns (cramped on wide screens, overflowing on narrow). */
 .accessGroups {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 14px;
 }
 
@@ -860,4 +862,320 @@
     box-shadow: 0 -10px 40px rgba(0,0,0,0.2);
     z-index: 100;
   }
+}
+
+/* ── Team & Access layout (PlanWise structure, paper skin) ────────────────
+   Two-column shell: members list left, sidebar stack right. Below 1100px the
+   sidebar drops under the members card. */
+.teamGrid {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 16px;
+  align-items: start;
+}
+
+.sideStack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* Members list is capped and scrolls internally so the sidebar stays visible
+   on studios with many members. */
+.memberScroll {
+  max-height: 620px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+/* Clickable member row — opens the detail modal. */
+.memberRowButton {
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.memberRowButton:hover {
+  border-color: var(--aos-accent);
+  background: var(--aos-paper);
+}
+
+.ownerRow {
+  background: color-mix(in srgb, var(--aos-accent) 8%, var(--aos-paper));
+  border-color: transparent;
+}
+
+/* Compact metric chips inside a member row. */
+.metricChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.metricChip {
+  font-size: 11px;
+  color: var(--aos-muted);
+  background: var(--aos-bg-2);
+  border: 1px solid var(--aos-line);
+  border-radius: 999px;
+  padding: 3px 9px;
+  white-space: nowrap;
+}
+
+/* Letter grade badge. */
+.grade {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 400;
+  color: var(--aos-accent);
+  min-width: 30px;
+  text-align: right;
+  flex: none;
+}
+
+/* ── Leaderboard ─────────────────────────────────────────────────────── */
+.leaderRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--aos-line);
+}
+
+.leaderRow:last-child { border-bottom: none; }
+
+.rank {
+  font-size: 11px;
+  font-weight: 700;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--aos-bg-2);
+  color: var(--aos-muted);
+  border: 1px solid var(--aos-line);
+  flex: none;
+}
+
+.rank1 { background: var(--aos-accent); color: #fff; border-color: transparent; }
+.rank2 { background: var(--aos-teal); color: #fff; border-color: transparent; }
+.rank3 { background: var(--aos-amber); color: #fff; border-color: transparent; }
+
+.leaderBar {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--aos-bg-2);
+  overflow: hidden;
+  margin-top: 6px;
+}
+
+.leaderFill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--aos-accent);
+}
+
+/* ── Modal (member detail / assign task) ─────────────────────────────── */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(27, 26, 23, 0.42);
+  backdrop-filter: blur(3px);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  z-index: 200;
+}
+
+.modal {
+  background: var(--aos-paper);
+  color: var(--aos-ink);
+  border-radius: 22px;
+  border: 1px solid var(--aos-line);
+  box-shadow: 0 30px 60px -20px rgba(30, 28, 24, 0.35);
+  padding: 24px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 86vh;
+  overflow-y: auto;
+}
+
+.modalTitle {
+  font-family: var(--font-serif);
+  font-size: 26px;
+  font-weight: 400;
+  margin: 0;
+}
+
+/* Score ring — conic gradient, no SVG dependency. */
+.ring {
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.ringInner {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--aos-paper);
+  display: grid;
+  place-items: center;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.statGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.statBox {
+  background: var(--aos-bg-2);
+  border: 1px solid var(--aos-line);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.statBox span {
+  font-size: 11px;
+  color: var(--aos-muted);
+  display: block;
+}
+
+.statBox strong {
+  font-size: 16px;
+  font-weight: 700;
+  display: block;
+  margin-top: 3px;
+}
+
+/* ── Task rows (review queue, modal task lists) ──────────────────────── */
+.taskRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: var(--aos-bg-2);
+  border: 1px solid var(--aos-line);
+  border-radius: 10px;
+  padding: 8px 12px;
+}
+
+.taskTitle {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.taskDone .taskTitle { text-decoration: line-through; }
+.taskDone { opacity: 0.8; }
+
+.taskMeta {
+  font-size: 11px;
+  color: var(--aos-muted);
+  flex: none;
+}
+
+.verdictRow {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.verdictButton {
+  flex: 1;
+  font-size: 11px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--aos-line);
+  background: var(--aos-paper);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.verdictButton:disabled { opacity: 0.5; cursor: default; }
+.verdictClean { color: var(--color-mint); border-color: var(--color-mint); }
+.verdictRevision { color: var(--aos-amber); border-color: var(--aos-amber); }
+.verdictError { color: var(--aos-rose); border-color: var(--aos-rose); }
+
+/* ── Form controls inside modals ─────────────────────────────────────── */
+.field { margin-top: 12px; }
+
+.fieldLabel {
+  font-size: 11px;
+  color: var(--aos-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.input {
+  width: 100%;
+  background: var(--aos-bg-2);
+  border: 1px solid var(--aos-line);
+  border-radius: 10px;
+  padding: 9px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--aos-ink);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--aos-accent);
+}
+
+.fieldRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.modalActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.modalActions > * { flex: 1; }
+
+.emptyNote {
+  font-size: 12px;
+  color: var(--aos-muted);
+  text-align: center;
+  padding: 12px 0;
+}
+
+.errorNote {
+  font-size: 12px;
+  color: var(--aos-rose);
+  margin-top: 12px;
+}
+
+@media (max-width: 1100px) {
+  .teamGrid { grid-template-columns: 1fr; }
+  .memberScroll { max-height: none; overflow-y: visible; }
+}
+
+@media (max-width: 640px) {
+  .fieldRow { grid-template-columns: 1fr; }
+  .statGrid { grid-template-columns: 1fr; }
 }

@@ -57,6 +57,7 @@ type Project = {
   whatsapp_group_url: string | null;
   site_lat: number | null;
   site_lng: number | null;
+  site_geofence_radius_m: number | null;
   customer_portal_hash: string | null;
   customer_portal_enabled: boolean;
   is_placeholder: boolean;
@@ -130,6 +131,7 @@ export default async function ProjectDetailPage({ params }: Ctx) {
        budget_total, estimated_work_hours, estimated_duration_days,
        start_date, expected_end_date, actual_start_date, actual_end_date,
        site_location, drive_folder_url, whatsapp_group_url, site_lat, site_lng,
+       site_geofence_radius_m,
        customer_portal_hash, customer_portal_enabled,
        is_placeholder, stage_changed_at,
        project_checkpoints (

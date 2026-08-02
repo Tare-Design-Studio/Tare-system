@@ -9,7 +9,19 @@ type MemberTask = {
   completed: boolean;
   completed_at: string | null;
   created_at: string;
+  drawing_role?: DrawingRole | null;
 };
+
+// Which part of a drawing this task covers (client request #11). Recorded per
+// task so the split shows on the member's profile and in reports.
+type DrawingRole = "design" | "detailing" | "technical" | "checked";
+
+const DRAWING_ROLES: { value: DrawingRole; label: string }[] = [
+  { value: "design", label: "Design" },
+  { value: "detailing", label: "Detail" },
+  { value: "technical", label: "Technical" },
+  { value: "checked", label: "Checked / signed" },
+];
 
 const C: React.CSSProperties = {
   background: "var(--color-paper-light)",
@@ -75,6 +87,18 @@ export default function TasksCard({ initialTasks }: { initialTasks: MemberTask[]
     setEditingId(null);
   }
 
+  async function setDrawingRole(id: string, role: DrawingRole | "") {
+    const res = await fetch(`/api/member-tasks/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ drawing_role: role === "" ? null : role }),
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      setTasks((prev) => prev.map((t) => (t.id === id ? updated : t)));
+    }
+  }
+
   async function deleteTask(id: string) {
     const res = await fetch(`/api/member-tasks/${id}`, { method: "DELETE" });
     if (res.ok || res.status === 204) {
@@ -136,6 +160,19 @@ export default function TasksCard({ initialTasks }: { initialTasks: MemberTask[]
               ) : (
                 <span style={{ flex: 1, fontSize: 12, color: "var(--color-ink)" }}>{t.title}</span>
               )}
+              <select
+                value={t.drawing_role ?? ""}
+                onChange={(e) => setDrawingRole(t.id, e.target.value as DrawingRole | "")}
+                title="Which part of the drawing"
+                style={{
+                  padding: "2px 4px", fontSize: 10, color: t.drawing_role ? "var(--color-ink)" : "var(--color-tan)",
+                  background: "transparent", border: "1px solid var(--color-line)", borderRadius: 6,
+                  outline: "none", maxWidth: 96, cursor: "pointer",
+                }}
+              >
+                <option value="">Part…</option>
+                {DRAWING_ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+              </select>
               <button
                 onClick={() => { setEditingId(t.id); setEditTitle(t.title); }}
                 style={{ padding: 4, border: "none", background: "transparent", cursor: "pointer", color: "var(--color-tan)", display: "flex" }}

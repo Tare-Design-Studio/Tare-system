@@ -3,6 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import KpiSettingsSection from "./KpiSettingsSection";
+import OfficesSection from "./OfficesSection";
 import S from "./settings.module.css";
 import { PageHeader } from "../PageHeader";
 
@@ -124,8 +126,8 @@ function SecuritySection({ profile }: { profile: Profile }) {
       setPwMsg({ ok: false, text: "Passwords do not match" });
       return;
     }
-    if (pwNew.length < 12) {
-      setPwMsg({ ok: false, text: "Minimum 12 characters" });
+    if (pwNew.length < 6) {
+      setPwMsg({ ok: false, text: "Minimum 6 characters" });
       return;
     }
     setPwSaving(true);
@@ -188,7 +190,7 @@ function SecuritySection({ profile }: { profile: Profile }) {
                 onChange={e => setPwNew(e.target.value)}
                 disabled={pwSaving}
                 autoComplete="new-password"
-                placeholder="Min. 12 characters"
+                placeholder="Min. 6 characters"
               />
             </div>
             <div className={S.formRow}>
@@ -286,10 +288,10 @@ function AccessSection({ role }: { role: string }) {
 // ── Workspace section (Owner only) ─────────────────────────────────
 
 function WorkspaceSection({ tenant }: { tenant: NonNullable<TenantSettings> }) {
+  // Office coordinates used to live here as a single lat/lng pair. They moved to
+  // their own section (and their own table) once the studio needed more than one
+  // office — see OfficesSection.
   const [form, setForm] = useState({
-    office_lat: tenant.office_lat?.toString() ?? "",
-    office_lng: tenant.office_lng?.toString() ?? "",
-    office_geofence_radius_m: tenant.office_geofence_radius_m.toString(),
     gps_retention_days: tenant.gps_retention_days.toString(),
     soft_delete_retention_days: tenant.soft_delete_retention_days.toString(),
     variance_threshold_pct: tenant.variance_threshold_pct.toString(),
@@ -308,16 +310,11 @@ function WorkspaceSection({ tenant }: { tenant: NonNullable<TenantSettings> }) {
     setMsg(null);
     try {
       const body: Record<string, number | null> = {
-        office_geofence_radius_m: parseInt(form.office_geofence_radius_m),
         gps_retention_days: parseInt(form.gps_retention_days),
         soft_delete_retention_days: parseInt(form.soft_delete_retention_days),
         variance_threshold_pct: parseFloat(form.variance_threshold_pct),
         material_excess_threshold_pct: parseFloat(form.material_excess_threshold_pct),
       };
-      if (form.office_lat.trim()) body.office_lat = parseFloat(form.office_lat);
-      else body.office_lat = null;
-      if (form.office_lng.trim()) body.office_lng = parseFloat(form.office_lng);
-      else body.office_lng = null;
 
       const res = await fetch("/api/settings/tenant", {
         method: "PATCH",
@@ -343,38 +340,6 @@ function WorkspaceSection({ tenant }: { tenant: NonNullable<TenantSettings> }) {
       </div>
 
       <div className={S.formGrid}>
-        <div className={S.formRow}>
-          <label className={S.formLabel}>Office latitude</label>
-          <input
-            className={S.formInput}
-            value={form.office_lat}
-            onChange={set("office_lat")}
-            placeholder="e.g. 12.9716"
-            disabled={saving}
-          />
-        </div>
-        <div className={S.formRow}>
-          <label className={S.formLabel}>Office longitude</label>
-          <input
-            className={S.formInput}
-            value={form.office_lng}
-            onChange={set("office_lng")}
-            placeholder="e.g. 77.5946"
-            disabled={saving}
-          />
-        </div>
-        <div className={S.formRow}>
-          <label className={S.formLabel}>Geofence radius (m)</label>
-          <input
-            type="number"
-            className={S.formInput}
-            value={form.office_geofence_radius_m}
-            onChange={set("office_geofence_radius_m")}
-            min={50}
-            max={5000}
-            disabled={saving}
-          />
-        </div>
         <div className={S.formRow}>
           <label className={S.formLabel}>GPS retention (days)</label>
           <input
@@ -450,6 +415,8 @@ export default function SettingsClient({ profile, tenant }: Props) {
         <ProfileSection profile={profile} />
         <SecuritySection profile={profile} />
         <AccessSection role={profile.role} />
+        <KpiSettingsSection />
+        <OfficesSection />
         {tenant && <WorkspaceSection tenant={tenant} />}
       </div>
     </div>

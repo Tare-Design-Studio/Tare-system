@@ -3,9 +3,12 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 
 const TASK_TAGS = ["drawing", "review", "site", "admin", "other"] as const;
+// Which part of a drawing the member handled (091). Only meaningful on
+// drawing-tagged work; recorded so the split shows on their profile.
+const DRAWING_ROLES = ["design", "detailing", "technical", "checked"] as const;
 
 const TASK_SELECT =
-  "id, user_id, title, tag, status, completed, completed_at, due_date, " +
+  "id, user_id, title, tag, drawing_role, status, completed, completed_at, due_date, " +
   "assigned_by, accepted_at, started_at, submitted_at, review_status, " +
   "reviewed_by, reviewed_at, created_at, updated_at";
 
@@ -36,6 +39,7 @@ const assignSchema = z.object({
   title: z.string().trim().min(1).max(500),
   assignee_id: z.string().uuid().optional(),
   tag: z.enum(TASK_TAGS).optional(),
+  drawing_role: z.enum(DRAWING_ROLES).nullable().optional(),
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 });
 
@@ -56,7 +60,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid input" }, { status: 400 });
   }
-  const { title, assignee_id, tag, due_date } = parsed.data;
+  const { title, assignee_id, tag, due_date, drawing_role } = parsed.data;
 
   // Self-created task (existing behaviour) unless an assignee other than self is given.
   const isAssignment = !!assignee_id && assignee_id !== user.id;
@@ -72,6 +76,7 @@ export async function POST(req: Request) {
     tenant_id: profile.tenant_id,
     title,
     tag: tag ?? "other",
+    drawing_role: drawing_role ?? null,
     due_date: due_date ?? null,
     assigned_by: isAssignment ? user.id : null,
     status: "open",

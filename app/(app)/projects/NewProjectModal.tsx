@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import GeofencePicker from "@/components/geo/GeofencePicker";
 
 type CustomerOption = { id: string; name: string; phone: string | null; email: string | null };
 type TablePresetOption = { id: string; name: string; description: string | null; table_owner_role: string; table_preset_columns?: unknown[] };
@@ -70,6 +71,7 @@ export default function NewProjectModal() {
     whatsapp_group_url: "",
     site_lat: "",
     site_lng: "",
+    site_geofence_radius_m: "",
   });
 
   // Customer selection state
@@ -202,6 +204,7 @@ export default function NewProjectModal() {
     if (form.whatsapp_group_url)      payload.whatsapp_group_url = form.whatsapp_group_url.trim();
     if (form.site_lat)                payload.site_lat = Number(form.site_lat);
     if (form.site_lng)                payload.site_lng = Number(form.site_lng);
+    if (form.site_geofence_radius_m)  payload.site_geofence_radius_m = Number(form.site_geofence_radius_m);
 
     try {
       const res = await fetch("/api/projects", {
@@ -447,34 +450,16 @@ export default function NewProjectModal() {
                   placeholder="https://chat.whatsapp.com/…"
                 />
               </div>
-              <div className="stack-mobile" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                <div>
-                  <label style={labelStyle}>Site Latitude</label>
-                  <input
-                    style={inputStyle}
-                    type="number"
-                    step="any"
-                    min="-90"
-                    max="90"
-                    value={form.site_lat}
-                    onChange={(e) => set("site_lat", e.target.value)}
-                    placeholder="e.g. 12.9716"
-                  />
-                </div>
-                <div>
-                  <label style={labelStyle}>Site Longitude</label>
-                  <input
-                    style={inputStyle}
-                    type="number"
-                    step="any"
-                    min="-180"
-                    max="180"
-                    value={form.site_lng}
-                    onChange={(e) => set("site_lng", e.target.value)}
-                    placeholder="e.g. 77.5946"
-                  />
-                </div>
-              </div>
+              <GeofencePicker
+                lat={form.site_lat}
+                lng={form.site_lng}
+                radius={form.site_geofence_radius_m}
+                onChange={({ lat, lng, radius }) =>
+                  setForm((f) => ({ ...f, site_lat: lat, site_lng: lng, site_geofence_radius_m: radius }))
+                }
+                labelStyle={labelStyle}
+                inputStyle={inputStyle}
+              />
 
               {/* Customer */}
               <div style={{ padding: "16px", borderRadius: 14, background: "var(--bg-2)", border: "1px solid var(--line-2)", display: "flex", flexDirection: "column", gap: 12 }}>

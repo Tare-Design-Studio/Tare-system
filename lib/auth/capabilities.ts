@@ -111,6 +111,14 @@ export const CAPABILITIES = [
   "audit_log:view",
   "audit_log:export",
 
+  // Leave (migration 088)
+  "leave:request",
+  "leave:view_all",
+  "leave:approve",
+
+  // KPI scoring policy (migration 090)
+  "performance:configure",
+
   // Access control — non-delegable; Owner only; trigger enforces
   "access_control:manage",
 ] as const;
@@ -136,6 +144,7 @@ export const TEAM_MEMBER_CAPABILITIES: Capability[] = [
   "office_attendance:write_own",
   "member_tasks:write_own",
   "personal_reminders:write_own",
+  "leave:request",
 ];
 
 // Finance / payments capabilities — hidden from the Admin tag.
@@ -150,9 +159,28 @@ export const FINANCE_CAPABILITIES: Capability[] = [
   "customer_payments:create_schedule",
 ];
 
-// Every capability except access_control:manage (non-delegable, Owner only).
+// Capabilities a TAG may never confer — the owner grants these per-user through
+// the Access Matrix instead.
+//   access_control:manage — non-delegable, Owner only.
+//   tasks:assign (087)    — assigning work carries the power to review it, and
+//     review verdicts drive the KPI. Before 087 the accountant / admin /
+//     project_manager tags conferred it silently, so applying a tag handed out
+//     sign-off authority the owner never explicitly chose. Keep in sync with
+//     tag_capability_set() in migration 087.
+//   leave:approve (088)   — deciding leave is a management act; a tag should not
+//     silently confer it. The DB guard blocks self-approval, but who may approve
+//     at all stays an explicit per-user grant.
+//   performance:configure (090) — rewriting the KPI weights changes everyone's
+//     score. Same reasoning as tasks:assign: keep it off the tag path.
+const TAG_EXCLUDED_CAPABILITIES: Capability[] = [
+  "access_control:manage",
+  "tasks:assign",
+  "leave:approve",
+  "performance:configure",
+];
+
 const ALL_DELEGABLE_CAPABILITIES: Capability[] = CAPABILITIES.filter(
-  (c) => c !== "access_control:manage"
+  (c) => !TAG_EXCLUDED_CAPABILITIES.includes(c)
 );
 
 // Extra capabilities granted per tag (owner assigns these via team_member_tags)
@@ -176,7 +204,8 @@ export const TAG_CAPABILITIES: Record<string, Capability[]> = {
     "customer_payments:view",
     "daily_tasks:view_all",
     "member_tasks:view_all",
-    "tasks:assign",
+    // "tasks:assign" removed by 087 — owner-granted only, see
+    // TAG_EXCLUDED_CAPABILITIES above.
     "office_attendance:view_all",
   ],
 };
@@ -198,4 +227,5 @@ export const SITE_ENGINEER_CAPABILITIES: Capability[] = [
   "broadcast:receive",
   "project_table:view",
   "project_table:edit",
+  "leave:request",
 ];

@@ -48,7 +48,7 @@ const EMPLOYEES: Emp[] = [
   { full_name: "Ar. Mirza Muizz Haseeb", email: "muizzhaseeb.msa20@gmail.com", role: "team_member", role_label: "Junior Architect", phone: "8105862786", experience_years: 0, is_active: true },
   { full_name: "Ar. Noor Arshiya", email: "arshiya92002@gmail.com", role: "team_member", role_label: "Junior Architect", phone: "8073110150", experience_years: 0.1, is_active: true },
   { full_name: "Ar. Sneha K.M", email: "ar.snehakm26@gmail.com", role: "team_member", role_label: "Architect", phone: "8861041210", experience_years: 5.6, is_active: true },
-  { full_name: "Usha S", email: "s.usha1086@gmail.com", role: "team_member", role_label: "Senior Architectural Designer", phone: "9480135597", experience_years: 24.7, is_active: true },
+  { full_name: "Usha S", email: "s.usha1068@gmail.com", role: "team_member", role_label: "Senior Architectural Designer", phone: "9480135597", experience_years: 24.7, is_active: true },
   { full_name: "Dr. Ar. Zahra Bathool", email: "architectzahrabathool@gmail.com", role: "team_member", role_label: "Senior Architect and Urban Planner", phone: "9739687423", experience_years: 16.5, is_active: true },
   { full_name: "Bhoomika S Gowda", email: "bhoomikasgowda762@gmail.com", role: "team_member", role_label: "Draughtsperson", phone: "9880286909", experience_years: 1.2, is_active: true },
   { full_name: "Ravindranath P", email: "ravipswamy20@gmail.com", role: "team_member", role_label: "Quantity Surveyor and Project Co-ordinator", phone: "8217676155", experience_years: 5.2, is_active: false },

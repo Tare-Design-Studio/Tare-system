@@ -24,6 +24,8 @@ const CATEGORY_LABELS: Record<string, string> = {
   bridge:              "Bridge (Project Chat)",
   calendar:            "Calendar",
   daily_tasks:         "Daily Tasks",
+  member_tasks:        "Member Tasks",
+  tasks:               "Task Assignment",
   broadcast:           "Broadcasts",
   site_check_in:       "Site Check-In",
   office_attendance:   "Office Attendance",
@@ -32,6 +34,9 @@ const CATEGORY_LABELS: Record<string, string> = {
   intake_form:         "Intake Form",
   audit_log:           "Audit Log",
   access_control:      "Access Control",
+  checkpoint:          "Checkpoints",
+  personal_reminders:  "Personal Reminders",
+  team_member_tags:    "Member Tags",
 };
 
 type Tag = "accountant" | "admin" | "project_manager";

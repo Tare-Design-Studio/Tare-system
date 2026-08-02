@@ -186,7 +186,7 @@ export async function GET(
 
       supabase
         .from("attendance_logs")
-        .select("id, work_date, check_in_at, check_out_at, total_minutes, check_in_within_geofence, check_out_within_geofence")
+        .select("id, work_date, check_in_at, check_out_at, total_minutes, overtime_minutes, is_late, check_in_within_geofence, check_out_within_geofence")
         .eq("user_id", memberId)
         .gte("work_date", start)
         .lte("work_date", today)
@@ -253,7 +253,7 @@ export async function GET(
 
     supabase
       .from("attendance_logs")
-      .select("id, work_date, check_in_at, check_out_at, total_minutes, check_in_within_geofence, check_out_within_geofence")
+      .select("id, work_date, check_in_at, check_out_at, total_minutes, overtime_minutes, is_late, check_in_within_geofence, check_out_within_geofence")
       .eq("user_id", memberId)
       .gte("work_date", start)
       .lte("work_date", today)

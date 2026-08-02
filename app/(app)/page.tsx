@@ -618,7 +618,7 @@ export default async function DashboardPage() {
       .eq("status", "active"),
     supabase
       .from("owner_broadcasts")
-      .select(`id, body, created_at, edited_at,
+      .select(`id, body, voice_path, voice_duration_s, created_at, edited_at,
         users:author_id (id, full_name),
         owner_broadcast_recipients (user_id, is_acknowledged, users:user_id (id, full_name))`)
       .order("created_at", { ascending: false })

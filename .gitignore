@@ -58,6 +58,8 @@ hey-claude-read-the-jaunty-firefly.md
 
 # DB backups
 *.dump
+# JSON table dumps taken before risky migrations — real customer/project rows.
+/backups/
 
 # Credentials — never commit
 USER_LOGINS.txt
@@ -65,4 +67,5 @@ USER_LOGINS.txt
 # Sensitive business / personal data — never commit
 INVOICE.md
 PROJECTS.xlsx
+PROJECTS-UPTO-DATE.xlsx
 Employee Data - Google Sheets.pdf

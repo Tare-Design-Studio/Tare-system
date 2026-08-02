@@ -35,7 +35,7 @@ export async function GET(req: Request) {
 
   let query = supabase
     .from("attendance_logs")
-    .select("id, work_date, check_in_at, check_out_at, check_in_within_geofence, check_out_within_geofence, total_minutes, accumulated_minutes, last_check_in_at, check_in_count")
+    .select("id, work_date, check_in_at, check_out_at, check_in_within_geofence, check_out_within_geofence, total_minutes, accumulated_minutes, last_check_in_at, check_in_count, overtime_minutes, is_late, check_in_office:offices!attendance_logs_check_in_office_id_fkey(name)")
     .eq("user_id", targetUserId)
     .order("work_date", { ascending: false });
 
@@ -71,17 +71,35 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "action must be check_in or check_out" }, { status: 400 });
   }
 
-  // Fetch office coords + radius from tenant
-  const { data: tenant } = await supabase
-    .from("tenants")
-    .select("office_lat, office_lng, office_geofence_radius_m")
-    .eq("id", profile.tenant_id)
-    .single();
-
+  // Match the member against every active office (Mysore, Bangalore, …) and
+  // take the nearest one whose own radius contains them. Nobody picks an office
+  // from a list — picking is how you get people checking in at an office they
+  // are not standing in.
+  //
+  // No match is not an error: it means remote or on site. The check-in is still
+  // recorded, just flagged outside the geofence and with no office attached.
   let withinGeofence: boolean | null = null;
-  if (tenant?.office_lat && tenant?.office_lng && lat != null && lng != null) {
-    const dist = haversineMeters(lat, lng, tenant.office_lat, tenant.office_lng);
-    withinGeofence = dist <= (tenant.office_geofence_radius_m ?? 200);
+  let matchedOfficeId: string | null = null;
+  let matchedOfficeName: string | null = null;
+
+  if (lat != null && lng != null) {
+    const { data: offices } = await supabase
+      .from("offices")
+      .select("id, name, lat, lng, geofence_radius_m")
+      .eq("is_active", true);
+
+    if (offices?.length) {
+      let best: { id: string; name: string; dist: number; radius: number } | null = null;
+      for (const o of offices) {
+        const dist = haversineMeters(lat, lng, o.lat, o.lng);
+        if (dist <= (o.geofence_radius_m ?? 200) && (!best || dist < best.dist)) {
+          best = { id: o.id, name: o.name, dist, radius: o.geofence_radius_m ?? 200 };
+        }
+      }
+      withinGeofence = best !== null;
+      matchedOfficeId = best?.id ?? null;
+      matchedOfficeName = best?.name ?? null;
+    }
   }
 
   const today = new Date().toISOString().slice(0, 10);
@@ -101,7 +119,12 @@ export async function POST(req: Request) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function respond(row: any) {
     return NextResponse.json(
-      { ...row, within_geofence: withinGeofence, worked_minutes: workedMinutes(row) },
+      {
+        ...row,
+        within_geofence: withinGeofence,
+        office_name: matchedOfficeName,
+        worked_minutes: workedMinutes(row),
+      },
       { status: 200 }
     );
   }
@@ -128,6 +151,7 @@ export async function POST(req: Request) {
           check_in_lat: lat ?? null,
           check_in_lng: lng ?? null,
           check_in_within_geofence: withinGeofence,
+          check_in_office_id: matchedOfficeId,
           check_in_count: 1,
         })
         .select()
@@ -151,6 +175,7 @@ export async function POST(req: Request) {
         check_in_lat: lat ?? null,
         check_in_lng: lng ?? null,
         check_in_within_geofence: withinGeofence,
+        check_in_office_id: matchedOfficeId,
         check_in_count: (existing.check_in_count ?? 1) + 1,
       })
       .eq("id", existing.id)
@@ -176,6 +201,7 @@ export async function POST(req: Request) {
         check_out_lat: lat ?? null,
         check_out_lng: lng ?? null,
         check_out_within_geofence: withinGeofence,
+        check_out_office_id: matchedOfficeId,
       })
       .eq("id", existing.id)
       .select()

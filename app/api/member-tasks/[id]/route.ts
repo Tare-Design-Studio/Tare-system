@@ -7,9 +7,10 @@ type Ctx = { params: Promise<{ id: string }> };
 const TASK_SELECT =
   "id, user_id, title, tag, status, completed, completed_at, due_date, " +
   "assigned_by, accepted_at, started_at, submitted_at, review_status, " +
-  "reviewed_by, reviewed_at, created_at, updated_at";
+  "reviewed_by, reviewed_at, drawing_role, created_at, updated_at";
 
 const TASK_TAGS = ["drawing", "review", "site", "admin", "other"] as const;
+const DRAWING_ROLES = ["design", "detailing", "technical", "checked"] as const;
 
 const patchSchema = z.object({
   // legacy fields (self-set tick + rename) — preserved
@@ -17,6 +18,8 @@ const patchSchema = z.object({
   completed: z.boolean().optional(),
   // members may tag / date their own tasks (parity with assigned tasks)
   tag: z.enum(TASK_TAGS).optional(),
+  // which part of the drawing they did (091) — self-declared on own work
+  drawing_role: z.enum(DRAWING_ROLES).nullable().optional(),
   // lifecycle actions
   action: z.enum(["accept", "set_due", "start", "submit", "review"]).optional(),
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
@@ -40,6 +43,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (typeof body.title === "string") update.title = body.title;
   if (typeof body.completed === "boolean") update.completed = body.completed;
   if (body.tag) update.tag = body.tag;
+  if (body.drawing_role !== undefined) update.drawing_role = body.drawing_role;
   // Bare due_date edit (no action) — members dating their own task.
   if (!body.action && body.due_date !== undefined) update.due_date = body.due_date;
 

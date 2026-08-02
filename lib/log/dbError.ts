@@ -13,9 +13,9 @@ import { logError } from "@/lib/log/logError";
 //
 // Request context is best-effort from what the request actually carries:
 // x-request-id (lib/auth/middleware.ts forwards it on the request) and the
-// pathname. userId is intentionally omitted — middleware sets x-user-id only on
-// the response, so it is not readable here, and we won't pay a DB read on the
-// error path.
+// pathname. userId is intentionally omitted — we won't pay a DB read on the
+// error path. (x-user-id is now forwarded on the request too, so it could be
+// read here if per-user attribution is ever wanted on DB errors.)
 //
 // Awaits the log (logError never throws) so the insert flushes before the
 // serverless function returns — a fire-and-forget insert can be dropped when the

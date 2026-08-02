@@ -1,6 +1,111 @@
 # SCHEMA.md
-(Updated: 2026-08-01 — migrations 080–086 APPLIED: FORCE RLS on all tables, is_paid forced-derived,
-task assignment lifecycle, auto performance KPI, app_errors, self-review block)
+(Updated: 2026-08-02 — migrations 088–093 APPLIED: leave + overtime + workday window, project
+category access, editable KPI weights, client feedback / voice broadcasts / drawing roles,
+attendance column-grant fix, multi-office attendance)
+
+### Migration 093 — multiple office locations (applied 2026-08-02)
+
+**`offices`** — one row per physical office (Mysore, Bangalore, …). Columns:
+`tenant_id, name, address, lat, lng, geofence_radius_m, is_active, created_at, updated_at`,
+`UNIQUE (tenant_id, name)`, `CHECK (geofence_radius_m BETWEEN 50 AND 5000)`, lat/lng range checks.
+- **RLS:** SELECT open to the whole tenant (the check-in card names the matched office and the
+  presence board labels people by office). INSERT/UPDATE/DELETE require
+  `office_attendance:configure` — moving an office moves the geofence, which decides who counts
+  as present. Held by 4 users as of 2026-08-02.
+- `attendance_logs.check_in_office_id` / `check_out_office_id` → `offices(id) ON DELETE SET NULL`.
+  Nullable on purpose: **no match is not an error**, it means remote or on site, and the check-in
+  is still recorded.
+- Both new columns are added to the 092 column-level UPDATE grant, or every check-in would fail
+  with a permission error.
+- `resolve_office_at(tenant, lat, lng)` — nearest active office **whose own radius contains the
+  point**. Nearest alone is wrong: a point can be nearest to office A while only actually inside
+  office B's larger geofence. Verified with two offices ~140km apart plus an out-of-range point.
+- **Retire, don't delete.** `DELETE /api/offices/[id]` sets `is_active=false`; attendance rows
+  reference the office and the history of who was where must survive an office closing.
+- `tenants.office_lat / office_lng / office_geofence_radius_m` are **DEPRECATED** — left in place
+  (migration 069 still writes them, and the stored value is real data) but **no longer read by
+  the attendance path**. The existing value was carried into `offices` as
+  "Main office (confirm location)"; its city is unconfirmed — it sits ~70km south of Bangalore.
+
+### Migration 091 — client feedback, voice broadcasts, drawing roles (applied 2026-08-02)
+
+**`client_feedback`** — customer rating (1–5) + optional comment per project stage. Columns:
+`tenant_id, project_id, checkpoint_id, customer_id, rating, comment, submitted_at`,
+`UNIQUE (customer_id, checkpoint_id)` so re-submitting updates in place.
+- **No INSERT/UPDATE policy at all.** The customer portal is unauthenticated (hash URL, 048), so
+  writes go exclusively through `submit_client_feedback(p_portal_hash, p_checkpoint_id, p_rating,
+  p_comment)` — SECURITY DEFINER, granted to `anon`. It re-derives the customer from the hash and
+  verifies the checkpoint belongs to a project of that customer. **Never** accept a `customer_id`
+  from the request body here.
+- Staff SELECT gated on `project:view_all` OR assigned + `project:view_assigned`.
+
+**`owner_broadcasts.voice_path` / `.voice_duration_s`** — voice notes in `media-private`.
+`voice_duration_s` CHECK `> 0 AND <= 60`; the browser cutoff is a convenience, this is the
+enforcement. New constraint `owner_broadcasts_has_content` allows an empty `body` when
+`voice_path` is set (voice-only broadcast).
+
+**`member_tasks.drawing_role`** — enum `drawing_role` (`design | detailing | technical | checked`),
+NULL for non-drawing work. View `v_drawing_role_monthly` gives the per-user monthly split.
+
+### Migration 090 — owner-editable KPI (applied 2026-08-02)
+
+**`kpi_settings`** (PK `tenant_id`) — the scoring policy `v_kpi_scores` reads: pillar weights
+(`weight_efficiency/quality/delivery/client_rating`), `efficiency_multiplier`, `error_penalty`,
+`revision_penalty`, `delay_penalty`, `include_client_rating`. Seeded with 034's constants for every
+tenant, and auto-seeded for new tenants by `seed_kpi_settings()`.
+- Trigger `validate_kpi_weights()` rejects any save whose weights do not total exactly 1.000.
+- Write gated on **`performance:configure`**, which is in `TAG_EXCLUDED_CAPABILITIES` — like
+  `tasks:assign` (087) it must be granted per user, never conferred by a tag. Read is open to the
+  whole tenant: people are entitled to know the formula they are scored by.
+- **`v_kpi_scores` was DROPped and recreated** (score columns changed integer → numeric, which
+  `CREATE OR REPLACE VIEW` cannot do). Verified no other view depended on it. New column
+  `client_rating_score`. When the client pillar is on but a month has no rating, its weight is
+  redistributed across the other three rather than scoring zero.
+- **The inputs stay derived.** `team_performance_monthly` is still filled by `recompute_task_kpi()`
+  (084) from reviewed tasks, and 086/087 still block self-review. Editable *weights* are policy;
+  editable *inputs* would be self-scoring.
+
+### Migration 089 — universal project access + category narrowing (applied 2026-08-02)
+
+**`user_project_categories`** (`user_id, project_type`, UNIQUE) — optional narrowing of
+`project:view_all`. **No rows for a user = they see every project** (the default). Rows = they see
+only those `project_type` values. Write gated on `access_control:manage`.
+- Enforced by `project_type_visible(project_type)` inside a **RESTRICTIVE** policy
+  `projects_category_restriction`. Restrictive policies are ANDed, so this can only ever subtract
+  visibility — the base policy from 013 is untouched. Assigned members keep their own projects
+  regardless of category.
+- Backfill granted `project:view_all` (`source='manual'`) to all 19 non-owner members, so
+  "everyone sees all projects" is true immediately and is revocable in the Access Matrix.
+
+### Migration 088 — leave, overtime, workday window (applied 2026-08-02)
+
+**`tenants.workday_start` (09:30) / `workday_end` (18:00) / `late_grace_minutes` (15) /
+`annual_leave_days` (12)** — the office hours are data, not constants in code.
+
+**`attendance_logs.overtime_minutes` / `.is_late` / `.workday_end_snapshot`** — maintained by
+`stamp_attendance_workday()` (BEFORE INSERT OR UPDATE), which **unconditionally overwrites** any
+client-supplied value. 088 also tried `REVOKE UPDATE (cols) FROM authenticated`, which **silently
+did nothing** — a table-level UPDATE grant already existed and column-level REVOKE does not carve
+into it. **Migration 092 fixes this**: table-wide UPDATE is revoked and re-granted column by
+column, excluding the three derived ones. The trigger was (and remains) the control that actually
+prevents forgery; 092 restores the second layer.
+- **Not a generated column.** `work_date + workday_end` is date+time arithmetic, which Postgres
+  treats as non-immutable, so a generation expression is rejected outright. The trigger preserves
+  the property that mattered (derived, never accepted from a client).
+- `workday_end_snapshot` is stamped per row, so changing tenant hours never silently rewrites
+  historical overtime.
+
+**`leave_requests`** — `kind` (`leave_kind`), `status` (`leave_status`), dates, `days` (0.5 for a
+half day), `reason`, decision fields. CHECKs: `end_date >= start_date`; a non-pending,
+non-cancelled row must carry `decided_by` + `decided_at`.
+- `guard_leave_decision()` blocks deciding **your own** request, writing decision fields on it, and
+  reassigning `user_id`/`tenant_id` — the permissive own-row policy would otherwise authorise
+  self-approval, exactly the hole 086 closed for task self-review.
+- Capabilities: `leave:request` (all members), `leave:view_all` (tag-delegable, PM tag gets it),
+  `leave:approve` (**excluded from tags**, owner-granted per user).
+- Views: `v_leave_balance` (entitlement minus approved days, pending count — consumption is
+  **summed, never stored**, so edits and cancellations self-correct; unpaid leave does not consume
+  entitlement) and `v_overtime_monthly`.
 
 ### Migration 077 — removed-employee 30-day purge (applied 2026-06-19)
 - `purge_removed_employees()` SECURITY DEFINER function + pg_cron job `removed-employee-purge` (`0 4 * * *`, daily 04:00 UTC).
@@ -697,7 +802,7 @@ Office check-in/out per team member per day with GPS validation.
 **View:** `v_attendance_monthly` — days_present, total_minutes, avg_minutes_per_day per user per month.
 **RLS:** member write/read own; owner reads all via `office_attendance:view_all`.
 
-**Note:** Office GPS coords stored on `tenants.office_lat / office_lng / office_geofence_radius_m` (default 200m). Coords to be set when available.
+**Note:** Office GPS coords moved to the **`offices`** table in migration 093 (one row per office, many offices per tenant). `tenants.office_lat / office_lng / office_geofence_radius_m` are deprecated and no longer read by the attendance path. (Updated: 2026-08-02)
 
 ### In-app notification (041_in_app_notifications.sql)
 `generate_personal_reminder_notifications()` — pg_cron every 5 min, emits `personal_reminder_due` notification to the reminder owner within 5-minute window. No web push for team members.
@@ -753,8 +858,14 @@ in_progress → pending_review → completed, with fixed tags, due dates, time l
 (clean/revision/error). **Additive** — pre-existing tasks default to `status='open'`, `tag='other'`,
 `assigned_by IS NULL` and behave exactly as before.
 
-New capability **`tasks:assign`** (owner + project_manager). Mirrored in `lib/auth/capabilities.ts` —
-DB `tag_capability_set()` and that file must always agree.
+New capability **`tasks:assign`**. Mirrored in `lib/auth/capabilities.ts` — DB
+`tag_capability_set()` and that file must always agree.
+
+**Since 087: owner-granted only.** No tag confers `tasks:assign`; it is granted per-user through
+the Access Matrix (`source='manual'`). 083 had placed it in the `accountant` / `admin` /
+`project_manager` sets, so applying a tag silently handed out the power to assign work *and* sign
+off on it — and review verdicts drive the KPI. It now sits beside `access_control:manage` in
+`TAG_EXCLUDED_CAPABILITIES`.
 
 Notifications via SECURITY DEFINER wrappers `emit_task_assigned_notification()` /
 `emit_task_review_notification()` (the app runs as `authenticated`, which is REVOKEd from
@@ -833,3 +944,27 @@ Verified on production in a rolled-back transaction, acting as a real member via
 `request.jwt.claims`: self-review blocked; own title edit, own submit, own self-set tick all still
 allowed; owner review of a member's task allowed; owner forging the member's `accepted_at` blocked.
 (Updated: 2026-08-01)
+
+### Owner gates task assignment (087_owner_gates_task_assign.sql)
+
+086 stopped a holder of `tasks:assign` from reviewing their **own** work, but left untouched the
+question of *who holds it*. 083 had put `('tasks:assign')` in `tag_capability_set()`'s `all_caps`
+block and in the `project_manager` block, so applying an accountant / admin / project_manager tag
+silently conferred it. On this database that meant four non-owner holders — three `team_member`,
+one `site_engineer` — none individually chosen by the owner.
+
+087 rewrites `tag_capability_set()` without `('tasks:assign')` in either block (everything else
+byte-identical, so tags keep granting exactly what they granted before) and deletes the existing
+`source='tag'` grants. `source='manual'` rows — the owner's own decisions — are untouched.
+`lib/auth/capabilities.ts` mirrors this via `TAG_EXCLUDED_CAPABILITIES`, alongside
+`access_control:manage`.
+
+Result: `tasks:assign` is grantable only per-user through the Access Matrix. The capability's
+meaning, 083's RLS policies and 086's self-review guard are all unchanged — 087 narrows only *who
+receives it*.
+
+Verified on production after apply: sole holder is the owner (`source='manual'`); all three tag
+sets return `tasks:assign = false` with counts 62/54/13 matching `TAG_CAPABILITIES`. Separately
+verified in a rolled-back transaction that re-applying an `admin` tag to an untagged member does
+**not** re-grant it (the other 54 capabilities still apply) — so the hole is closed, not merely
+swept. (Updated: 2026-08-02)

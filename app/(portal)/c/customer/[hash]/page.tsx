@@ -1,3 +1,4 @@
+import StageFeedback from "./StageFeedback";
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
@@ -158,7 +159,7 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
 
         {/* Projects */}
         {summary.projects.map(p => (
-          <ProjectCard key={p.id} project={p} />
+          <ProjectCard key={p.id} project={p} portalHash={hash} />
         ))}
 
         {summary.projects.length === 0 && (
@@ -188,7 +189,7 @@ function SummaryCard({ label, value, sub, color }: { label: string; value: strin
   );
 }
 
-function ProjectCard({ project: p }: { project: ProjectSummary }) {
+function ProjectCard({ project: p, portalHash }: { project: ProjectSummary; portalHash: string }) {
   const projTotal = p.payments.reduce((s, x) => s + Number(x.amount_due), 0);
   const projReceived = p.payments.filter(x => x.is_paid).reduce((s, x) => s + Number(x.amount_due), 0);
   const completed = p.checkpoints.filter(c => c.status === "complete").length;
@@ -264,6 +265,15 @@ function ProjectCard({ project: p }: { project: ProjectSummary }) {
                   <span className="mono" style={{ fontSize: 12, fontWeight: 600, color: cp.status === "complete" ? "var(--mint)" : isActive ? "var(--accent)" : "var(--muted)" }}>
                     {cp.progress_pct !== null ? `${cp.progress_pct}%` : cp.status === "complete" ? "100%" : "0%"}
                   </span>
+                  {cp.status === "complete" && (
+                    <div style={{ gridColumn: "2 / -1" }}>
+                      <StageFeedback
+                        portalHash={portalHash}
+                        checkpointId={cp.id}
+                        checkpointName={cp.name}
+                      />
+                    </div>
+                  )}
                 </div>
               );
             })}

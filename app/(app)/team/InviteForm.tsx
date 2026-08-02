@@ -19,8 +19,8 @@ export function InviteForm() {
     setError(null);
     setSuccessMessage(null);
 
-    if (method === "direct" && password.length < 8) {
-      setError("Password must be at least 8 characters.");
+    if (method === "direct" && password.length < 6) {
+      setError("Password must be at least 6 characters.");
       return;
     }
 

@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import PaymentsCard from "@/components/payments/PaymentsCard";
+import GeofencePicker from "@/components/geo/GeofencePicker";
 
 type TablePresetOption = { id: string; name: string; table_owner_role: string; table_preset_columns?: unknown[] };
 type PipelinePresetOption = { id: string; name: string; checkpoint_template_items?: unknown[] };
@@ -66,6 +67,7 @@ type Project = {
   expected_end_date: string | null; site_location: string | null;
   drive_folder_url: string | null; whatsapp_group_url: string | null;
   site_lat: number | null; site_lng: number | null;
+  site_geofence_radius_m: number | null;
 };
 
 type Milestone = {
@@ -243,6 +245,7 @@ export default function EditProjectModal({
     whatsapp_group_url: project.whatsapp_group_url ?? "",
     site_lat: project.site_lat ? String(project.site_lat) : "",
     site_lng: project.site_lng ? String(project.site_lng) : "",
+    site_geofence_radius_m: project.site_geofence_radius_m ? String(project.site_geofence_radius_m) : "",
   });
 
   function set(k: string, v: string) { setForm(f => ({ ...f, [k]: v })); }
@@ -287,8 +290,11 @@ export default function EditProjectModal({
     if (form.site_location) payload.site_location = form.site_location.trim();
     if (form.drive_folder_url) payload.drive_folder_url = form.drive_folder_url.trim();
     if (form.whatsapp_group_url) payload.whatsapp_group_url = form.whatsapp_group_url.trim();
-    if (form.site_lat) payload.site_lat = Number(form.site_lat);
-    if (form.site_lng) payload.site_lng = Number(form.site_lng);
+    // Sent unconditionally (null when cleared) — a truthiness guard would make
+    // "Clear" a silent no-op and leave the old geofence on the project.
+    payload.site_lat = form.site_lat ? Number(form.site_lat) : null;
+    payload.site_lng = form.site_lng ? Number(form.site_lng) : null;
+    payload.site_geofence_radius_m = form.site_geofence_radius_m ? Number(form.site_geofence_radius_m) : null;
 
     try {
       const res = await fetch(`/api/projects/${project.id}`, {
@@ -511,16 +517,16 @@ export default function EditProjectModal({
                 <input style={inputStyle} type="url" value={form.whatsapp_group_url} onChange={e => set("whatsapp_group_url", e.target.value)} placeholder="https://chat.whatsapp.com/…" />
               </div>
 
-              <div className="stack-mobile" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-                <div>
-                  <label style={labelStyle}>Site Latitude</label>
-                  <input style={inputStyle} type="number" step="any" min="-90" max="90" value={form.site_lat} onChange={e => set("site_lat", e.target.value)} placeholder="e.g. 12.9716" />
-                </div>
-                <div>
-                  <label style={labelStyle}>Site Longitude</label>
-                  <input style={inputStyle} type="number" step="any" min="-180" max="180" value={form.site_lng} onChange={e => set("site_lng", e.target.value)} placeholder="e.g. 77.5946" />
-                </div>
-              </div>
+              <GeofencePicker
+                lat={form.site_lat}
+                lng={form.site_lng}
+                radius={form.site_geofence_radius_m}
+                onChange={({ lat, lng, radius }) =>
+                  setForm(f => ({ ...f, site_lat: lat, site_lng: lng, site_geofence_radius_m: radius }))
+                }
+                labelStyle={labelStyle}
+                inputStyle={inputStyle}
+              />
 
               {/* Team Assignment */}
               <div style={{ padding: "16px", borderRadius: 14, background: "var(--bg-2)", border: "1px solid var(--line-2)", display: "flex", flexDirection: "column", gap: 12 }}>
