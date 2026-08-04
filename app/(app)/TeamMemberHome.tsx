@@ -104,6 +104,7 @@ export default function TeamMemberHome({
   memberTasks,
   todayAttendance,
   reminders,
+  pickerProjects = [],
 }: {
   firstName: string;
   projects: Project[];
@@ -112,6 +113,9 @@ export default function TeamMemberHome({
   memberTasks: MemberTask[];
   todayAttendance: AttendanceLog | null;
   reminders: PersonalReminder[];
+  // Every active project in the tenant — what the task and update pickers list.
+  // `projects` above stays the member's own assignments (the My Projects card).
+  pickerProjects?: { id: string; name: string }[];
 }) {
   const active = projects.filter((p) => p.status === "active");
   const unacknowledged = broadcasts.filter((b) => !b.is_acknowledged);
@@ -191,12 +195,15 @@ export default function TeamMemberHome({
 
         {/* Tasks card — 6 cols */}
         <div style={{ gridColumn: "span 6" }}>
-          <TasksCard initialTasks={memberTasks} />
+          <TasksCard initialTasks={memberTasks} projects={pickerProjects} />
         </div>
 
         {/* Add updates — 6 cols */}
         <div style={{ gridColumn: "span 6" }}>
-          <AddUpdateCard projects={projects} />
+          {/* Assigned projects only, unlike the task picker above: posting an
+              update writes to the project, and the image upload route requires a
+              project_assignments row. Listing more would mean a 403 mid-post. */}
+          <AddUpdateCard projects={active} />
         </div>
 
         {/* Calendar reminders — 6 cols */}

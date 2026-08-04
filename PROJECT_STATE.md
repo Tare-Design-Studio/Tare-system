@@ -1,7 +1,160 @@
 # PROJECT_STATE.md
-(Updated: 2026-08-02 — client change requests: leave/OT/presence, project categories, editable KPI,
-client feedback, voice broadcasts, drawing roles, geofence-by-Maps-link, projects search,
-multi-office attendance)
+(Updated: 2026-08-04 — task project links, self-task review, update images)
+
+### Task project links + self-task review + update images (2026-08-04)
+
+Client batch: tasks name a project, self-set tasks get reviewed, the tick asks first, project-linked
+tasks show in the project stream, and update authors can attach photos. `tsc` clean, `eslint` clean
+on all touched files, `npm run build` passes.
+
+**Migration 095 is WRITTEN BUT NOT APPLIED.** Docker is not available locally (and is a locked
+"no Docker" decision for this project), so the trigger, the RLS swap and the FK have had no
+execution test — only static review against 038 / 083 / 084. Everything below that depends on the
+DB is therefore unverified end-to-end. Apply 095 before trusting any of it.
+
+- **`member_tasks.project_id`** (nullable) on both task pickers. Q: pickers list **all** active
+  tenant projects, not just the author's assignments — members hold `project:view_all` (089), so a
+  plain RLS-scoped `projects` query is already tenant-correct.
+  - Cross-tenant hole closed in both `/api/member-tasks` POST and `[id]` PATCH: `member_tasks` RLS
+    keys on `user_id` alone and says nothing about `project_id`, so a foreign project UUID would
+    otherwise have been written straight in. Both routes now verify the project first.
+- **Self-set tasks are reviewable** (095 RLS). A project-linked task's tick submits for review
+  instead of closing; an unlinked personal todo still closes in one tap. Sending back as
+  `revision`/`error` returns it to the member, who can re-submit — only `clean` closes it.
+- **Confirmation on the check-mark**, both surfaces (`/tasks`, team-member `TasksCard`), both
+  directions, context-aware copy from `lib/tasks/confirm-copy.ts` ("Submit for review?" /
+  "Mark complete?" / "Mark incomplete?").
+  - `/tasks` already had a fully-built "Is the task complete?" modal whose only trigger was the
+    assigned-task Check button; `confirmId` state existed but no self-set path ever set it. Reused
+    and widened rather than replaced — it shows live time-logged, which the generic dialog does not.
+- **Completed project-linked tasks appear in the project stream**, merged at read time in both
+  `/api/projects/[id]/updates` GET and `projects/[id]/page.tsx`. Nothing is written to `updates`, so
+  a task keeps exactly one home row. Read-only in the feed (no edit/delete menu).
+  - Read through the **service client**, because `member_tasks` RLS shows a plain member only their
+    own rows (tenant-wide reads need `daily_tasks:view_all`, which only the `project_manager` tag
+    carries) — the caller's client would have given every viewer a different, mostly-empty feed.
+    Granting that capability broadly would have exposed every member's private todos app-wide.
+  - The API route re-checks project access explicitly (`progress:view` OR an assignment row) before
+    the elevated read. An empty `updates` result is **not** an access check: `updates_select` (021)
+    returns zero rows both for no-access and for a project with no updates yet.
+- **Images on updates** — `+` on `AddUpdateCard`, max 3, compressed client-side to WebP
+  (`lib/images/compress.ts`, 2048px long edge, quality 0.9 — high enough that a drawing or site
+  detail still reads when zoomed). HEIC is passed through untouched: Safari decodes it to canvas,
+  Chrome/Android do not, and the upload route already accepts it. Images-only updates are allowed
+  (`updates.body` is nullable and the POST schema already had `body` optional).
+  - `kind` stays role-derived per the existing route (site_engineer → `site_image`, else `drawing`),
+    so `prunePrivateMedia`'s 15-newest-per-kind behaviour is unchanged.
+- **`lib/supabase/types.ts`** — `member_tasks` was missing **all** of 083's lifecycle columns, not
+  just 095's `project_id` (the pre-existing gap already flagged in this file). Hand-patched Row /
+  Insert / Update with the full set plus the `project_id` FK relationship.
+
+**Not done / known:**
+- 095 unapplied (above). No pgtap test was written for the new trigger branch or the RLS swap.
+- The project stream merge is duplicated in two places (`page.tsx` re-queries rather than calling
+  the API route) because that duplication already existed for `updates`; not refactored.
+- The two pickers deliberately differ in scope: the **task** picker lists all active tenant
+  projects (a task only *names* its project), while the **update composer** lists the member's
+  assigned projects only (posting writes to the project, and the image upload route requires a
+  `project_assignments` row — a wider list would 403 mid-post).
+
+
+### SE navigation + dead-end empty states (2026-08-04)
+
+Items 1 and 4 from the previous batch's "known, not addressed" list. No migration; tsc clean.
+
+**Site engineers can now get back to their dashboard.** The earlier note said an SE off `/site` had
+"no nav" — that was not quite right, and the real shape mattered for the fix. `layout.tsx` skips
+chrome **only** on `/site`, so an SE on `/projects/[id]` or `/bridge` does render `TopBar` +
+`MobileNav`. The problem was the nav's *contents*: neither `ALL_NAV_DEFS` (layout) nor `ALL_NAV`
+(TopBar) had a `/site` entry, so the SE's own dashboard was the one screen unreachable from the nav.
+The two routes an SE reaches from the dashboard (`SiteEngineerDashboard.tsx` pushes to
+`/projects/[id]` for the Details tab and `/bridge` for the Bridge tab) were therefore one-way doors.
+- Added `{ href: "/site", label: "My Site", roles: ["site_engineer"] }` as the first entry in both
+  nav arrays, with a map-pin icon (`TopBar` uses stroke SVG, `MobileNav` needs a fill path in
+  `ICON_FILL` — an unmapped href silently falls back to the settings gear, so `/site` was added
+  there too).
+- **`Overview` is now `roles: ["owner", "team_member"]`.** `app/(app)/page.tsx:437` redirects
+  site engineers straight back to `/site`, so for an SE that nav item was a mislabelled second door
+  to the same screen. Hiding it leaves exactly one obvious way home.
+
+**7 dead-end empty states given a next step** (`team/[memberId]/MemberDetailClient.tsx`). New local
+`EmptyState` component (message + optional action, rendered as a `Link` when `href` is given or a
+`button` when `onAction` is) plus an `.emptyAction` class in `member-detail.module.css`.
+- Five are **range-scoped** ("…in range") — the honest next step is widening the filter, not
+  creating data, since the range pills sit in the page header far from the card. `AttendanceCard`,
+  `TasksCard`, `PerformanceCard`, `SiteHoursCard` and `CheckInsCard` now take `range` + `onWiden`
+  and offer **"Look at the full year"**, which calls `widenRange()` (sets range to `year` and
+  refetches). The action is omitted when already at `year`, so it never offers a no-op.
+- Two are not range-scoped and link instead: `ProjectsCard` → "Assign from a project" (`/projects`),
+  `BroadcastsCard` → "Send a broadcast" (`/team`).
+
+**Migrations: nothing pending.** Verified against the live `_migrations` table — 96 applied, 96 on
+disk. 094's effect re-confirmed live (4/4 active site engineers hold `bridge:read` + `bridge:write`),
+since a migration can be recorded as applied and still have been the failing first version.
+
+**Still open from the previous batch** (items 2 and 3, untouched):
+- [ ] `/broadcasts`, `/updates`, `/performance` are in no nav; `/settings/payment-presets` is
+      linked from nowhere.
+- [ ] 6 dead components, never imported: `AppNav.tsx`, `team/AttendanceOverview.tsx`,
+      `projects/[id]/CustomerPortalCard.tsx`, `TeamSection.tsx`, `SiteChecklistCard.tsx`,
+      `ProjectDetailClient.tsx`.
+- [ ] The 6 remaining dead-end empty states outside `MemberDetailClient.tsx` were not swept.
+
+### Usability batch — client "confusing to use" report (2026-08-04)
+
+### Usability batch — client "confusing to use" report (2026-08-04)
+
+Four fixes from a client message reporting confusion and disconnected parts. **Migration 094
+APPLIED to cloud Supabase.** tsc clean.
+
+**Site engineers had no way to log out.** `app/(app)/layout.tsx` treats `/site` as a self-contained
+view and skips `TopBar` + `MobileNav` entirely, and neither SE component carried a sign-out control
+— so a site engineer who logged in could not log out from any screen. Added a sign-out button to
+both `DesktopSiteEngineer.tsx` (sticky header, beside the stage Chip) and `MobileSiteEngineer.tsx`
+(top bar, beside the project select; the select is now wrapped in a flex container so the chevron
+overlay still anchors correctly). Both use `<form action={signOut}>` — the same server-action
+pattern as `MobileHome.tsx`.
+
+**Bridge showed only assigned projects (094).** `bridge/page.tsx` branched on `role === "owner"`:
+the owner saw all projects, everyone else queried `project_assignments`. Migration 089 had already
+granted `project:view_all` to all 19 non-owner members, so the UI was **narrower than the
+permission** — the concrete source of "unconnected parts". The role branch is gone; every role now
+gets the same query (all non-completed, non-cancelled tenant projects, ~56 rows).
+- **The dropdown alone was not enough.** `bridge_select` (021) gates message reads on
+  `has_capability('bridge:read', project_id) OR is_assigned_to_project()`. Verified live before
+  changing anything: all 14 team members held `bridge:read` tenant-wide, but **0 of 4 site
+  engineers did**. Widening only the dropdown would have shown SEs every project and then returned
+  a silent empty thread on any unassigned one — worse than the restriction it replaced. 094 grants
+  `bridge:read` + `bridge:write` tenant-wide to the 4 site engineers (`source='manual'`, so the
+  owner can revoke per user in the Access Matrix); `SITE_ENGINEER_CAPABILITIES` gains both so new
+  SEs inherit them. Verified after apply: 4/4 site engineers now hold `bridge:read`.
+- `user_capabilities.tenant_id` is NOT NULL with **no BEFORE INSERT trigger on that table** — the
+  first version of 094 failed on the not-null constraint. `tenant_id` is taken from the target
+  user's own row. Worth remembering for any future capability-granting migration.
+- Empty-state string changed "No projects assigned." → "No active projects.", which is now the only
+  case that can produce it.
+
+**Audit page removed for all users.** Deleted `app/(app)/audit/` (page + AuditClient),
+`app/api/audit/` (route + export) and `lib/audit/summarize.ts`; removed the nav entries from
+`layout.tsx`, `TopBar.tsx` and `MobileNav.tsx`, and dropped `/audit` from `STATIC_PREFIXES` in
+`RealtimeRefresher.tsx`. Nav removal alone was not enough — the route stayed reachable by typing
+the URL, so the files went too.
+- **The DB side is untouched by design.** `audit_log`, `audit_trigger()` and the hash chain still
+  record every write; only the UI for reading it is gone. Invariant #3 (append-only) still holds.
+- `audit_log:view` / `audit_log:export` capability strings are **deliberately kept** in
+  `lib/auth/capabilities.ts` so the page can be re-exposed later without a migration. They are
+  currently orphaned (nothing checks them). Their Access Matrix labels are also kept — groups are
+  derived from `CAPABILITIES`, so deleting the label would render an unlabelled card, not hide it.
+
+**Known, not addressed in this batch** (from a full read-only sweep of the app):
+- [ ] Site engineers still have **no navigation off `/site`**. Sign-out works now, but if an SE
+      lands on `/projects/[id]` there is no route back — `layout.tsx` renders no nav for them.
+- [ ] `/broadcasts`, `/updates`, `/performance` are in **no nav** — reachable only via cards on the
+      owner home or a corner button on `/team`. `/settings/payment-presets` is linked from nowhere.
+- [ ] **6 dead components**, never imported: `AppNav.tsx` (carries its own unused logout),
+      `team/AttendanceOverview.tsx`, `projects/[id]/CustomerPortalCard.tsx`, `TeamSection.tsx`,
+      `SiteChecklistCard.tsx`, `ProjectDetailClient.tsx`. Pre-existing — flagged, not deleted.
+- [ ] **13 dead-end empty states** with no call to action (`MemberDetailClient.tsx` has 7 alone).
 
 ### Client change-request batch (2026-08-02)
 

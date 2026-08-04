@@ -445,7 +445,7 @@ export default async function DashboardPage() {
     const today = new Date().toISOString().slice(0, 10);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = supabase as any;
-    const [assignedProjects, tasks, broadcastRows, memberTasksRes, attendanceRes, remindersRes] = await Promise.all([
+    const [assignedProjects, tasks, broadcastRows, memberTasksRes, attendanceRes, remindersRes, allProjectsRes] = await Promise.all([
       supabase
         .from("project_assignments")
         .select("project_id, projects(id, name, status, project_type, project_checkpoints(completed_at))")
@@ -467,7 +467,7 @@ export default async function DashboardPage() {
         .limit(10),
       db
         .from("member_tasks")
-        .select("id, title, completed, completed_at, created_at")
+        .select("id, title, completed, completed_at, created_at, project_id, status, reviewed_by")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
         .limit(50),
@@ -484,7 +484,18 @@ export default async function DashboardPage() {
         .eq("is_done", false)
         .order("reminder_at", { ascending: true })
         .limit(10),
+      // Task/update project pickers list every active project in the tenant, not
+      // just the member's assignments — members hold project:view_all (089), so
+      // RLS already scopes this to their tenant.
+      db
+        .from("projects")
+        .select("id, name")
+        .eq("status", "active")
+        .order("name", { ascending: true })
+        .limit(200),
     ]);
+
+    const pickerProjects = (allProjectsRes.data ?? []) as { id: string; name: string }[];
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const projects = (assignedProjects.data ?? [])
@@ -532,6 +543,7 @@ export default async function DashboardPage() {
             tasks={tasks.data ?? []}
             broadcasts={broadcasts}
             memberTasks={(memberTasksRes.data ?? []) as { id: string; title: string; completed: boolean; completed_at: string | null; created_at: string }[]}
+            pickerProjects={pickerProjects}
             todayAttendance={attendanceRes.data ?? null}
             reminders={(remindersRes.data ?? []) as { id: string; title: string; reminder_at: string; type: string; is_done: boolean }[]}
           />

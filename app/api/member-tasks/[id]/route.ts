@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 type Ctx = { params: Promise<{ id: string }> };
 
 const TASK_SELECT =
-  "id, user_id, title, tag, status, completed, completed_at, due_date, " +
+  "id, user_id, title, tag, status, completed, completed_at, due_date, project_id, " +
   "assigned_by, accepted_at, started_at, submitted_at, review_status, " +
   "reviewed_by, reviewed_at, drawing_role, created_at, updated_at";
 
@@ -24,6 +24,8 @@ const patchSchema = z.object({
   action: z.enum(["accept", "set_due", "start", "submit", "review"]).optional(),
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   review_status: z.enum(["clean", "revision", "error"]).optional(),
+  // Re-point a task at a different project (or unlink it). Null = personal chore.
+  project_id: z.string().uuid().nullable().optional(),
 });
 
 export async function PATCH(req: Request, { params }: Ctx) {
@@ -44,6 +46,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (typeof body.completed === "boolean") update.completed = body.completed;
   if (body.tag) update.tag = body.tag;
   if (body.drawing_role !== undefined) update.drawing_role = body.drawing_role;
+  if (body.project_id !== undefined) update.project_id = body.project_id;
   // Bare due_date edit (no action) — members dating their own task.
   if (!body.action && body.due_date !== undefined) update.due_date = body.due_date;
 
@@ -76,6 +79,18 @@ export async function PATCH(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
   }
 
+  // Same gap as POST: member_tasks RLS keys on user_id and ignores project_id,
+  // so a foreign project UUID would be accepted. projects is tenant-scoped by
+  // RLS (013), so a miss means it is not ours.
+  if (body.project_id) {
+    const { data: project } = await supabase
+      .from("projects")
+      .select("id")
+      .eq("id", body.project_id)
+      .maybeSingle();
+    if (!project) return NextResponse.json({ error: "Unknown project" }, { status: 400 });
+  }
+
   const isReview = body.action === "review";
   if (isReview) {
     const { data: canAssign } = await supabase.rpc("has_capability", { p_capability: "tasks:assign" });
@@ -96,6 +111,14 @@ export async function PATCH(req: Request, { params }: Ctx) {
     }
   }
 
+  // Status before the write, so the notification below fires on the transition
+  // into pending_review rather than on every later edit of a task already there.
+  const { data: before } = await supabase
+    .from("member_tasks")
+    .select("status")
+    .eq("id", id)
+    .maybeSingle();
+
   // Owner review targets any tenant task (RLS owner_review_tasks); member actions
   // are scoped to their own rows (RLS member_own_tasks + this eq filter).
   let query = supabase.from("member_tasks").update(update).eq("id", id);
@@ -105,8 +128,12 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  if (body.action === "submit") {
-    // Notify the assigner / owner (non-fatal).
+  // A project-linked task ticked complete is turned into pending_review by the
+  // 095 trigger, not by an explicit "submit" action — so read the row we got
+  // back rather than the request to decide whether a review is now waiting.
+  if (data.status === "pending_review" && before?.status !== "pending_review") {
+    // Notify the assigner, or the owner when the member set the task themselves
+    // (the RPC falls back to owners when assigned_by IS NULL). Non-fatal.
     supabase.rpc("emit_task_review_notification", {
       p_task_id: id,
       p_title: data.title,

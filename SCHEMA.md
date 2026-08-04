@@ -1,5 +1,69 @@
 # SCHEMA.md
-(Updated: 2026-08-02 — migrations 088–093 APPLIED: leave + overtime + workday window, project
+(Updated: 2026-08-04 — migration 095 WRITTEN, NOT APPLIED: task project links + self-task review)
+
+### Migration 095 — task project links + reviewable self-set tasks (written 2026-08-04, NOT YET APPLIED)
+
+**Status: not applied.** The SQL is committed but has not been run against any database.
+
+**Structural change.** `member_tasks.project_id uuid REFERENCES projects(id) ON DELETE SET NULL`
+(nullable) + partial index `idx_member_tasks_project_completed (project_id, completed_at DESC)
+WHERE project_id IS NOT NULL AND status = 'completed'`. `SET NULL`, never `CASCADE`: deleting a
+project must not delete the completed-task history that 084's KPI is derived from.
+
+- **Self-set tasks become reviewable.** 083's `owner_review_tasks` carried
+  `assigned_by IS NOT NULL`, which put self-set tasks permanently out of review's reach. 095
+  replaces that predicate with `user_id <> auth.uid()`. This is strictly narrower than dropping
+  it: the anti-self-review property 083 was protecting is now stated directly, so the owner can
+  review self-set work while nobody — owner included — can review their own.
+  `guard_member_task_review()` (083) is untouched and still guards user_id / tenant_id / clock.
+- **KPI impact: none.** `v_task_performance_monthly` (084) filters on `status='completed'` alone
+  and never had an `assigned_by` predicate, so self-set tasks have always counted toward
+  `weighted_volume`. 095 does not widen the KPI's input set; it only lets a verdict land on tasks
+  that previously could not carry one.
+- **Which self-tasks get reviewed: project-linked ones.** `handle_member_task_update()` is
+  redefined (body only — 038's `member_task_before_update` trigger keeps its name and its
+  load-bearing first position ahead of `trg_guard_member_task_review`) so that ticking `completed`
+  on a task with a `project_id` sets `status='pending_review'` instead of closing it. An unlinked
+  personal todo keeps 038's one-tap behaviour. Enforced in the trigger, not the API, so a direct
+  PATCH cannot route around it.
+- **Revision loop.** The re-route condition is `review_status IS DISTINCT FROM 'clean'`, so a task
+  sent back as `revision` / `error` can go round again; only a `clean` verdict closes it.
+  Re-submission stamps a fresh `submitted_at` and clears the stale `review_status`. Safe against
+  the 083 guard, which returns early when `auth.uid() = OLD.user_id` (the re-submit path is always
+  the member acting on their own row) and never inspects `review_status`.
+
+
+### Migration 094 — site engineers get tenant-wide bridge access (applied 2026-08-04)
+
+Data only — **no structural change**. Grants `bridge:read` + `bridge:write` at
+`scope_project_id = NULL` to every `role='site_engineer'` user (4 as of 2026-08-04).
+
+- **Why.** 089 granted `project:view_all` to all non-owner members, but `bridge_select` /
+  `bridge_insert` (021) gate on `has_capability('bridge:*', project_id) OR
+  is_assigned_to_project()`. Team members already held these tenant-wide via
+  `TEAM_MEMBER_CAPABILITIES`; site engineers held **neither**. Once the Bridge page stopped
+  scoping its dropdown to assignments, an SE could select a project and get an empty thread with
+  no error — a silent read failure. The grant closes that gap.
+- `source='manual'`, so the rows show up in the Access Matrix and the owner can revoke them per
+  user. The 065 tag-sync triggers only touch `source='tag'` rows and will never clear these.
+- Idempotent via `NOT EXISTS` on `(user_id, capability)` where `scope_project_id IS NULL`.
+- **`user_capabilities` has NO `set_tenant_from_*` trigger.** `tenant_id` is NOT NULL and must be
+  supplied explicitly — the first draft of this migration failed with
+  `null value in column "tenant_id" ... violates not-null constraint`. It is selected from the
+  target user's own row. Apply the same pattern to any future capability-granting migration.
+- `SITE_ENGINEER_CAPABILITIES` in `lib/auth/capabilities.ts` gains both strings so newly invited
+  site engineers receive them at creation time.
+
+**Note on the audit log (2026-08-04):** the audit *page* and its API routes were deleted from the
+app, but `audit_log`, `audit_trigger()`, the hash chain and the 075 insert-time cap are **all
+unchanged** and still recording. Invariant #3 (append-only, no UPDATE/DELETE policies) still holds.
+The `audit_log:view` / `audit_log:export` capabilities remain declared in
+`lib/auth/capabilities.ts` — currently unreferenced, kept so the page can return without a
+migration. This does not violate the 056 invariant, which requires every `has_capability()` string
+in an RLS policy to exist in `CAPABILITIES` — the reverse direction (a declared capability nothing
+checks) is safe.
+
+(Previous: 2026-08-02 — migrations 088–093 APPLIED: leave + overtime + workday window, project
 category access, editable KPI weights, client feedback / voice broadcasts / drawing roles,
 attendance column-grant fix, multi-office attendance)
 
@@ -755,6 +819,7 @@ Persistent personal tasks for team members (not date-scoped; carry over until do
 | completed_at | timestamptz | auto-set by trigger |
 | created_at / updated_at | timestamptz | auto-touched |
 | assigned_by | uuid | → users. **NULL = self-set todo** (legacy behaviour, no lifecycle) (083) |
+| project_id | uuid | → projects ON DELETE SET NULL. NULL = personal chore. Non-NULL routes the tick through owner review (095, NOT YET APPLIED) |
 | tag | text | NOT NULL DEFAULT 'other', CHECK drawing/review/site/admin/other (083) |
 | due_date | date | (083) |
 | status | text | NOT NULL DEFAULT 'open', CHECK open/accepted/in_progress/pending_review/completed (083) |
@@ -764,7 +829,7 @@ Persistent personal tasks for team members (not date-scoped; carry over until do
 | reviewed_at | timestamptz | (083) |
 
 **Trigger:** `handle_member_task_update` — sets completed_at on flip, nulls on uncheck; since 083 also stamps the lifecycle timestamps and keeps `completed` ↔ `status` in lockstep.
-**RLS:** member reads/writes own; owner reads all via `daily_tasks:view_all`. Since 083: `owner_assign_tasks` (INSERT for others, needs `tasks:assign`) and `owner_review_tasks` (UPDATE, needs `tasks:assign` **and `assigned_by IS NOT NULL`**).
+**RLS:** member reads/writes own; owner reads all via `daily_tasks:view_all`. Since 083: `owner_assign_tasks` (INSERT for others, needs `tasks:assign`) and `owner_review_tasks` (UPDATE, needs `tasks:assign` **and `assigned_by IS NOT NULL`**). 095 (NOT YET APPLIED) swaps that last predicate for **`user_id <> auth.uid()`**, so review reaches self-set tasks while nobody reviews their own.
 
 ### `personal_reminders` (039_personal_reminders.sql)
 Private calendar reminders visible only to the creating user. In-app notification only.

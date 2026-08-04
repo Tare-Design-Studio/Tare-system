@@ -11,6 +11,18 @@ const UpdateSchema = z.object({
 
 type Ctx = { params: Promise<{ id: string }> };
 
+// A completed task shown in the project stream. `created_at` carries the task's
+// completed_at so both entry kinds sort on one field.
+type TaskEntry = {
+  id: string;
+  entry_kind: "task";
+  title: string;
+  tag: string;
+  review_status: string | null;
+  created_at: string;
+  users: { id: string; full_name: string; role: string } | null;
+};
+
 export async function GET(req: NextRequest, { params }: Ctx) {
   const { id: project_id } = await params;
   const supabase = await createClient();
@@ -42,6 +54,79 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  // Completed tasks linked to this project appear in the stream alongside real
+  // updates. Merged at read time — nothing is written into `updates`, so a task
+  // keeps exactly one home row and stays editable from the tasks pages.
+  // Skipped when the caller is filtering by update_type or author, since neither
+  // filter has a meaningful equivalent on a task row.
+  let tasks: TaskEntry[] = [];
+  if (!type && !author) {
+    // Read through the service client, NOT the caller's. member_tasks RLS shows a
+    // plain member only their own rows (tenant-wide reads need
+    // daily_tasks:view_all, which only the project_manager tag carries), so the
+    // caller's client would show each member a different, mostly-empty feed.
+    // Granting that capability broadly would expose every member's private todos
+    // app-wide; this stays narrow instead — only tasks already linked to THIS
+    // project and only completed ones, behind the explicit access check below.
+    //
+    // The `updates` query above is NOT that check: updates_select (021) returns
+    // zero rows both for a caller with no access AND for a project that simply
+    // has no updates yet, so an empty result proves nothing. Re-test the same
+    // predicate the policy uses before reading anything with elevated rights.
+    const { data: mayRead } = await supabase.rpc("has_capability", {
+      p_capability: "progress:view",
+      p_project_id: project_id,
+    });
+    if (!mayRead) {
+      const { data: assigned } = await supabase
+        .from("project_assignments")
+        .select("id")
+        .eq("project_id", project_id)
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (!assigned) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+
+    // The service client bypasses RLS, so the tenant predicate that
+    // owner_view_member_tasks would normally apply has to be written out here.
+    const { data: callerProfile } = await supabase
+      .from("users")
+      .select("tenant_id")
+      .eq("id", user.id)
+      .single();
+    const callerTenant = callerProfile?.tenant_id;
+    if (!callerTenant) return NextResponse.json({ error: "Profile not found" }, { status: 400 });
+
+    const taskClient = createServiceClient();
+    let taskQuery = taskClient
+      .from("member_tasks")
+      .select("id, title, tag, completed_at, review_status, users:user_id (id, full_name, role)")
+      .eq("project_id", project_id)
+      .eq("tenant_id", callerTenant)
+      .eq("status", "completed")
+      .not("completed_at", "is", null)
+      .order("completed_at", { ascending: false })
+      .limit(limit);
+
+    if (from) taskQuery = taskQuery.gte("completed_at", from);
+    if (to) taskQuery = taskQuery.lte("completed_at", to);
+
+    // RLS decides visibility: a member sees their own rows, and holders of
+    // daily_tasks:view_all see the whole tenant. A failure here must not take
+    // the whole feed down — the updates half is the primary content.
+    const { data: taskRows } = await taskQuery;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    tasks = ((taskRows ?? []) as any[]).map((t) => ({
+      id: t.id,
+      entry_kind: "task" as const,
+      title: t.title,
+      tag: t.tag,
+      review_status: t.review_status,
+      created_at: t.completed_at,
+      users: t.users,
+    }));
+  }
+
   // Sign storage paths so raw keys never reach the browser.
   // Private buckets have no SELECT policy for the authenticated role — sign with
   // the service client (project access was already enforced by the updates query).
@@ -61,11 +146,18 @@ export async function GET(req: NextRequest, { params }: Ctx) {
       );
       const { media_assets, ...rest } = u;
       void media_assets;
-      return { ...rest, images: images.filter((i) => i.url) };
+      return { ...rest, entry_kind: "update" as const, images: images.filter((i) => i.url) };
     })
   );
 
-  return NextResponse.json({ updates });
+  // One stream, newest first. Re-limited after the merge so the response never
+  // exceeds the caller's limit now that two sources feed it.
+  const entries = [...updates, ...tasks]
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+    .slice(0, limit);
+
+  // `updates` is kept for existing callers that read it directly.
+  return NextResponse.json({ updates, entries });
 }
 
 export async function POST(req: NextRequest, { params }: Ctx) {

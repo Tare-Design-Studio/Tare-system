@@ -21,6 +21,16 @@ type Update = {
   author_id: string;
   users: { id: string; full_name: string; role: string } | null;
   images?: { id: string; url: string | null; drive_sync_status?: string }[];
+  // "task" rows are completed member_tasks linked to this project (095). They
+  // are read-only here — the task itself lives on the tasks pages.
+  entry_kind?: "update" | "task";
+  title?: string;
+  tag?: string;
+  review_status?: string | null;
+};
+
+const VERDICT_COLOR: Record<string, string> = {
+  clean: "#10B981", revision: "#F59E0B", error: "#EF4444",
 };
 
 const SITE_ROLES = new Set(["site_engineer"]);
@@ -30,6 +40,7 @@ type Tone = typeof TONES[number];
 const TYPE_COLORS: Record<string, string> = {
   note: "#6B7280", image: "#0EA5E9", drawing: "#8B5CF6",
   progress: "#10B981", remark: "#F59E0B", material: "#EF4444", expense: "#EC4899",
+  task: "#0F766E",
 };
 
 function tone(idx: number): Tone { return TONES[idx % TONES.length]; }
@@ -192,7 +203,16 @@ export default function TeamStreamCard({ assignments, updates: initialUpdates, p
                           {fmtDate(u.created_at)}{u.edited_at ? " · edited" : ""}
                         </span>
                       </div>
-                      {editingId === u.id ? (
+                      {u.entry_kind === "task" ? (
+                        <div style={{ fontSize: 12, lineHeight: 1.5, color: "var(--color-ink)", display: "flex", alignItems: "center", gap: 6 }}>
+                          <span>Completed “{u.title}”</span>
+                          {u.review_status && (
+                            <span style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4, color: VERDICT_COLOR[u.review_status] ?? "var(--color-tan)" }}>
+                              {u.review_status}
+                            </span>
+                          )}
+                        </div>
+                      ) : editingId === u.id ? (
                         <div>
                           <textarea
                             value={editDraft}
@@ -224,7 +244,7 @@ export default function TeamStreamCard({ assignments, updates: initialUpdates, p
                         <span style={{ fontSize: 11, color: "var(--color-tan)" }}>
                           {cap(authorAssignment?.role_on_project ?? author?.role ?? "")}
                         </span>
-                        {u.author_id === currentUserId && editingId !== u.id && (
+                        {u.entry_kind !== "task" && u.author_id === currentUserId && editingId !== u.id && (
                           <span
                             ref={openMenuId === u.id ? menuRef : null}
                             style={{ position: "relative", display: "inline-flex", marginLeft: "auto" }}

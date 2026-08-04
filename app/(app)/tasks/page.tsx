@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import TasksClient from "./TasksClient";
 
 const TASK_SELECT =
-  "id, user_id, title, tag, status, completed, completed_at, due_date, " +
+  "id, user_id, title, tag, status, completed, completed_at, due_date, project_id, " +
   "assigned_by, accepted_at, started_at, submitted_at, review_status, " +
   "reviewed_by, reviewed_at, created_at, updated_at";
 
@@ -31,7 +31,7 @@ export default async function TasksPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
 
-  const [{ data: own }, assignedRes, reviewRes, membersRes] = await Promise.all([
+  const [{ data: own }, assignedRes, reviewRes, membersRes, projectsRes] = await Promise.all([
     sb
       .from("member_tasks")
       .select(TASK_SELECT)
@@ -60,6 +60,13 @@ export default async function TasksPage() {
           .is("deleted_at", null)
           .order("full_name")
       : Promise.resolve({ data: [] }),
+    // Every active project in the tenant — both task pickers list all of them.
+    sb
+      .from("projects")
+      .select("id, name")
+      .eq("status", "active")
+      .order("name", { ascending: true })
+      .limit(200),
   ]);
 
   return (
@@ -71,6 +78,7 @@ export default async function TasksPage() {
         (m: { id: string }) => m.id !== user.id
       )}
       canAssign={!!canAssign}
+      projects={projectsRes.data ?? []}
     />
   );
 }

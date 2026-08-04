@@ -1549,34 +1549,69 @@ export type Database = {
         ]
       }
       member_tasks: {
+        // Hand-patched (no `supabase gen types`), same pattern as 066/067/092:
+        // the 083 lifecycle columns and 095's project_id.
         Row: {
+          accepted_at: string | null
+          assigned_by: string | null
           completed: boolean
           completed_at: string | null
           drawing_role: Database["public"]["Enums"]["drawing_role"] | null
           created_at: string
+          due_date: string | null
           id: string
+          project_id: string | null
+          review_status: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          started_at: string | null
+          status: string
+          submitted_at: string | null
+          tag: string
           tenant_id: string
           title: string
           updated_at: string
           user_id: string
         }
         Insert: {
+          accepted_at?: string | null
+          assigned_by?: string | null
           completed?: boolean
           completed_at?: string | null
           drawing_role?: Database["public"]["Enums"]["drawing_role"] | null
           created_at?: string
+          due_date?: string | null
           id?: string
+          project_id?: string | null
+          review_status?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          started_at?: string | null
+          status?: string
+          submitted_at?: string | null
+          tag?: string
           tenant_id: string
           title: string
           updated_at?: string
           user_id: string
         }
         Update: {
+          accepted_at?: string | null
+          assigned_by?: string | null
           completed?: boolean
           completed_at?: string | null
           drawing_role?: Database["public"]["Enums"]["drawing_role"] | null
           created_at?: string
+          due_date?: string | null
           id?: string
+          project_id?: string | null
+          review_status?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          started_at?: string | null
+          status?: string
+          submitted_at?: string | null
+          tag?: string
           tenant_id?: string
           title?: string
           updated_at?: string
@@ -1595,6 +1630,13 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "member_tasks_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
             referencedColumns: ["id"]
           },
         ]

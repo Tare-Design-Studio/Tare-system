@@ -2,6 +2,8 @@
 
 import { useState, useRef } from "react";
 import Link from "next/link";
+import ConfirmDialog from "@/components/atoms/ConfirmDialog";
+import { taskConfirmCopy, goesToReview } from "@/lib/tasks/confirm-copy";
 
 type MemberTask = {
   id: string;
@@ -10,7 +12,12 @@ type MemberTask = {
   completed_at: string | null;
   created_at: string;
   drawing_role?: DrawingRole | null;
+  project_id?: string | null;
+  status?: string;
+  reviewed_by?: string | null;
 };
+
+export type TaskProject = { id: string; name: string };
 
 // Which part of a drawing this task covers (client request #11). Recorded per
 // task so the split shows on the member's profile and in reports.
@@ -31,15 +38,28 @@ const C: React.CSSProperties = {
   border: "1px solid rgba(30,28,24,.04)",
 };
 
-export default function TasksCard({ initialTasks }: { initialTasks: MemberTask[] }) {
+export default function TasksCard({
+  initialTasks,
+  projects = [],
+}: {
+  initialTasks: MemberTask[];
+  projects?: TaskProject[];
+}) {
   const [tasks, setTasks] = useState<MemberTask[]>(initialTasks);
   const [newTitle, setNewTitle] = useState("");
+  const [newProjectId, setNewProjectId] = useState("");
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
+  // Which tick is awaiting confirmation. null = no dialog open.
+  const [confirming, setConfirming] = useState<{ id: string; completed: boolean } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const pending = tasks.filter((t) => !t.completed);
+  // A submitted task is neither pending nor done — it is with the owner. Without
+  // its own bucket it would drop back among the pending tasks with a blank
+  // check-box, reading as "nothing happened".
+  const awaitingReview = tasks.filter((t) => t.status === "pending_review");
+  const pending = tasks.filter((t) => !t.completed && t.status !== "pending_review");
   const done = tasks.filter((t) => t.completed);
 
   async function addTask() {
@@ -49,12 +69,13 @@ export default function TasksCard({ initialTasks }: { initialTasks: MemberTask[]
     const res = await fetch("/api/member-tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title }),
+      body: JSON.stringify({ title, project_id: newProjectId || null }),
     });
     if (res.ok) {
       const task = await res.json();
       setTasks((prev) => [task, ...prev]);
       setNewTitle("");
+      setNewProjectId("");
     }
     setAdding(false);
     inputRef.current?.focus();
@@ -71,6 +92,8 @@ export default function TasksCard({ initialTasks }: { initialTasks: MemberTask[]
       setTasks((prev) => prev.map((t) => (t.id === id ? updated : t)));
     }
   }
+
+  const confirmTask = confirming ? tasks.find((t) => t.id === confirming.id) : undefined;
 
   async function saveEdit(id: string) {
     const title = editTitle.trim();
@@ -121,23 +144,49 @@ export default function TasksCard({ initialTasks }: { initialTasks: MemberTask[]
       </div>
 
       {/* Add task input */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        <input
-          ref={inputRef}
-          value={newTitle}
-          onChange={(e) => setNewTitle(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addTask()}
-          placeholder="Add a task…"
-          style={{ flex: 1, padding: "9px 12px", borderRadius: 10, border: "1px solid var(--color-line)", background: "var(--color-bg)", fontSize: 13, color: "var(--color-ink)", outline: "none" }}
-        />
-        <button
-          onClick={addTask}
-          disabled={adding || !newTitle.trim()}
-          style={{ padding: "9px 14px", borderRadius: 10, background: "var(--color-forest)", color: "#FFF", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, opacity: adding || !newTitle.trim() ? 0.5 : 1 }}
-        >
-          Add
-        </button>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            ref={inputRef}
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addTask()}
+            placeholder="Add a task…"
+            style={{ flex: 1, padding: "9px 12px", borderRadius: 10, border: "1px solid var(--color-line)", background: "var(--color-bg)", fontSize: 13, color: "var(--color-ink)", outline: "none" }}
+          />
+          <button
+            onClick={addTask}
+            disabled={adding || !newTitle.trim()}
+            style={{ padding: "9px 14px", borderRadius: 10, background: "var(--color-forest)", color: "#FFF", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, opacity: adding || !newTitle.trim() ? 0.5 : 1 }}
+          >
+            Add
+          </button>
+        </div>
+        {projects.length > 0 && (
+          <select
+            value={newProjectId}
+            onChange={(e) => setNewProjectId(e.target.value)}
+            style={{ padding: "7px 10px", borderRadius: 10, border: "1px solid var(--color-line)", background: "var(--color-bg)", fontSize: 12, color: newProjectId ? "var(--color-ink)" : "var(--color-tan)", outline: "none", appearance: "none", cursor: "pointer" }}
+          >
+            <option value="">No project — personal task</option>
+            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        )}
       </div>
+
+      {/* With the owner — submitted, not yet reviewed */}
+      {awaitingReview.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 }}>
+          <div style={{ fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>With the owner</div>
+          {awaitingReview.map((t) => (
+            <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10, background: "var(--color-bg)" }}>
+              <div style={{ width: 18, height: 18, borderRadius: 5, border: "2px dashed var(--color-tan)", flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: 12, color: "var(--color-ink)" }}>{t.title}</span>
+              <span style={{ fontSize: 10, color: "var(--color-tan)" }}>In review</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Pending tasks */}
       {pending.length > 0 && (
@@ -145,7 +194,7 @@ export default function TasksCard({ initialTasks }: { initialTasks: MemberTask[]
           {pending.map((t) => (
             <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: 10, background: "var(--color-bg)" }}>
               <button
-                onClick={() => toggle(t.id, true)}
+                onClick={() => setConfirming({ id: t.id, completed: true })}
                 style={{ width: 18, height: 18, borderRadius: 5, border: "2px solid var(--color-line)", background: "transparent", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}
               />
               {editingId === t.id ? (
@@ -204,7 +253,7 @@ export default function TasksCard({ initialTasks }: { initialTasks: MemberTask[]
           {done.slice(0, 3).map((t) => (
             <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 10, background: "transparent", opacity: 0.6 }}>
               <button
-                onClick={() => toggle(t.id, false)}
+                onClick={() => setConfirming({ id: t.id, completed: false })}
                 style={{ width: 18, height: 18, borderRadius: 5, border: "2px solid var(--color-forest)", background: "var(--color-forest)", cursor: "pointer", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}
               >
                 <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round">
@@ -227,6 +276,20 @@ export default function TasksCard({ initialTasks }: { initialTasks: MemberTask[]
 
       {tasks.length === 0 && (
         <div style={{ fontSize: 12, color: "var(--color-tan)", padding: "8px 0" }}>No tasks yet. Add one above.</div>
+      )}
+
+      {confirming && confirmTask && (
+        <ConfirmDialog
+          {...taskConfirmCopy({
+            completed: confirming.completed,
+            goesToReview: confirming.completed && goesToReview(confirmTask),
+          })}
+          onConfirm={() => {
+            toggle(confirming.id, confirming.completed);
+            setConfirming(null);
+          }}
+          onCancel={() => setConfirming(null)}
+        />
       )}
     </div>
   );

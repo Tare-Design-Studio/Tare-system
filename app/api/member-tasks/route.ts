@@ -8,7 +8,7 @@ const TASK_TAGS = ["drawing", "review", "site", "admin", "other"] as const;
 const DRAWING_ROLES = ["design", "detailing", "technical", "checked"] as const;
 
 const TASK_SELECT =
-  "id, user_id, title, tag, drawing_role, status, completed, completed_at, due_date, " +
+  "id, user_id, title, tag, drawing_role, status, completed, completed_at, due_date, project_id, " +
   "assigned_by, accepted_at, started_at, submitted_at, review_status, " +
   "reviewed_by, reviewed_at, created_at, updated_at";
 
@@ -41,6 +41,9 @@ const assignSchema = z.object({
   tag: z.enum(TASK_TAGS).optional(),
   drawing_role: z.enum(DRAWING_ROLES).nullable().optional(),
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  // Optional project the task belongs to. Null/absent = personal chore, which
+  // stays a one-tap todo; a linked task routes through owner review (095).
+  project_id: z.string().uuid().nullable().optional(),
 });
 
 export async function POST(req: Request) {
@@ -60,7 +63,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "Invalid input" }, { status: 400 });
   }
-  const { title, assignee_id, tag, due_date, drawing_role } = parsed.data;
+  const { title, assignee_id, tag, due_date, drawing_role, project_id } = parsed.data;
 
   // Self-created task (existing behaviour) unless an assignee other than self is given.
   const isAssignment = !!assignee_id && assignee_id !== user.id;
@@ -68,6 +71,20 @@ export async function POST(req: Request) {
   if (isAssignment) {
     const { data: canAssign } = await supabase.rpc("has_capability", { p_capability: "tasks:assign" });
     if (!canAssign) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // member_tasks RLS keys on user_id alone and says nothing about project_id, so
+  // a project UUID from another tenant would otherwise be written straight in.
+  // The projects SELECT policy (013) is tenant-scoped, so a miss here means the
+  // project is not ours.
+  if (project_id) {
+    const { data: project } = await supabase
+      .from("projects")
+      .select("id")
+      .eq("id", project_id)
+      .eq("tenant_id", profile.tenant_id)
+      .maybeSingle();
+    if (!project) return NextResponse.json({ error: "Unknown project" }, { status: 400 });
   }
 
   const row = {
@@ -78,6 +95,7 @@ export async function POST(req: Request) {
     tag: tag ?? "other",
     drawing_role: drawing_role ?? null,
     due_date: due_date ?? null,
+    project_id: project_id ?? null,
     assigned_by: isAssignment ? user.id : null,
     status: "open",
   };

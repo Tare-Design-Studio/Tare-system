@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { Button, Card, CardTitle, Chip, ConfirmPopover } from "@/components/atoms";
 import { PageHeader } from "../PageHeader";
+import { taskConfirmCopy, goesToReview } from "@/lib/tasks/confirm-copy";
 
 type TaskStatus = "open" | "accepted" | "in_progress" | "pending_review" | "completed";
 type ReviewStatus = "clean" | "revision" | "error" | null;
@@ -17,6 +18,7 @@ type MemberTask = {
   completed: boolean;
   completed_at: string | null;
   due_date: string | null;
+  project_id: string | null;
   assigned_by: string | null;
   accepted_at: string | null;
   started_at: string | null;
@@ -36,7 +38,13 @@ type Props = {
   initialReview: MemberTask[];
   members: Member[];
   canAssign: boolean;
+  // Every active project in the tenant. Both the self-add and the assign picker
+  // list all of them — a task may be logged against any project, not only the
+  // ones the author happens to be assigned to.
+  projects: TaskProject[];
 };
+
+type TaskProject = { id: string; name: string };
 
 const TAG_LABEL: Record<TaskTag, string> = {
   drawing: "Drawing", review: "Review", site: "Site", admin: "Admin", other: "Task",
@@ -135,6 +143,7 @@ export default function TasksClient({
   initialReview,
   members,
   canAssign,
+  projects,
 }: Props) {
   const [tab, setTab] = useState<"mine" | "assigned" | "review">("mine");
   const [tasks, setTasks] = useState<MemberTask[]>(initialTasks);
@@ -149,7 +158,10 @@ export default function TasksClient({
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
-  const [confirmId, setConfirmId] = useState<string | null>(null); // "Is the task complete?" modal
+  // Which tick is awaiting confirmation, and in which direction — the wording
+  // differs for completing, submitting for review, and reopening.
+  const [confirming, setConfirming] = useState<{ id: string; completed: boolean } | null>(null);
+  const [newProjectId, setNewProjectId] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
 
   // Assign modal (owner / PM)
@@ -158,6 +170,7 @@ export default function TasksClient({
   const [assignTo, setAssignTo] = useState("");
   const [assignTag, setAssignTag] = useState<TaskTag>("other");
   const [assignDue, setAssignDue] = useState("");
+  const [assignProjectId, setAssignProjectId] = useState("");
   const [assignSaving, setAssignSaving] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -241,7 +254,12 @@ export default function TasksClient({
       const res = await fetch("/api/member-tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, tag: newTag, due_date: newDue || undefined }),
+        body: JSON.stringify({
+          title,
+          tag: newTag,
+          due_date: newDue || undefined,
+          project_id: newProjectId || null,
+        }),
       });
       if (res.ok) {
         const task: MemberTask = await res.json();
@@ -249,6 +267,7 @@ export default function TasksClient({
         setNewTitle("");
         setNewDue("");
         setNewTag("other");
+        setNewProjectId("");
       } else {
         const e = await res.json().catch(() => null);
         setActionError(e?.error ?? `Could not add the task (${res.status}).`);
@@ -274,6 +293,7 @@ export default function TasksClient({
           assignee_id: assignTo,
           tag: assignTag,
           due_date: assignDue || undefined,
+          project_id: assignProjectId || null,
         }),
       });
       if (res.ok) {
@@ -283,6 +303,7 @@ export default function TasksClient({
         setAssignTo("");
         setAssignTag("other");
         setAssignDue("");
+        setAssignProjectId("");
         setTab("assigned");
       } else {
         const json = await res.json().catch(() => ({}));
@@ -315,7 +336,7 @@ export default function TasksClient({
     }
   }
 
-  const confirmTask = tasks.find((t) => t.id === confirmId) ?? null;
+  const confirmTask = confirming ? tasks.find((t) => t.id === confirming.id) ?? null : null;
 
   const pill = (active: boolean): React.CSSProperties => ({
     padding: "8px 16px", borderRadius: "var(--radius-chip)", fontSize: 13, fontWeight: 500, cursor: "pointer",
@@ -379,6 +400,15 @@ export default function TasksClient({
             >
               {TAG_OPTIONS.map((t) => <option key={t} value={t}>{TAG_LABEL[t]}</option>)}
             </select>
+            <select
+              value={newProjectId}
+              onChange={(e) => setNewProjectId(e.target.value)}
+              title="Project this task belongs to — linked tasks go to the owner for review"
+              style={{ ...inputStyle, flex: "0 0 auto", minWidth: 170, padding: "14px 12px", cursor: "pointer" }}
+            >
+              <option value="">No project</option>
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
             <input
               type="date"
               value={newDue}
@@ -433,7 +463,7 @@ export default function TasksClient({
                     {/* Self-set tasks keep the tick; assigned tasks use the lifecycle. */}
                     {!isAssignedToMe ? (
                       <button
-                        onClick={() => patch(t.id, { completed: !t.completed })}
+                        onClick={() => setConfirming({ id: t.id, completed: !t.completed })}
                         style={{
                           width: 22, height: 22, borderRadius: 7,
                           border: t.completed ? "none" : "2px solid var(--color-line)",
@@ -540,7 +570,7 @@ export default function TasksClient({
                       </Button>
                     )}
                     {isAssignedToMe && (t.status === "accepted" || t.status === "in_progress") && (
-                      <Button size="sm" disabled={busy} onClick={() => setConfirmId(t.id)} title="Mark complete" style={{ flexShrink: 0 }}>
+                      <Button size="sm" disabled={busy} onClick={() => setConfirming({ id: t.id, completed: true })} title="Mark complete" style={{ flexShrink: 0 }}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>
                         Check
                       </Button>
@@ -758,6 +788,18 @@ export default function TasksClient({
               />
             </div>
 
+            <div style={{ marginTop: 12 }}>
+              <label style={labelStyle}>Project (optional)</label>
+              <select
+                value={assignProjectId}
+                onChange={(e) => setAssignProjectId(e.target.value)}
+                style={{ ...inputStyle, width: "100%", cursor: "pointer" }}
+              >
+                <option value="">No project</option>
+                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+
             {assignError && (
               <p style={{
                 fontSize: 12, color: "var(--color-rose)", margin: "14px 0 0",
@@ -778,14 +820,16 @@ export default function TasksClient({
         </div>
       )}
 
-      {/* "Is the task complete?" confirmation */}
-      {confirmTask && (
+      {/* Check-mark confirmation. Wording depends on what the tick actually does:
+          submit a project-linked task for review, close a personal one, or
+          reopen either. */}
+      {confirmTask && confirming && (
         <div
           style={{
             position: "fixed", inset: 0, background: "rgba(27,26,23,.45)", backdropFilter: "blur(4px)",
             zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
           }}
-          onClick={() => setConfirmId(null)}
+          onClick={() => setConfirming(null)}
         >
           <div
             className="modal-mobile-full"
@@ -795,27 +839,51 @@ export default function TasksClient({
               boxShadow: "0 8px 40px -10px rgba(27,26,23,.35)", border: "1px solid var(--color-line)",
             }}
           >
-            <h3 className="font-serif" style={{ fontSize: 22, fontWeight: 400, margin: 0, color: "var(--color-ink)" }}>
-              Is the task complete?
-            </h3>
-            <div style={{ fontSize: 13, color: "var(--color-tan)", marginTop: 8 }}>{confirmTask.title}</div>
-            {confirmTask.accepted_at && (
-              <div className="mono" style={{ fontSize: 12, color: "var(--color-tan)", marginTop: 4 }}>
-                Time logged: {fmtDuration(now - new Date(confirmTask.accepted_at).getTime())}
-              </div>
-            )}
-            <div style={{ fontSize: 12, color: "var(--color-tan)", marginTop: 12 }}>
-              Marking it complete sends it to your owner for review.
-            </div>
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
-              <Button variant="secondary" onClick={() => setConfirmId(null)}>Not yet</Button>
-              <Button
-                disabled={busyId === confirmTask.id}
-                onClick={async () => { const id = confirmTask.id; setConfirmId(null); await patch(id, { action: "submit" }); }}
-              >
-                Yes, it&apos;s done
-              </Button>
-            </div>
+            {(() => {
+              // Two routes to review: an assigned task partway through its
+              // lifecycle, or (since 095) any project-linked task being ticked.
+              const midLifecycle =
+                confirmTask.status === "accepted" || confirmTask.status === "in_progress";
+              const copy = taskConfirmCopy({
+                completed: confirming.completed,
+                goesToReview:
+                  confirming.completed && (midLifecycle || goesToReview(confirmTask)),
+              });
+              return (
+                <>
+                  <h3 className="font-serif" style={{ fontSize: 22, fontWeight: 400, margin: 0, color: "var(--color-ink)" }}>
+                    {copy.title}
+                  </h3>
+                  <div style={{ fontSize: 13, color: "var(--color-tan)", marginTop: 8 }}>{confirmTask.title}</div>
+                  {confirmTask.accepted_at && (
+                    <div className="mono" style={{ fontSize: 12, color: "var(--color-tan)", marginTop: 4 }}>
+                      Time logged: {fmtDuration(now - new Date(confirmTask.accepted_at).getTime())}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 12, color: "var(--color-tan)", marginTop: 12 }}>
+                    {copy.body}
+                  </div>
+                  <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
+                    <Button variant="secondary" onClick={() => setConfirming(null)}>Cancel</Button>
+                    <Button
+                      disabled={busyId === confirmTask.id}
+                      onClick={async () => {
+                        const { id, completed } = confirming;
+                        // An assigned task mid-lifecycle submits for review; the
+                        // plain tick is for self-set tasks (095 turns that into a
+                        // review submission too when the task names a project).
+                        const midLifecycle =
+                          confirmTask.status === "accepted" || confirmTask.status === "in_progress";
+                        setConfirming(null);
+                        await patch(id, completed && midLifecycle ? { action: "submit" } : { completed });
+                      }}
+                    >
+                      {copy.confirmLabel}
+                    </Button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}

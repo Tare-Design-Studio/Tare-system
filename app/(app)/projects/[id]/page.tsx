@@ -38,6 +38,7 @@ type Assignment = {
 
 type Project = {
   id: string;
+  tenant_id: string;
   name: string;
   slug: string;
   project_type: string | null;
@@ -127,7 +128,7 @@ export default async function ProjectDetailPage({ params }: Ctx) {
   const { data: project } = await (supabase as any)
     .from("projects")
     .select(
-      `id, name, slug, project_type, current_stage, scope, status, on_hold_reason,
+      `id, tenant_id, name, slug, project_type, current_stage, scope, status, on_hold_reason,
        budget_total, estimated_work_hours, estimated_duration_days,
        start_date, expected_end_date, actual_start_date, actual_end_date,
        site_location, drive_folder_url, whatsapp_group_url, site_lat, site_lng,
@@ -180,7 +181,7 @@ export default async function ProjectDetailPage({ params }: Ctx) {
   // Scope: when the project is design-only, hide all execution / site-engineer cards
   const isExecution = p.scope !== "design_only";
 
-  const [hoursRes, expensesRes, paymentsRes, paymentRecordsRes, tablesRes, canEditTableRes, updatesRes, materialPlanRes, materialConsumptionRes, materialPresetsRes, mediaRes] = await Promise.all([
+  const [hoursRes, expensesRes, paymentsRes, paymentRecordsRes, tablesRes, canEditTableRes, updatesRes, materialPlanRes, materialConsumptionRes, materialPresetsRes, mediaRes, projectTasksRes] = await Promise.all([
     supabase
       .from("work_log")
       .select("hours")
@@ -258,6 +259,20 @@ export default async function ProjectDetailPage({ params }: Ctx) {
       .in("kind", ["site_image", "drawing"])
       .order("created_at", { ascending: false })
       .limit(40),
+
+    // Completed tasks linked to this project — shown in the Team Stream beside
+    // the updates. Service client because member_tasks RLS shows a plain member
+    // only their own rows, which would give each viewer a different feed; the
+    // page has already established this user may view this project.
+    createServiceClient()
+      .from("member_tasks")
+      .select("id, title, tag, completed_at, review_status, users:user_id (id, full_name, role)")
+      .eq("project_id", id)
+      .eq("tenant_id", p.tenant_id)
+      .eq("status", "completed")
+      .not("completed_at", "is", null)
+      .order("completed_at", { ascending: false })
+      .limit(50),
   ]);
 
   const actualHours = (hoursRes.data ?? []).reduce((sum, r) => sum + Number(r.hours), 0);
@@ -282,9 +297,28 @@ export default async function ProjectDetailPage({ params }: Ctx) {
       );
       const { media_assets, ...rest } = u;
       void media_assets;
-      return { ...rest, images: images.filter((i) => i.url) };
+      return { ...rest, entry_kind: "update" as const, images: images.filter((i) => i.url) };
     })
   );
+
+  // Completed tasks join the same stream, newest first. Their completed_at is
+  // mapped onto created_at so one sort key covers both kinds.
+  const projectStream = [
+    ...projectUpdates,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...((projectTasksRes.data ?? []) as any[]).map((t) => ({
+      id: t.id,
+      entry_kind: "task" as const,
+      title: t.title,
+      tag: t.tag,
+      review_status: t.review_status,
+      created_at: t.completed_at,
+      users: t.users,
+      // The stream filters by author_id; for a task that is the member who did it.
+      author_id: t.users?.id ?? "",
+      update_type: "task",
+    })),
+  ].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const projectTables = (tablesRes.data ?? []) as any[];
   const canEditTable = !!canEditTableRes.data;
@@ -579,7 +613,7 @@ export default async function ProjectDetailPage({ params }: Ctx) {
 
           {/* Team Stream — directly below Project Pipelines */}
           <div className={styles.card}>
-            <TeamStreamCard assignments={p.project_assignments} updates={projectUpdates} projectId={id} currentUserId={user.id} />
+            <TeamStreamCard assignments={p.project_assignments} updates={projectStream} projectId={id} currentUserId={user.id} />
           </div>
 
           {/* Post an update — assigned team members / site engineers */}
