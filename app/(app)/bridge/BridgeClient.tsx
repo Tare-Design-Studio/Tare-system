@@ -190,7 +190,7 @@ export function BridgeClient({ projects, currentUserId }: Props) {
           Project
         </div>
         {projects.length === 0 ? (
-          <div style={{ fontSize: 13, color: "var(--color-tan)", padding: "8px 4px" }}>No projects assigned.</div>
+          <div style={{ fontSize: 13, color: "var(--color-tan)", padding: "8px 4px" }}>No active projects.</div>
         ) : (
           <select
             value={activeProject?.id ?? ""}

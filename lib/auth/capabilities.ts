@@ -212,6 +212,8 @@ export const TAG_CAPABILITIES: Record<string, Capability[]> = {
 
 export const SITE_ENGINEER_CAPABILITIES: Capability[] = [
   "project:view_assigned",
+  "bridge:read",
+  "bridge:write",
   "materials:consume",
   "materials:view",
   "progress:update",

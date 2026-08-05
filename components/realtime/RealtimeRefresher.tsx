@@ -93,9 +93,9 @@ const ROUTE_TABLES: Array<{ prefix: string; tables: ContentTable[] }> = [
 ];
 
 function tablesForPath(pathname: string): readonly ContentTable[] {
-  // Routes that fetch no published content table (audit, performance, settings)
+  // Routes that fetch no published content table (performance, settings)
   // still get an explicit empty set rather than the all-tables fallback.
-  const STATIC_PREFIXES = ["/audit", "/performance", "/settings"];
+  const STATIC_PREFIXES = ["/performance", "/settings"];
   if (STATIC_PREFIXES.some((p) => pathname.startsWith(p))) return [];
   // Longest matching prefix wins; "/" entry is last so it only matches when
   // nothing more specific does.

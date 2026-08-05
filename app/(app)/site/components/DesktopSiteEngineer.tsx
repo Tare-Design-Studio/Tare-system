@@ -7,6 +7,7 @@ import { Project, Engineer, MaterialPlan, Expense, CheckIn, SiteVisit, CATEGORY_
 import { UpdateComposer } from "@/components/updates/UpdateComposer";
 import { UpdatesFeed, type FeedUpdate } from "@/components/updates/UpdatesFeed";
 import SiteVisitsCard from "./SiteVisitsCard";
+import { signOut } from "@/app/(auth)/actions";
 
 function TodayTab({ project, checkIns, onCheckin, nowMs, siteVisits }: { project: Project; checkIns: CheckIn[]; onCheckin: () => void; nowMs: number; siteVisits: SiteVisit[]; }) {
   const [checking, setChecking] = useState(false);
@@ -560,6 +561,19 @@ export function DesktopSiteEngineer({
                 {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
               <Chip label={project?.current_stage ? project.current_stage.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase()) : "Active"} tone="teal" dot />
+              <form action={signOut}>
+                <button
+                  type="submit"
+                  title="Sign out"
+                  style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "1px solid var(--color-line)", borderRadius: 10, padding: 8, cursor: "pointer", color: "var(--color-tan)" }}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                    <polyline points="16 17 21 12 16 7" />
+                    <line x1="21" y1="12" x2="9" y2="12" />
+                  </svg>
+                </button>
+              </form>
             </div>
           </div>
 

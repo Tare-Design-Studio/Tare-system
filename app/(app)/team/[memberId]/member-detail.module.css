@@ -471,6 +471,23 @@
   text-align: center;
 }
 
+.emptyAction {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-forest);
+  background: none;
+  border: none;
+  padding: 4px 0;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.emptyAction:hover {
+  text-decoration: underline;
+}
+
 /* Loading state */
 .loading {
   display: flex;

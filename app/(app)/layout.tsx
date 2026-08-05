@@ -13,7 +13,8 @@ type NavItemDef = {
 };
 
 const ALL_NAV_DEFS: NavItemDef[] = [
-  { href: "/",           label: "Overview" },
+  { href: "/site",       label: "My Site",      roles: ["site_engineer"] },
+  { href: "/",           label: "Overview",     roles: ["owner", "team_member"] },
   { href: "/calendar",   label: "Calendar" },
   { href: "/projects",   label: "Projects" },
   { href: "/tasks",      label: "My Tasks",     roles: ["team_member"] },
@@ -22,7 +23,6 @@ const ALL_NAV_DEFS: NavItemDef[] = [
   { href: "/finance",    label: "Finance",      roles: ["owner"], tags: ["accountant"] },
   { href: "/enquiries",  label: "Enquiries",    roles: ["owner"], tags: ["accountant", "admin"] },
   { href: "/team",       label: "Team",         roles: ["owner"], tags: ["accountant", "admin"] },
-  { href: "/audit",      label: "Audit",        roles: ["owner"], tags: ["accountant", "admin"] },
   { href: "/settings",   label: "Settings" },
 ];
 

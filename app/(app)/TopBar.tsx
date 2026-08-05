@@ -74,8 +74,14 @@ type NavItem = {
 
 const ALL_NAV: NavItem[] = [
   {
+    href: "/site", label: "My Site",
+    icon: <Svg><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" /><circle cx="12" cy="10" r="3" /></Svg>,
+    roles: ["site_engineer"],
+  },
+  {
     href: "/", label: "Overview",
     icon: <Svg><rect x="3" y="3" width="7" height="9" rx="1.5" /><rect x="14" y="3" width="7" height="5" rx="1.5" /><rect x="14" y="12" width="7" height="9" rx="1.5" /><rect x="3" y="16" width="7" height="5" rx="1.5" /></Svg>,
+    roles: ["owner", "team_member"],
   },
   {
     href: "/calendar", label: "Calendar",
@@ -115,12 +121,6 @@ const ALL_NAV: NavItem[] = [
   {
     href: "/team", label: "Team & Access",
     icon: <Svg><path d="M12 3 4 7v5c0 5 3.5 9.7 8 11 4.5-1.3 8-6 8-11V7z" /></Svg>,
-    roles: ["owner"],
-    tags: ["accountant", "admin"],
-  },
-  {
-    href: "/audit", label: "Audit Log",
-    icon: <Svg><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M9 3h6v2H9z" /><path d="M9 10h6M9 14h4" /></Svg>,
     roles: ["owner"],
     tags: ["accountant", "admin"],
   },

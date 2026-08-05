@@ -161,6 +161,30 @@ function roleTone(role: string): "forest" | "amber" | "indigo" {
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
+// Empty state with an optional next step. Range-scoped cards pass `onWiden` so
+// "nothing here" offers the widest range instead of dead-ending.
+function EmptyState({ message, actionLabel, onAction, href }: {
+  message: string;
+  actionLabel?: string;
+  onAction?: () => void;
+  href?: string;
+}) {
+  return (
+    <div className={styles.empty}>
+      <div>{message}</div>
+      {actionLabel && href && (
+        <Link href={href} className={styles.emptyAction}>{actionLabel}</Link>
+      )}
+      {actionLabel && onAction && !href && (
+        <button type="button" onClick={onAction} className={styles.emptyAction}>{actionLabel}</button>
+      )}
+    </div>
+  );
+}
+
+// The widest range — offered when a range-scoped card comes back empty.
+const WIDEST_RANGE: Range = "year";
+
 function StatTile({ label, value, unit }: { label: string; value: string | number; unit?: string }) {
   return (
     <div className={styles.statTile}>
@@ -183,7 +207,7 @@ function ProjectsCard({ projects }: { projects: Project[] }) {
         </div>
       </div>
       {projects.length === 0 ? (
-        <div className={styles.empty}>No project assignments.</div>
+        <EmptyState message="No project assignments." actionLabel="Assign from a project" href="/projects" />
       ) : (
         <div className={styles.projectList}>
           {projects.map((pa, i) => {
@@ -206,7 +230,7 @@ function ProjectsCard({ projects }: { projects: Project[] }) {
   );
 }
 
-function AttendanceCard({ attendance }: { attendance: AttendanceLog[] }) {
+function AttendanceCard({ attendance, range, onWiden }: { attendance: AttendanceLog[]; range: Range; onWiden: () => void }) {
   const daysPresent = attendance.length;
   const totalMinutes = attendance.reduce((s, r) => s + (r.total_minutes ?? 0), 0);
   const avgMinutes = daysPresent > 0 ? Math.round(totalMinutes / daysPresent) : 0;
@@ -252,12 +276,18 @@ function AttendanceCard({ attendance }: { attendance: AttendanceLog[] }) {
           })}
         </div>
       )}
-      {attendance.length === 0 && <div className={styles.empty}>No attendance records in range.</div>}
+      {attendance.length === 0 && (
+        <EmptyState
+          message="No attendance records in range."
+          actionLabel={range !== WIDEST_RANGE ? "Look at the full year" : undefined}
+          onAction={onWiden}
+        />
+      )}
     </div>
   );
 }
 
-function TasksCard({ dailyTasks, memberTasks }: { dailyTasks: DailyTask[]; memberTasks: MemberTask[] }) {
+function TasksCard({ dailyTasks, memberTasks, range, onWiden }: { dailyTasks: DailyTask[]; memberTasks: MemberTask[]; range: Range; onWiden: () => void }) {
   const totalDaily = dailyTasks.length;
   const doneDaily = dailyTasks.filter((t) => t.is_done).length;
   const totalPersistent = memberTasks.length;
@@ -335,13 +365,17 @@ function TasksCard({ dailyTasks, memberTasks }: { dailyTasks: DailyTask[]; membe
       )}
 
       {dailyTasks.length === 0 && memberTasks.length === 0 && (
-        <div className={styles.empty}>No tasks in this range.</div>
+        <EmptyState
+          message="No tasks in this range."
+          actionLabel={range !== WIDEST_RANGE ? "Look at the full year" : undefined}
+          onAction={onWiden}
+        />
       )}
     </div>
   );
 }
 
-function PerformanceCard({ performance }: { performance: PerfRow[] }) {
+function PerformanceCard({ performance, range, onWiden }: { performance: PerfRow[]; range: Range; onWiden: () => void }) {
   const totals = performance.reduce(
     (acc, row) => {
       acc.drawings += row.drawings_completed;
@@ -402,7 +436,11 @@ function PerformanceCard({ performance }: { performance: PerfRow[] }) {
           </table>
         </div>
       ) : (
-        <div className={styles.empty}>No performance records in range.</div>
+        <EmptyState
+          message="No performance records in range."
+          actionLabel={range !== WIDEST_RANGE ? "Look at the full year" : undefined}
+          onAction={onWiden}
+        />
       )}
     </div>
   );
@@ -426,7 +464,9 @@ function BroadcastsCard({ broadcasts }: { broadcasts: BroadcastRecipient[] }) {
         <StatTile label="Acknowledged" value={acked} />
         <StatTile label="Ack Rate" value={ackRate} unit="%" />
       </div>
-      {total === 0 && <div className={styles.empty}>No broadcasts received.</div>}
+      {total === 0 && (
+        <EmptyState message="No broadcasts received." actionLabel="Send a broadcast" href="/team" />
+      )}
     </div>
   );
 }
@@ -448,7 +488,7 @@ function workingDaysInRange(range: Range): number {
   return count;
 }
 
-function SiteHoursCard({ checkIns, range }: { checkIns: CheckIn[]; range: Range }) {
+function SiteHoursCard({ checkIns, range, onWiden }: { checkIns: CheckIn[]; range: Range; onWiden: () => void }) {
   // Aggregate worked minutes per project (closed sessions only — open sessions
   // have no duration yet and are excluded from totals).
   const perProject = new Map<string, { name: string; minutes: number; sessions: number }>();
@@ -505,13 +545,17 @@ function SiteHoursCard({ checkIns, range }: { checkIns: CheckIn[]; range: Range 
           </table>
         </div>
       ) : (
-        <div className={styles.empty}>No site time logged in range.</div>
+        <EmptyState
+          message="No site time logged in range."
+          actionLabel={range !== WIDEST_RANGE ? "Look at the full year" : undefined}
+          onAction={onWiden}
+        />
       )}
     </div>
   );
 }
 
-function CheckInsCard({ checkIns }: { checkIns: CheckIn[] }) {
+function CheckInsCard({ checkIns, range, onWiden }: { checkIns: CheckIn[]; range: Range; onWiden: () => void }) {
   const total = checkIns.length;
   const withinGeo = checkIns.filter((c) => c.within_geofence).length;
   const projects = new Set(checkIns.map((c) => c.project_id).filter(Boolean)).size;
@@ -554,7 +598,11 @@ function CheckInsCard({ checkIns }: { checkIns: CheckIn[] }) {
           ))}
         </div>
       ) : (
-        <div className={styles.empty}>No check-ins in range.</div>
+        <EmptyState
+          message="No check-ins in range."
+          actionLabel={range !== WIDEST_RANGE ? "Look at the full year" : undefined}
+          onAction={onWiden}
+        />
       )}
     </div>
   );
@@ -644,6 +692,12 @@ export default function MemberDetailClient({
     fetchData(r);
   }
 
+  // Offered by empty range-scoped cards so "nothing here" has a next step.
+  const widenRange = useCallback(() => {
+    setRange(WIDEST_RANGE);
+    fetchData(WIDEST_RANGE);
+  }, [fetchData]);
+
   const { member, tags } = data;
   const isSiteEngineer = member.role === "site_engineer";
   const chip = ROLE_CHIP[member.role] ?? { label: member.role, tone: "indigo" as const };
@@ -720,13 +774,13 @@ export default function MemberDetailClient({
                 <ProjectsCard projects={data.projects ?? []} />
               </div>
               <div className={styles.col8}>
-                <SiteHoursCard checkIns={data.checkIns ?? []} range={range} />
+                <SiteHoursCard checkIns={data.checkIns ?? []} range={range} onWiden={widenRange} />
               </div>
               <div className={styles.col12}>
-                <TasksCard dailyTasks={data.dailyTasks ?? []} memberTasks={data.memberTasks ?? []} />
+                <TasksCard dailyTasks={data.dailyTasks ?? []} memberTasks={data.memberTasks ?? []} range={range} onWiden={widenRange} />
               </div>
               <div className={styles.col8}>
-                <CheckInsCard checkIns={data.checkIns ?? []} />
+                <CheckInsCard checkIns={data.checkIns ?? []} range={range} onWiden={widenRange} />
               </div>
               <div className={styles.col4}>
                 <BroadcastsCard broadcasts={data.broadcasts ?? []} />
@@ -738,13 +792,13 @@ export default function MemberDetailClient({
                 <ProjectsCard projects={data.projects ?? []} />
               </div>
               <div className={styles.col8}>
-                <AttendanceCard attendance={data.attendance ?? []} />
+                <AttendanceCard attendance={data.attendance ?? []} range={range} onWiden={widenRange} />
               </div>
               <div className={styles.col12}>
-                <TasksCard dailyTasks={data.dailyTasks ?? []} memberTasks={data.memberTasks ?? []} />
+                <TasksCard dailyTasks={data.dailyTasks ?? []} memberTasks={data.memberTasks ?? []} range={range} onWiden={widenRange} />
               </div>
               <div className={styles.col8}>
-                <PerformanceCard performance={data.performance ?? []} />
+                <PerformanceCard performance={data.performance ?? []} range={range} onWiden={widenRange} />
               </div>
               <div className={styles.col4}>
                 <BroadcastsCard broadcasts={data.broadcasts ?? []} />
