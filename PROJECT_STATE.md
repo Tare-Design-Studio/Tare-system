@@ -1,5 +1,27 @@
 # PROJECT_STATE.md
-(Updated: 2026-08-04 — task project links, self-task review, update images)
+(Updated: 2026-08-05 — site engineer bridge access + audit page removal shipped; 095 applied)
+
+### Shipped to production (2026-08-05)
+
+Commit `2eb4f58` pushed to both remotes; Vercel deployed from `client`. Migration 095 was applied
+first — `/tasks` selects `member_tasks.project_id`, so deploying ahead of the migration would have
+500'd that page for every user.
+
+- **Bridge is tenant-wide for every role.** Was assignment-scoped for non-owners, but 089 had
+  already granted `project:view_all` to all non-owners, so the old filter was a UI restriction
+  narrower than RLS. Migration 094 pairs the widened dropdown with tenant-wide
+  `bridge:read`/`bridge:write` for site engineers — without it an SE could pick a project and get an
+  empty thread with no error.
+- **Completed projects are now hidden from Bridge** alongside cancelled ones. Their `bridge_messages`
+  rows are untouched, but there is no UI path back to a completed project's thread — owner included.
+  Flagged in review, shipped deliberately; revisit if anyone needs handover history.
+- **Site engineers get `/site` in the nav and a sign-out control** on desktop and mobile. They
+  previously had no way to log out.
+- **Audit page and its API routes deleted.** `audit_log`, `audit_trigger`, the hash chain and the
+  075 insert-time cap are untouched and still recording — UI only. `audit_log:view`/`audit_log:export`
+  stay declared, so the Access Matrix still shows an "Audit Log" toggle that currently gates nothing.
+  Known and intentional: keeps the page restorable without a capability migration.
+- **Empty range-scoped cards on member detail** offer to widen to the full year instead of dead-ending.
 
 ### Task project links + self-task review + update images (2026-08-04)
 
@@ -7,10 +29,12 @@ Client batch: tasks name a project, self-set tasks get reviewed, the tick asks f
 tasks show in the project stream, and update authors can attach photos. `tsc` clean, `eslint` clean
 on all touched files, `npm run build` passes.
 
-**Migration 095 is WRITTEN BUT NOT APPLIED.** Docker is not available locally (and is a locked
-"no Docker" decision for this project), so the trigger, the RLS swap and the FK have had no
-execution test — only static review against 038 / 083 / 084. Everything below that depends on the
-DB is therefore unverified end-to-end. Apply 095 before trusting any of it.
+**Migration 095 was APPLIED 2026-08-05** (see SCHEMA.md). It ran clean against production and the
+column, index and RLS policy were each verified afterwards. Applied directly over `DATABASE_URL`
+rather than the Supabase CLI — `supabase db push` would have replayed 094 as well, which was
+already applied. The trigger and RLS swap still have no *execution* test (no Docker, locked
+decision) — they were verified structurally, not behaviourally, so the review/revision loop is
+worth watching on first real use.
 
 - **`member_tasks.project_id`** (nullable) on both task pickers. Q: pickers list **all** active
   tenant projects, not just the author's assignments — members hold `project:view_all` (089), so a

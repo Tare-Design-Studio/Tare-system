@@ -1,9 +1,12 @@
 # SCHEMA.md
-(Updated: 2026-08-04 — migration 095 WRITTEN, NOT APPLIED: task project links + self-task review)
+(Updated: 2026-08-05 — migration 095 APPLIED: task project links + self-task review)
 
-### Migration 095 — task project links + reviewable self-set tasks (written 2026-08-04, NOT YET APPLIED)
+### Migration 095 — task project links + reviewable self-set tasks (applied 2026-08-05)
 
-**Status: not applied.** The SQL is committed but has not been run against any database.
+**Status: applied 2026-08-05.** Run against production via `DATABASE_URL`. Verified after apply:
+`member_tasks.project_id` present in `information_schema.columns`,
+`idx_member_tasks_project_completed` in `pg_indexes`, `owner_review_tasks` in `pg_policy`, and the
+`/tasks` page's full column select confirmed served by PostgREST (schema cache picked up the DDL).
 
 **Structural change.** `member_tasks.project_id uuid REFERENCES projects(id) ON DELETE SET NULL`
 (nullable) + partial index `idx_member_tasks_project_completed (project_id, completed_at DESC)
