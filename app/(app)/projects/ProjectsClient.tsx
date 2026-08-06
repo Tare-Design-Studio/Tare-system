@@ -181,11 +181,13 @@ function ProjectCard({ p, nowMs }: { p: ProjectRow; nowMs: number }) {
 
 
 export default function ProjectsClient({ initialProjects, nowMs }: { initialProjects: ProjectRow[]; nowMs: number }) {
+  const [typeFilter, setTypeFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [stageFilter, setStageFilter] = useState("All");
   const [scopeFilter, setScopeFilter] = useState<"All" | "design_only" | "design_and_execution">("All");
   const [search, setSearch] = useState("");
 
+  const types = ["All", "residential", "commercial", "institutional", "industrial", "interior", "landscape", "urban", "other"];
   const statuses = ["All", "Active", "On Hold", "Completed"];
   const stages = ["All", "Design", "Execution", "Completed"];
   const scopes: { value: "All" | "design_only" | "design_and_execution"; label: string }[] = [
@@ -197,6 +199,7 @@ export default function ProjectsClient({ initialProjects, nowMs }: { initialProj
   const q = search.trim().toLowerCase();
 
   const filtered = initialProjects.filter((p) => {
+    const tMatch = typeFilter === "All" || (p.project_type ?? "").toLowerCase() === typeFilter.toLowerCase();
     const sMatch = statusFilter === "All" || p.status.toLowerCase() === statusFilter.toLowerCase().replace(" ", "_");
     const stMatch = stageFilter === "All" || p.current_stage.toLowerCase() === stageFilter.toLowerCase();
     const scMatch = scopeFilter === "All" || (p.scope ?? "design_and_execution") === scopeFilter;
@@ -205,8 +208,11 @@ export default function ProjectsClient({ initialProjects, nowMs }: { initialProj
       p.name.toLowerCase().includes(q) ||
       (p.project_type ?? "").toLowerCase().includes(q) ||
       p.project_assignments.some((a) => (a.users?.full_name ?? "").toLowerCase().includes(q));
-    return sMatch && stMatch && scMatch && qMatch;
+    return tMatch && sMatch && stMatch && scMatch && qMatch;
   });
+
+  // Completed projects sink to the bottom; order is otherwise untouched.
+  filtered.sort((a, b) => Number(a.status.toLowerCase() === "completed") - Number(b.status.toLowerCase() === "completed"));
 
   return (
     <>
@@ -238,6 +244,27 @@ export default function ProjectsClient({ initialProjects, nowMs }: { initialProj
 
       {/* Filters */}
       <div className="scroll-x-mobile" style={{ display: "flex", gap: 16, marginBottom: 24, alignItems: "center", paddingBottom: 8 }}>
+        <select
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+          style={{
+            padding: "7px 12px",
+            borderRadius: 10,
+            fontSize: 12,
+            fontWeight: 500,
+            color: "var(--ink-2)",
+            background: "var(--color-paper-light)",
+            border: "1px solid var(--line-2)",
+            appearance: "none",
+            flexShrink: 0,
+            cursor: "pointer",
+          }}
+        >
+          {types.map((t) => (
+            <option key={t} value={t}>{t === "All" ? "All Types" : capitalise(t)}</option>
+          ))}
+        </select>
+        <div style={{ width: 1, height: 24, background: "var(--color-line)", flexShrink: 0 }} />
         <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
           <span style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.8, display: "flex", alignItems: "center" }}>Status</span>
           {statuses.map((s) => (

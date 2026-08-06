@@ -71,14 +71,19 @@ export default function AttendanceCard({
   // the stored total alone — exactly what the server rendered, so hydration
   // matches. A minute-resolution readout does not need a per-second timer.
   const [openCycleMinutes, setOpenCycleMinutes] = useState(0);
+  // Null until the first client-side tick, so the server-rendered pipe (which
+  // has no wall clock) and the first client paint match for hydration.
+  const [nowIso, setNowIso] = useState<string | null>(null);
   const openedAt = log?.last_check_in_at ?? null;
   useEffect(() => {
     if (!isOpen || !openedAt) return;
     const startedMs = new Date(openedAt).getTime();
     // Floored at 0 so a client clock running behind the server can never
     // subtract from the day.
-    const sample = () =>
+    const sample = () => {
       setOpenCycleMinutes(Math.max(0, Math.floor((Date.now() - startedMs) / 60_000)));
+      setNowIso(new Date().toISOString());
+    };
     // First sample just after mount so the open cycle appears without waiting a
     // full interval, then the 30s cadence.
     const first = setTimeout(sample, 50);
@@ -153,7 +158,7 @@ export default function AttendanceCard({
   };
 
   const inPct = pctOfDay(log?.check_in_at ?? null);
-  const outPct = isOpen ? 100 : pctOfDay(log?.check_out_at ?? null);
+  const outPct = isOpen ? pctOfDay(nowIso) : pctOfDay(log?.check_out_at ?? null);
 
   if (wide) {
     return (
