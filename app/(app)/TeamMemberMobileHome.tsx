@@ -57,9 +57,10 @@ type PersonalReminder = {
 
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
-function computeGreeting(): string {
+function computeGreeting(checkedIn: boolean): string {
+  if (checkedIn) return "Hey";
   const h = new Date().getHours();
-  return h < 12 ? "Morning" : h < 17 ? "Afternoon" : "Evening";
+  return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
 }
 
 function computeDateLabel(): string {
@@ -133,7 +134,7 @@ export default function TeamMemberMobileHome({
             fontFamily: "'Instrument Serif', serif", fontSize: 30, lineHeight: 1.05,
             marginTop: 2, letterSpacing: -0.8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
           }}>
-            {computeGreeting()},{" "}
+            {computeGreeting(!!todayAttendance?.check_in_at)},{" "}
             <em style={{ color: "var(--color-forest)", fontStyle: "italic" }}>{firstName}</em>
           </div>
           <div style={{ fontSize: 12, color: "var(--color-tan)", marginTop: 4 }}>

@@ -10,11 +10,6 @@ import TeamMemberMobileHome, { type MemberProject } from "./TeamMemberMobileHome
 import { BroadcastsPanel } from "./team/BroadcastsPanel";
 
 // ── Helpers ────────────────────────────────────────────────────────────
-function computeGreeting(): string {
-  const h = new Date().getHours();
-  return h < 12 ? "morning" : h < 17 ? "afternoon" : "evening";
-}
-
 function computeDayLabel(): string {
   const d = new Date();
   const day = d.toLocaleDateString("en-IN", { weekday: "long" });
@@ -798,7 +793,7 @@ export default async function DashboardPage() {
             {computeDayLabel()}
           </div>
           <h1 style={{ margin: 0, fontFamily: "'Instrument Serif', serif", fontWeight: 400, fontSize: 64, letterSpacing: -1.5, lineHeight: 1 }}>
-            Good {computeGreeting()},{" "}
+            Hey,{" "}
             <em style={{ color: "var(--color-forest)", fontStyle: "italic" }}>{firstName}</em>
           </h1>
           <div style={{ fontSize: 14, color: "var(--ink-2, #3A3833)", marginTop: 12 }}>

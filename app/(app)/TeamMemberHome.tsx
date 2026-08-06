@@ -7,9 +7,10 @@ import PresenceCard from "./team-member/PresenceCard";
 import RemindersCard from "./team-member/RemindersCard";
 import AddUpdateCard from "./team-member/AddUpdateCard";
 
-function computeGreeting(): string {
+function computeGreeting(checkedIn: boolean): string {
+  if (checkedIn) return "Hey";
   const h = new Date().getHours();
-  return h < 12 ? "morning" : h < 17 ? "afternoon" : "evening";
+  return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
 }
 
 function computeDayLabel(): string {
@@ -132,7 +133,7 @@ export default function TeamMemberHome({
           {computeDayLabel()} · Your workspace
         </div>
         <h1 style={{ margin: 0, fontFamily: "'Instrument Serif', serif", fontWeight: 400, fontSize: 64, letterSpacing: -1.5, lineHeight: 1 }}>
-          Good {computeGreeting()},{" "}
+          {computeGreeting(!!todayAttendance?.check_in_at)},{" "}
           <em style={{ color: "var(--color-forest)", fontStyle: "italic" }}>{firstName}</em>
         </h1>
         <div style={{ fontSize: 14, color: "var(--color-tan)", marginTop: 10 }}>

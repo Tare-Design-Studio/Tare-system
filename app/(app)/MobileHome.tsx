@@ -139,11 +139,6 @@ interface MobileHomeProps {
   nowMs?: number;
 }
 
-function computeGreeting(): string {
-  const h = new Date().getHours();
-  return h < 12 ? "Morning" : h < 17 ? "Afternoon" : "Evening";
-}
-
 function computeDateLabel(): string {
   const d = new Date();
   const day = d.toLocaleDateString("en-IN", { weekday: "short" });
@@ -184,7 +179,7 @@ export default function MobileHome({
             fontFamily: "'Instrument Serif', serif", fontSize: 30, lineHeight: 1.05,
             marginTop: 2, letterSpacing: -0.8, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
           }}>
-            {computeGreeting()},{" "}
+            Hey,{" "}
             <em style={{ color: "var(--color-forest)", fontStyle: "italic" }}>{firstName}</em>
           </div>
         </div>

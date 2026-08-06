@@ -397,60 +397,23 @@ export default function TasksClient({
 
       {tab === "mine" && (
         <>
-          {/* Add task — tag + due date make your own work count in performance */}
-          <div className="desktop-only" style={{ display: "flex", gap: 12, marginBottom: 28, flexWrap: "wrap" }}>
-            <input
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addTask()}
-              placeholder="Add a new task…"
-              style={{ ...inputStyle, flex: "1 1 260px", padding: "14px 18px", fontSize: 15 }}
-            />
-            <select
-              value={newTag}
-              onChange={(e) => setNewTag(e.target.value as TaskTag)}
-              title="Task type — drives how it scores"
-              style={{ ...inputStyle, flex: "0 0 auto", minWidth: 130, padding: "14px 12px", cursor: "pointer" }}
-            >
-              {TAG_OPTIONS.map((t) => <option key={t} value={t}>{TAG_LABEL[t]}</option>)}
-            </select>
-            <select
-              value={newProjectId}
-              onChange={(e) => setNewProjectId(e.target.value)}
-              title="Project this task belongs to — linked tasks go to the owner for review"
-              style={{ ...inputStyle, flex: "0 0 auto", minWidth: 170, padding: "14px 12px", cursor: "pointer" }}
-            >
-              <option value="">No project</option>
-              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-            <input
-              type="date"
-              value={newDue}
-              onChange={(e) => setNewDue(e.target.value)}
-              title="Due date (optional)"
-              style={{ ...inputStyle, flex: "0 0 auto", minWidth: 150, padding: "14px 12px" }}
-            />
-            <Button onClick={addTask} disabled={adding || !newTitle.trim()} style={{ padding: "14px 24px" }}>
-              Add
-            </Button>
-          </div>
-
-          {/* Add task — phone: stacked, title full-width, tag/project paired,
-              date + Add paired so the row never runs off-screen. */}
-          <div className="mobile-only" style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
-            <input
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addTask()}
-              placeholder="Add a new task…"
-              style={{ ...inputStyle, width: "100%", padding: "14px 16px", fontSize: 15, boxSizing: "border-box" }}
-            />
-            <div style={{ display: "flex", gap: 10 }}>
+          {/* Add task — tag + due date make your own work count in performance.
+              Inner div carries display:flex; the .desktop-only wrapper keeps
+              its own display so the class can hide it on mobile. */}
+          <div className="desktop-only" style={{ marginBottom: 28 }}>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <input
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addTask()}
+                placeholder="Add a new task…"
+                style={{ ...inputStyle, flex: "1 1 260px", padding: "14px 18px", fontSize: 15 }}
+              />
               <select
                 value={newTag}
                 onChange={(e) => setNewTag(e.target.value as TaskTag)}
                 title="Task type — drives how it scores"
-                style={{ ...inputStyle, flex: 1, minWidth: 0, padding: "12px 10px", cursor: "pointer" }}
+                style={{ ...inputStyle, flex: "0 0 auto", minWidth: 130, padding: "14px 12px", cursor: "pointer" }}
               >
                 {TAG_OPTIONS.map((t) => <option key={t} value={t}>{TAG_LABEL[t]}</option>)}
               </select>
@@ -458,23 +421,66 @@ export default function TasksClient({
                 value={newProjectId}
                 onChange={(e) => setNewProjectId(e.target.value)}
                 title="Project this task belongs to — linked tasks go to the owner for review"
-                style={{ ...inputStyle, flex: 1, minWidth: 0, padding: "12px 10px", cursor: "pointer" }}
+                style={{ ...inputStyle, flex: "0 0 auto", minWidth: 170, padding: "14px 12px", cursor: "pointer" }}
               >
                 <option value="">No project</option>
                 {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
-            </div>
-            <div style={{ display: "flex", gap: 10 }}>
               <input
                 type="date"
                 value={newDue}
                 onChange={(e) => setNewDue(e.target.value)}
                 title="Due date (optional)"
-                style={{ ...inputStyle, flex: 1, minWidth: 0, padding: "12px 10px" }}
+                style={{ ...inputStyle, flex: "0 0 auto", minWidth: 150, padding: "14px 12px" }}
               />
-              <Button onClick={addTask} disabled={adding || !newTitle.trim()} style={{ flex: "0 0 auto", padding: "12px 22px" }}>
+              <Button onClick={addTask} disabled={adding || !newTitle.trim()} style={{ padding: "14px 24px" }}>
                 Add
               </Button>
+            </div>
+          </div>
+
+          {/* Add task — phone: stacked, title full-width, tag/project paired,
+              date + Add paired so the row never runs off-screen. */}
+          <div className="mobile-only" style={{ marginBottom: 24 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <input
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && addTask()}
+                placeholder="Add a new task…"
+                style={{ ...inputStyle, width: "100%", padding: "14px 16px", fontSize: 15, boxSizing: "border-box" }}
+              />
+              <div style={{ display: "flex", gap: 10 }}>
+                <select
+                  value={newTag}
+                  onChange={(e) => setNewTag(e.target.value as TaskTag)}
+                  title="Task type — drives how it scores"
+                  style={{ ...inputStyle, flex: 1, minWidth: 0, padding: "12px 10px", cursor: "pointer" }}
+                >
+                  {TAG_OPTIONS.map((t) => <option key={t} value={t}>{TAG_LABEL[t]}</option>)}
+                </select>
+                <select
+                  value={newProjectId}
+                  onChange={(e) => setNewProjectId(e.target.value)}
+                  title="Project this task belongs to — linked tasks go to the owner for review"
+                  style={{ ...inputStyle, flex: 1, minWidth: 0, padding: "12px 10px", cursor: "pointer" }}
+                >
+                  <option value="">No project</option>
+                  {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <input
+                  type="date"
+                  value={newDue}
+                  onChange={(e) => setNewDue(e.target.value)}
+                  title="Due date (optional)"
+                  style={{ ...inputStyle, flex: 1, minWidth: 0, padding: "12px 10px" }}
+                />
+                <Button onClick={addTask} disabled={adding || !newTitle.trim()} style={{ flex: "0 0 auto", padding: "12px 22px" }}>
+                  Add
+                </Button>
+              </div>
             </div>
           </div>
 
