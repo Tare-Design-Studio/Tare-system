@@ -11,6 +11,9 @@ on:
 permissions:
   contents: read
   security-events: write
+  # codeql-action reads the workflow run it belongs to when uploading SARIF;
+  # without this it fails with "Resource not accessible by integration".
+  actions: read
 
 jobs:
   analyze:

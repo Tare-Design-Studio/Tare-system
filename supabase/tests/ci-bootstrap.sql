@@ -58,8 +58,22 @@ AS $$
   )::uuid;
 $$;
 
+-- 069_demo_seed also inserts a matching auth.identities row per demo user
+-- (GoTrue requires one for email/password sign-in).
+CREATE TABLE IF NOT EXISTS auth.identities (
+  id              uuid PRIMARY KEY,
+  user_id         uuid REFERENCES auth.users (id),
+  provider_id     text,
+  provider        text,
+  identity_data   jsonb,
+  last_sign_in_at timestamptz,
+  created_at      timestamptz,
+  updated_at      timestamptz
+);
+
 GRANT USAGE ON SCHEMA auth TO anon, authenticated, service_role;
 GRANT SELECT ON auth.users TO anon, authenticated, service_role;
+GRANT SELECT ON auth.identities TO anon, authenticated, service_role;
 
 -- ── pg_cron ────────────────────────────────────────────────────────────────
 -- pg_cron IS installed on the real database (enabled via the Supabase
