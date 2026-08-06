@@ -105,6 +105,7 @@ export default function TeamMemberHome({
   todayAttendance,
   reminders,
   pickerProjects = [],
+  memberNames = {},
 }: {
   firstName: string;
   projects: Project[];
@@ -116,6 +117,8 @@ export default function TeamMemberHome({
   // Every active project in the tenant — what the task and update pickers list.
   // `projects` above stays the member's own assignments (the My Projects card).
   pickerProjects?: { id: string; name: string }[];
+  /** id → full name, so an assigned task can name who sent it. */
+  memberNames?: Record<string, string>;
 }) {
   const active = projects.filter((p) => p.status === "active");
   const unacknowledged = broadcasts.filter((b) => !b.is_acknowledged);
@@ -137,11 +140,23 @@ export default function TeamMemberHome({
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: 18 }}>
+      {/* Attendance runs the full width directly under the hero: it is the one
+          time-critical action on the page, and pulling the tallest card out of a
+          side rail is what stops the neighbouring cards being stretched to match it. */}
+      <div style={{ marginBottom: 18 }}>
+        <AttendanceCard todayAttendance={todayAttendance} layout="wide" />
+      </div>
 
-        {/* My Projects — 8 cols */}
-        <div style={{ gridColumn: "span 8" }}>
-          <div style={{ ...C, height: "100%" }}>
+      {/* Two columns, not three: one seam instead of two, so the page has a
+          single ragged edge rather than a hole in the middle. The wide left side
+          is the work surface (what Zahra does); the narrow right rail is status
+          she only glances at. Inside the left column the small cards pair up in
+          rows so the two sides run out of content at roughly the same depth. */}
+      <div style={{ display: "grid", gridTemplateColumns: "1.55fr 1fr", gap: 18, alignItems: "start" }}>
+
+        {/* Work surface */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 18, minWidth: 0 }}>
+          <div style={{ ...C }}>
             <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 18 }}>
               <div>
                 <div style={{ fontSize: 22, fontFamily: "'Instrument Serif', serif", fontWeight: 400, letterSpacing: -0.3 }}>My Projects</div>
@@ -176,44 +191,16 @@ export default function TeamMemberHome({
               </div>
             )}
           </div>
-        </div>
 
-        {/* Right column — 4 cols */}
-        <div style={{ gridColumn: "span 4", display: "flex", flexDirection: "column", gap: 18 }}>
-          {/* Attendance check-in/out */}
-          <AttendanceCard todayAttendance={todayAttendance} />
+          {/* Tasks run the full width of the work surface — it is the card a
+              member actually works in, and the extra width lets a task title,
+              its project and its due date sit on one line instead of wrapping. */}
+          <TasksCard initialTasks={memberTasks} projects={pickerProjects} memberNames={memberNames} />
 
-          {/* Leave request + balance */}
-          <LeaveCard />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, alignItems: "start" }}>
+            <RemindersCard initialReminders={reminders} />
 
-          {/* Who is at work today */}
-          <PresenceCard />
-
-          {/* Broadcasts — latest with ack button */}
-          <BroadcastsCard broadcasts={broadcasts} />
-        </div>
-
-        {/* Tasks card — 6 cols */}
-        <div style={{ gridColumn: "span 6" }}>
-          <TasksCard initialTasks={memberTasks} projects={pickerProjects} />
-        </div>
-
-        {/* Add updates — 6 cols */}
-        <div style={{ gridColumn: "span 6" }}>
-          {/* Assigned projects only, unlike the task picker above: posting an
-              update writes to the project, and the image upload route requires a
-              project_assignments row. Listing more would mean a 403 mid-post. */}
-          <AddUpdateCard projects={active} />
-        </div>
-
-        {/* Calendar reminders — 6 cols */}
-        <div style={{ gridColumn: "span 6" }}>
-          <RemindersCard initialReminders={reminders} />
-        </div>
-
-        {/* Bridge quick-access */}
-        <div style={{ gridColumn: "span 6" }}>
-          <div style={{ ...C }}>
+            <div style={{ ...C }}>
             <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 14 }}>
               <div style={{ fontSize: 22, fontFamily: "'Instrument Serif', serif", fontWeight: 400, letterSpacing: -0.3 }}>Bridge</div>
               <Link href="/bridge" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: 12, background: "rgba(30,28,24,.04)", color: "var(--color-ink)", textDecoration: "none" }}>
@@ -223,10 +210,22 @@ export default function TeamMemberHome({
             <div style={{ fontSize: 13, color: "var(--color-tan)" }}>
               Your project coordination channels. Post updates, request materials, and collaborate with the site team.
             </div>
-            <Link href="/bridge" style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 16, padding: "9px 16px", borderRadius: 10, background: "var(--color-forest)", color: "#FFF", fontSize: 12, fontWeight: 600, textDecoration: "none" }}>
-              Open Bridge
-            </Link>
+              <Link href="/bridge" style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 16, padding: "9px 16px", borderRadius: 10, background: "var(--color-forest)", color: "#FFF", fontSize: 12, fontWeight: 600, textDecoration: "none" }}>
+                Open Bridge
+              </Link>
+            </div>
           </div>
+        </div>
+
+        {/* Status rail — glanceable, not acted on */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 18, minWidth: 0 }}>
+          <PresenceCard />
+          <LeaveCard />
+          <BroadcastsCard broadcasts={broadcasts} />
+          {/* Assigned projects only, unlike the task picker: posting an update
+              writes to the project, and the image upload route requires a
+              project_assignments row. Listing more would mean a 403 mid-post. */}
+          <AddUpdateCard projects={active} />
         </div>
 
       </div>

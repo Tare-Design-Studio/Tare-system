@@ -26,6 +26,10 @@ interface Props {
 
 function updateIcon(updateType: string): string {
   switch (updateType) {
+    // Project-linked tasks merged into the feed: a clock while in progress,
+    // a tick once completed.
+    case "task_pending": return "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z|M12 6v6l4 2";
+    case "task_completed": return "M20 6 9 17l-5-5";
     case "progress": return "M20 6 9 17l-5-5";
     case "note": return "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z|M14 2v6h6|M16 13H8|M16 17H8|M10 9H8";
     case "material_request": return "m12 2 10 6-10 6L2 8z|m2 14 10 6 10-6";
@@ -155,6 +159,8 @@ export default function UpdatesClient({ updates, nowMs, selectedMonth, fromDate,
           const projectRaw = e.projects;
           const projectName = Array.isArray(projectRaw) ? projectRaw[0]?.name : projectRaw?.name;
           const isMint = e.update_type === "payment";
+          const isTask = e.update_type === "task_pending" || e.update_type === "task_completed";
+          const isPendingTask = e.update_type === "task_pending";
           const title = e.body?.split("\n")[0]?.slice(0, 80) || capitaliseType(e.update_type);
           const sub = [projectName, author].filter(Boolean).join(" · ");
 
@@ -165,13 +171,22 @@ export default function UpdatesClient({ updates, nowMs, selectedMonth, fromDate,
               </div>
               <div style={{
                 padding: "12px 14px", borderRadius: 14,
-                background: isMint ? "#D6E0CF" : "#EAE3D3",
-                color: isMint ? "#3E5A41" : "var(--color-ink)",
+                background: isPendingTask ? "#F0E6D2" : isTask ? "#DDE7DA" : isMint ? "#D6E0CF" : "#EAE3D3",
+                color: isPendingTask ? "#7A5A18" : isTask ? "#3E5A41" : isMint ? "#3E5A41" : "var(--color-ink)",
               }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 600, letterSpacing: -0.1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 600, letterSpacing: -0.1, flexWrap: "wrap" }}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
                     {updateIcon(e.update_type).split("|").map((p, j) => <path key={j} d={p} />)}
                   </svg>
+                  {isTask && (
+                    <span style={{
+                      fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4,
+                      padding: "1px 7px", borderRadius: 999,
+                      background: "rgba(255,255,255,0.5)", whiteSpace: "nowrap",
+                    }}>
+                      {isPendingTask ? "In progress" : "Task completed"}
+                    </span>
+                  )}
                   {title}
                 </div>
                 {sub && <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>{sub}</div>}

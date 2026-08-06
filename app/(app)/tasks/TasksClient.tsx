@@ -3,7 +3,8 @@
 import { useState, useMemo, useEffect } from "react";
 import { Button, Card, CardTitle, Chip, ConfirmPopover } from "@/components/atoms";
 import { PageHeader } from "../PageHeader";
-import { taskConfirmCopy, goesToReview } from "@/lib/tasks/confirm-copy";
+import { taskConfirmCopy, goesToReview, dueState, dueSuffix } from "@/lib/tasks/confirm-copy";
+import { ReviewerPicker, useReviewers } from "@/components/tasks/ReviewerPicker";
 
 type TaskStatus = "open" | "accepted" | "in_progress" | "pending_review" | "completed";
 type ReviewStatus = "clean" | "revision" | "error" | null;
@@ -161,8 +162,11 @@ export default function TasksClient({
   // Which tick is awaiting confirmation, and in which direction — the wording
   // differs for completing, submitting for review, and reopening.
   const [confirming, setConfirming] = useState<{ id: string; completed: boolean } | null>(null);
+  // Who this submission is addressed to (096). Null = the owner, as before.
+  const [reviewerId, setReviewerId] = useState<string | null>(null);
   const [newProjectId, setNewProjectId] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
+  const reviewers = useReviewers(true);
 
   // Assign modal (owner / PM)
   const [assignOpen, setAssignOpen] = useState(false);
@@ -180,6 +184,11 @@ export default function TasksClient({
     [members]
   );
 
+  const projectName = useMemo(
+    () => Object.fromEntries(projects.map((p) => [p.id, p.name])),
+    [projects]
+  );
+
   // Live clock so running timers tick without a refetch. Also drives the
   // "time logged" line in the submit-confirmation modal — which only opens on
   // an accepted/in_progress task, i.e. one whose clock is already running.
@@ -191,9 +200,14 @@ export default function TasksClient({
     return () => clearInterval(h);
   }, [anyTiming]);
 
+  // Current month forward only — past months drop off the list as they end.
   const months = useMemo(() => {
+    const currentKey = getMonthKey(new Date().toISOString());
     const keys = new Set(tasks.map((t) => getMonthKey(t.created_at)));
-    return Array.from(keys).sort((a, b) => b.localeCompare(a));
+    keys.add(currentKey);
+    return Array.from(keys)
+      .filter((k) => k >= currentKey)
+      .sort((a, b) => a.localeCompare(b));
   }, [tasks]);
 
   const filtered = useMemo(() => {
@@ -384,7 +398,7 @@ export default function TasksClient({
       {tab === "mine" && (
         <>
           {/* Add task — tag + due date make your own work count in performance */}
-          <div style={{ display: "flex", gap: 12, marginBottom: 28, flexWrap: "wrap" }}>
+          <div className="desktop-only" style={{ display: "flex", gap: 12, marginBottom: 28, flexWrap: "wrap" }}>
             <input
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
@@ -421,20 +435,75 @@ export default function TasksClient({
             </Button>
           </div>
 
+          {/* Add task — phone: stacked, title full-width, tag/project paired,
+              date + Add paired so the row never runs off-screen. */}
+          <div className="mobile-only" style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
+            <input
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addTask()}
+              placeholder="Add a new task…"
+              style={{ ...inputStyle, width: "100%", padding: "14px 16px", fontSize: 15, boxSizing: "border-box" }}
+            />
+            <div style={{ display: "flex", gap: 10 }}>
+              <select
+                value={newTag}
+                onChange={(e) => setNewTag(e.target.value as TaskTag)}
+                title="Task type — drives how it scores"
+                style={{ ...inputStyle, flex: 1, minWidth: 0, padding: "12px 10px", cursor: "pointer" }}
+              >
+                {TAG_OPTIONS.map((t) => <option key={t} value={t}>{TAG_LABEL[t]}</option>)}
+              </select>
+              <select
+                value={newProjectId}
+                onChange={(e) => setNewProjectId(e.target.value)}
+                title="Project this task belongs to — linked tasks go to the owner for review"
+                style={{ ...inputStyle, flex: 1, minWidth: 0, padding: "12px 10px", cursor: "pointer" }}
+              >
+                <option value="">No project</option>
+                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <input
+                type="date"
+                value={newDue}
+                onChange={(e) => setNewDue(e.target.value)}
+                title="Due date (optional)"
+                style={{ ...inputStyle, flex: 1, minWidth: 0, padding: "12px 10px" }}
+              />
+              <Button onClick={addTask} disabled={adding || !newTitle.trim()} style={{ flex: "0 0 auto", padding: "12px 22px" }}>
+                Add
+              </Button>
+            </div>
+          </div>
+
           {/* Filters */}
           <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
             <button style={pill(filter === "all")} onClick={() => setFilter("all")}>All</button>
             <button style={pill(filter === "pending")} onClick={() => setFilter("pending")}>Pending</button>
             <button style={pill(filter === "completed")} onClick={() => setFilter("completed")}>Completed</button>
 
-            <div style={{ width: 1, height: 20, background: "var(--color-line)", margin: "0 6px" }} />
+            <div className="desktop-only" style={{ width: 1, height: 20, background: "var(--color-line)", margin: "0 6px" }} />
 
-            <button style={pill(selectedMonth === "all")} onClick={() => setSelectedMonth("all")}>All time</button>
+            {/* Desktop: month pills. Phone: single dropdown, current month forward only. */}
+            <button className="desktop-only" style={pill(selectedMonth === "all")} onClick={() => setSelectedMonth("all")}>All time</button>
             {months.map((m) => (
-              <button key={m} style={pill(selectedMonth === m)} onClick={() => setSelectedMonth(m)}>
+              <button key={m} className="desktop-only" style={pill(selectedMonth === m)} onClick={() => setSelectedMonth(m)}>
                 {monthLabel(m)}
               </button>
             ))}
+            <select
+              className="mobile-only"
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              style={{ ...inputStyle, padding: "8px 12px", fontSize: 13, cursor: "pointer" }}
+            >
+              <option value="all">All time</option>
+              {months.map((m) => (
+                <option key={m} value={m}>{monthLabel(m)}</option>
+              ))}
+            </select>
           </div>
 
           {/* Task list */}
@@ -448,7 +517,9 @@ export default function TasksClient({
                 const isAssignedToMe = !!t.assigned_by;
                 const timing = isTiming(t);
                 const elapsedMs = timing && t.accepted_at ? now - new Date(t.accepted_at).getTime() : 0;
-                const overdue = !t.completed && !!t.due_date && new Date(t.due_date) < new Date();
+                // A task due TODAY is not late — the day has not ended yet.
+                const due = t.completed ? "none" : dueState(t.due_date, now);
+                const overdue = due === "overdue";
                 const busy = busyId === t.id;
 
                 return (
@@ -521,6 +592,16 @@ export default function TasksClient({
                             >
                               {TAG_OPTIONS.map((tg) => <option key={tg} value={tg}>{TAG_LABEL[tg]}</option>)}
                             </select>
+                            <select
+                              value={t.project_id ?? ""}
+                              disabled={busy}
+                              onChange={(e) => patch(t.id, { project_id: e.target.value || null })}
+                              title="Project this task belongs to — linked tasks go for review and appear in that project's updates"
+                              style={{ ...miniInputStyle, cursor: "pointer", maxWidth: 150 }}
+                            >
+                              <option value="">No project</option>
+                              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                            </select>
                             <input
                               type="date"
                               value={t.due_date ?? ""}
@@ -530,11 +611,17 @@ export default function TasksClient({
                               style={miniInputStyle}
                             />
                             {overdue && <span style={{ fontSize: 11, color: "var(--color-rust)" }}>overdue</span>}
+                            {due === "today" && <span style={{ fontSize: 11, color: "var(--color-amber)" }}>due today</span>}
                           </>
                         ) : (
                           t.due_date && (
-                            <span style={{ fontSize: 11, color: overdue ? "var(--color-rust)" : "var(--color-tan)" }}>
-                              Due {fmtDate(t.due_date)}{overdue ? " · overdue" : ""}
+                            <span style={{
+                              fontSize: 11,
+                              color: overdue
+                                ? "var(--color-rust)"
+                                : due === "today" ? "var(--color-amber)" : "var(--color-tan)",
+                            }}>
+                              Due {fmtDate(t.due_date)}{dueSuffix(due)}
                             </span>
                           )
                         )}
@@ -551,6 +638,13 @@ export default function TasksClient({
                         )}
                         {!isAssignedToMe && t.completed && (
                           <span style={{ fontSize: 11, color: "var(--color-tan)" }}>{TAG_LABEL[t.tag]}</span>
+                        )}
+                        {/* Which project this counted toward — read-only once the
+                            task is no longer an open self-set one. */}
+                        {t.project_id && (isAssignedToMe || t.completed) && projectName[t.project_id] && (
+                          <span style={{ fontSize: 11, color: "var(--color-forest)" }}>
+                            {projectName[t.project_id]}
+                          </span>
                         )}
                         {t.completed && t.completed_at && !t.review_status && (
                           <span style={{ fontSize: 11, color: "var(--color-tan)" }}>Done {fmtDate(t.completed_at)}</span>
@@ -630,7 +724,7 @@ export default function TasksClient({
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--color-line)" }}>
-                    {["Task", "Assignee", "Type", "Due", "Status", "Logged", "Verdict"].map((h) => (
+                    {["Task", "Assignee", "Project", "Type", "Due", "Status", "Logged", "Verdict"].map((h) => (
                       <th key={h} style={{
                         textAlign: h === "Task" || h === "Assignee" ? "left" : "center",
                         padding: "8px 12px 12px",
@@ -642,7 +736,8 @@ export default function TasksClient({
                 </thead>
                 <tbody>
                   {assigned.map((t, i) => {
-                    const overdue = !t.completed && !!t.due_date && new Date(t.due_date) < new Date();
+                    const due = t.completed ? "none" : dueState(t.due_date, now);
+                    const overdue = due === "overdue";
                     const logged = t.accepted_at && t.submitted_at
                       ? fmtDuration(new Date(t.submitted_at).getTime() - new Date(t.accepted_at).getTime())
                       : "—";
@@ -650,11 +745,38 @@ export default function TasksClient({
                       <tr key={t.id} style={{ borderBottom: i < assigned.length - 1 ? "1px solid var(--color-line)" : "none" }}>
                         <td className="font-serif" style={{ padding: "14px 12px", fontSize: 16, color: "var(--color-ink)" }}>{t.title}</td>
                         <td style={{ padding: "14px 12px" }}>{memberName[t.user_id] ?? "—"}</td>
+                        {/* The assigner picked the project, so they can change it
+                            here. Locked once the work is closed — re-pointing a
+                            finished task would move history between projects. */}
+                        <td style={{ textAlign: "center", padding: "14px 8px" }}>
+                          {t.completed ? (
+                            <span style={{ color: t.project_id ? "var(--color-forest)" : "var(--color-tan)" }}>
+                              {t.project_id ? projectName[t.project_id] ?? "—" : "—"}
+                            </span>
+                          ) : (
+                            <select
+                              value={t.project_id ?? ""}
+                              disabled={busyId === t.id}
+                              onChange={(e) => patch(t.id, { project_id: e.target.value || null })}
+                              title="Project this task belongs to — it appears in that project's updates"
+                              style={{ ...miniInputStyle, cursor: "pointer", maxWidth: 150 }}
+                            >
+                              <option value="">No project</option>
+                              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                            </select>
+                          )}
+                        </td>
                         <td style={{ textAlign: "center", padding: "14px 8px" }}>
                           <Chip size="sm" tone={TAG_TONE[t.tag]} label={TAG_LABEL[t.tag]} />
                         </td>
-                        <td className="mono" style={{ textAlign: "center", padding: "14px 12px", color: overdue ? "var(--color-rust)" : "var(--color-tan)" }}>
+                        <td className="mono" style={{
+                          textAlign: "center", padding: "14px 12px",
+                          color: overdue
+                            ? "var(--color-rust)"
+                            : due === "today" ? "var(--color-amber)" : "var(--color-tan)",
+                        }}>
                           {t.due_date ? fmtDate(t.due_date) : "—"}
+                          {due === "today" ? " · today" : ""}
                         </td>
                         <td style={{ textAlign: "center", padding: "14px 12px", color: "var(--color-tan)" }}>{STATUS_LABEL[t.status]}</td>
                         <td className="mono" style={{ textAlign: "center", padding: "14px 12px", color: "var(--color-tan)" }}>{logged}</td>
@@ -844,10 +966,12 @@ export default function TasksClient({
               // lifecycle, or (since 095) any project-linked task being ticked.
               const midLifecycle =
                 confirmTask.status === "accepted" || confirmTask.status === "in_progress";
+              const submitsForReview =
+                confirming.completed && (midLifecycle || goesToReview(confirmTask));
               const copy = taskConfirmCopy({
                 completed: confirming.completed,
-                goesToReview:
-                  confirming.completed && (midLifecycle || goesToReview(confirmTask)),
+                goesToReview: submitsForReview,
+                reviewerName: reviewers.find((r) => r.id === reviewerId)?.full_name ?? null,
               });
               return (
                 <>
@@ -863,19 +987,35 @@ export default function TasksClient({
                   <div style={{ fontSize: 12, color: "var(--color-tan)", marginTop: 12 }}>
                     {copy.body}
                   </div>
+                  {submitsForReview && (
+                    <ReviewerPicker
+                      reviewers={reviewers}
+                      value={reviewerId}
+                      onChange={setReviewerId}
+                    />
+                  )}
                   <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 20 }}>
                     <Button variant="secondary" onClick={() => setConfirming(null)}>Cancel</Button>
                     <Button
                       disabled={busyId === confirmTask.id}
                       onClick={async () => {
                         const { id, completed } = confirming;
+                        setConfirming(null);
+                        // Only send the reviewer on a submission — a reopen or a
+                        // plain close must not stamp one onto the row.
+                        const reviewerField = submitsForReview
+                          ? { review_requested_to: reviewerId }
+                          : {};
                         // An assigned task mid-lifecycle submits for review; the
                         // plain tick is for self-set tasks (095 turns that into a
                         // review submission too when the task names a project).
-                        const midLifecycle =
-                          confirmTask.status === "accepted" || confirmTask.status === "in_progress";
-                        setConfirming(null);
-                        await patch(id, completed && midLifecycle ? { action: "submit" } : { completed });
+                        await patch(
+                          id,
+                          completed && midLifecycle
+                            ? { action: "submit", ...reviewerField }
+                            : { completed, ...reviewerField }
+                        );
+                        setReviewerId(null);
                       }}
                     >
                       {copy.confirmLabel}

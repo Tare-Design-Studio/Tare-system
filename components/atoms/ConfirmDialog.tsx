@@ -9,6 +9,8 @@ type ConfirmDialogProps = {
   cancelLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
+  /** Extra input rendered between the body and the buttons (e.g. a reviewer picker). */
+  children?: React.ReactNode;
 };
 
 // Small modal confirm. Rendered only while a confirmation is pending — the
@@ -21,6 +23,7 @@ export default function ConfirmDialog({
   cancelLabel = "Cancel",
   onConfirm,
   onCancel,
+  children,
 }: ConfirmDialogProps) {
   const confirmRef = useRef<HTMLButtonElement>(null);
 
@@ -62,6 +65,7 @@ export default function ConfirmDialog({
         {body && (
           <div style={{ fontSize: 12, color: "var(--color-tan)", marginTop: 8, lineHeight: 1.5 }}>{body}</div>
         )}
+        {children}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 18 }}>
           <button
             onClick={onCancel}

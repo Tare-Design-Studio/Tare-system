@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 
 interface ConfirmPopoverProps {
   /** The trigger element. Receives an onClick that opens the popover. */
@@ -12,6 +12,9 @@ interface ConfirmPopoverProps {
   onConfirm: () => void | Promise<void>
 }
 
+const WIDTH = 240
+const MARGIN = 8
+
 export function ConfirmPopover({
   children,
   title = 'Are you sure?',
@@ -22,21 +25,56 @@ export function ConfirmPopover({
 }: ConfirmPopoverProps) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
   const wrapRef = useRef<HTMLSpanElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
+  // Fixed positioning keeps the panel out of any ancestor's overflow clip, and
+  // lets it be clamped to the viewport instead of running off the edge.
+  // Layout effect so the first paint already has the panel in place.
+  useLayoutEffect(() => {
     if (!open) return
+
+    function place() {
+      const trigger = wrapRef.current?.getBoundingClientRect()
+      if (!trigger) return
+      const height = panelRef.current?.offsetHeight ?? 0
+
+      // Prefer right-aligned below the trigger, then clamp horizontally.
+      let left = trigger.right - WIDTH
+      left = Math.min(left, window.innerWidth - WIDTH - MARGIN)
+      left = Math.max(left, MARGIN)
+
+      // Flip above the trigger when there is no room below.
+      let top = trigger.bottom + 6
+      if (height && top + height > window.innerHeight - MARGIN) {
+        const above = trigger.top - 6 - height
+        top = above >= MARGIN ? above : Math.max(MARGIN, window.innerHeight - height - MARGIN)
+      }
+
+      setPos({ top, left })
+    }
+
+    place()
+
     function onDocClick(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+      const target = e.target as Node
+      if (wrapRef.current?.contains(target)) return
+      if (panelRef.current?.contains(target)) return
+      setOpen(false)
     }
     function onEsc(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpen(false)
     }
     document.addEventListener('mousedown', onDocClick)
     document.addEventListener('keydown', onEsc)
+    window.addEventListener('resize', place)
+    window.addEventListener('scroll', place, true)
     return () => {
       document.removeEventListener('mousedown', onDocClick)
       document.removeEventListener('keydown', onEsc)
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', place, true)
     }
   }, [open])
 
@@ -55,11 +93,12 @@ export function ConfirmPopover({
       {children(() => setOpen(true))}
       {open && (
         <div
+          ref={panelRef}
           role="dialog"
           aria-label={title}
           style={{
-            position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 50,
-            width: 240, maxWidth: 240, boxSizing: 'border-box',
+            position: 'fixed', top: pos.top, left: pos.left, zIndex: 200,
+            width: WIDTH, maxWidth: `calc(100vw - ${MARGIN * 2}px)`, boxSizing: 'border-box',
             padding: 14, borderRadius: 14, whiteSpace: 'normal', textAlign: 'left',
             background: 'var(--color-paper-light)',
             border: '1px solid var(--color-line)',

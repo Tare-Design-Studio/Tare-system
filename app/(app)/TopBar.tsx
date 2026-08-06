@@ -70,6 +70,9 @@ type NavItem = {
   roles?: string[];
   // If set, team_member also needs one of these tags to see it.
   tags?: string[];
+  // Holding this capability shows the item regardless of role/tags — for
+  // owner-granted permissions that no tag confers (team:coordinate, 096).
+  capability?: string;
 };
 
 const ALL_NAV: NavItem[] = [
@@ -95,6 +98,11 @@ const ALL_NAV: NavItem[] = [
     href: "/tasks", label: "My Tasks",
     icon: <Svg><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></Svg>,
     roles: ["team_member"],
+  },
+  {
+    href: "/me", label: "My Profile",
+    icon: <Svg><circle cx="12" cy="8" r="4" /><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5" /></Svg>,
+    roles: ["team_member", "site_engineer"],
   },
   {
     href: "/bridge", label: "Bridge",
@@ -123,6 +131,7 @@ const ALL_NAV: NavItem[] = [
     icon: <Svg><path d="M12 3 4 7v5c0 5 3.5 9.7 8 11 4.5-1.3 8-6 8-11V7z" /></Svg>,
     roles: ["owner"],
     tags: ["accountant", "admin"],
+    capability: "team:coordinate",
   },
 ];
 
@@ -130,9 +139,11 @@ interface TopBarProps {
   fullName: string;
   role: string;
   memberTags?: string[];
+  /** Nav-relevant capabilities the user holds, resolved server-side (096). */
+  capabilities?: string[];
 }
 
-export function TopBar({ fullName, role, memberTags = [] }: TopBarProps) {
+export function TopBar({ fullName, role, memberTags = [], capabilities = [] }: TopBarProps) {
   const pathname = usePathname();
 
   useEffect(() => {
@@ -152,6 +163,8 @@ export function TopBar({ fullName, role, memberTags = [] }: TopBarProps) {
 
   // Filter nav items by role and tags
   const NAV = ALL_NAV.filter((item) => {
+    // An explicit owner-granted capability outranks the role/tag defaults.
+    if (item.capability && capabilities.includes(item.capability)) return true;
     if (!item.roles) return true; // visible to all roles
     if (item.roles.includes(role)) return true;
     // team_member with a qualifying tag can see owner-only items

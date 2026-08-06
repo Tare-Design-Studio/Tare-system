@@ -9,6 +9,7 @@ import {
   TASK_STATUS_LABEL,
   type MemberTaskMetrics,
 } from "./taskTime";
+import { dueState } from "@/lib/tasks/confirm-copy";
 import styles from "./team-access.module.css";
 
 export interface MemberDetail {
@@ -99,7 +100,8 @@ function TaskMetrics({ tasks, nowMs }: { tasks: MemberTaskMetrics; nowMs: number
       {activeTasks.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 8 }}>
           {activeTasks.map((t, i) => {
-            const overdue = t.dueDate ? new Date(`${t.dueDate}T23:59:59`).getTime() < nowMs : false;
+            const due = dueState(t.dueDate, nowMs);
+            const overdue = due === "overdue";
             return (
               <div key={`a${i}`} className={styles.taskRow}>
                 <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
@@ -115,9 +117,13 @@ function TaskMetrics({ tasks, nowMs }: { tasks: MemberTaskMetrics; nowMs: number
                 </span>
                 <span
                   className={styles.taskMeta}
-                  style={overdue ? { color: "var(--color-rose)" } : undefined}
+                  style={
+                    overdue
+                      ? { color: "var(--color-rose)" }
+                      : due === "today" ? { color: "var(--color-amber)" } : undefined
+                  }
                 >
-                  {overdue ? "overdue · " : ""}
+                  {overdue ? "overdue · " : due === "today" ? "due today · " : ""}
                   open {fmtDuration(nowMs - new Date(t.createdAt).getTime())}
                 </span>
               </div>
@@ -156,11 +162,18 @@ function TaskMetrics({ tasks, nowMs }: { tasks: MemberTaskMetrics; nowMs: number
 export function MemberDetailModal({
   member,
   nowMs,
+  canSeePerformance,
   onClose,
 }: {
   member: MemberDetail;
   /** Server-pinned clock — keeps elapsed labels stable across hydration. */
   nowMs: number;
+  /**
+   * Whether attendance and KPI may be shown (096). A coordinator sees the task
+   * list only — the figures below are not fetched for them, so the ring and stat
+   * boxes would otherwise render zeros as if the member had done nothing.
+   */
+  canSeePerformance: boolean;
   onClose: () => void;
 }) {
   return (
@@ -185,33 +198,41 @@ export function MemberDetailModal({
           </button>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 20, marginTop: 20 }}>
-          <ScoreRing score={member.score} />
-          <div className={styles.statGrid}>
-            <div className={styles.statBox}><span>Present</span><strong>{member.presentDays} days</strong></div>
-            <div className={styles.statBox}><span>Hours</span><strong>{member.hours}</strong></div>
-            <div className={styles.statBox}><span>Check-ins</span><strong>{member.checkIns}</strong></div>
-            <div className={styles.statBox}><span>Site visits</span><strong>{member.siteVisits}</strong></div>
-          </div>
-        </div>
+        {canSeePerformance && (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 20, marginTop: 20 }}>
+              <ScoreRing score={member.score} />
+              <div className={styles.statGrid}>
+                <div className={styles.statBox}><span>Present</span><strong>{member.presentDays} days</strong></div>
+                <div className={styles.statBox}><span>Hours</span><strong>{member.hours}</strong></div>
+                <div className={styles.statBox}><span>Check-ins</span><strong>{member.checkIns}</strong></div>
+                <div className={styles.statBox}><span>Site visits</span><strong>{member.siteVisits}</strong></div>
+              </div>
+            </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 16 }}>
-          <span className={styles.taskMeta}>Delivery</span>
-          <span className={styles.grade}>{member.grade}</span>
-          <span className={styles.taskMeta} style={{ marginLeft: 10 }}>Quality</span>
-          <span className={styles.grade}>{member.quality}</span>
-        </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 16 }}>
+              <span className={styles.taskMeta}>Delivery</span>
+              <span className={styles.grade}>{member.grade}</span>
+              <span className={styles.taskMeta} style={{ marginLeft: 10 }}>Quality</span>
+              <span className={styles.grade}>{member.quality}</span>
+            </div>
+          </>
+        )}
 
         <TaskMetrics tasks={member.tasks} nowMs={nowMs} />
 
         <div className={styles.modalActions}>
-          <Link
-            href={`/team/${member.id}`}
-            className={`${styles.button} ${styles.buttonPrimary}`}
-            style={{ justifyContent: "center", textDecoration: "none" }}
-          >
-            Full profile
-          </Link>
+          {/* /team/[memberId] renders pay and full attendance — not a coordinator's
+              to see. They get this modal's task list instead. */}
+          {canSeePerformance && (
+            <Link
+              href={`/team/${member.id}`}
+              className={`${styles.button} ${styles.buttonPrimary}`}
+              style={{ justifyContent: "center", textDecoration: "none" }}
+            >
+              Full profile
+            </Link>
+          )}
           <button className={styles.button} type="button" onClick={onClose} style={{ justifyContent: "center" }}>
             Close
           </button>

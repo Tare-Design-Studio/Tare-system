@@ -1,5 +1,140 @@
 # PROJECT_STATE.md
-(Updated: 2026-08-05 — site engineer bridge access + audit page removal shipped; 095 applied)
+(Updated: 2026-08-06 — team UI redesign + tasks in the updates feed; migration 096 APPLIED)
+
+### Migration 096 applied (2026-08-06)
+
+Applied through `scripts/migrate.ts` and verified — see SCHEMA.md 096 for the full record. Three
+things worth carrying forward:
+
+- **The first attempt failed** on `syntax error at or near "SELECT"`: the 2-arg delegating overload
+  was declared `LANGUAGE plpgsql` with a bare `SELECT` body. Changed to `LANGUAGE sql`, re-applied
+  clean. The failure rolled back whole, so nothing partial ever reached the database.
+- **095 was replayed and is now recorded.** It had been applied by hand over `DATABASE_URL` on
+  2026-08-05, so `_migrations` never knew about it and the runner ran it again. It is idempotent and
+  its objects were verified untouched afterwards. Use the runner for migrations from here on — a
+  hand-applied migration leaves the ledger lying.
+- **The guard clause was tested behaviourally**, closing the gap this file flagged: a `tasks:assign`
+  holder could write `review_status` on the row (control) but was refused on `review_requested_to`.
+  Run inside a transaction that was rolled back; no production rows changed.
+
+### Team UI redesign + tasks in the updates feed (2026-08-06)
+
+No migration. Everything below is UI and read-path only — `member_tasks.project_id` (095) and the
+existing RLS carried the data side already.
+
+- **`/team/[memberId]` profile redesigned.** The page had 19 equal-weight stat tiles across five
+  cards, so nothing read. Now: a three-figure headline band (hours, task completion %, flags),
+  tabs (Overview / Attendance / Tasks / Performance), and secondary numbers demoted to inline
+  label/value pairs that grey out at zero. The attendance strip became a **shift ribbon** — one
+  column per day, height = hours worked, amber cap = overtime, hatched outline = still on the
+  clock. Also: tap-to-call phone, `role_label` now used (it was fetched and ignored), Escape
+  closes the export menu.
+- **`/team` overview redesigned** to match. Team-level headline band (on the team / in flight /
+  completed / needs attention), roster filters (Everyone · Needs attention · Nothing on), and
+  each row's active-task count drawn as a workload bar instead of grey metric chips. "Needs
+  attention" derives from tasks awaiting review, flagged verdicts, or a member who has not joined.
+- **Project picker on existing tasks.** `/tasks` already had one at creation; it is now editable
+  inline on open self-set tasks, and on the "Assigned by me" table the **assigner** can re-point
+  a task they handed out (locked once complete — re-pointing finished work would move history
+  between projects).
+  - API: `PATCH /api/member-tasks/[id]` previously scoped every non-review write to
+    `user_id = caller`, so an assigner could not touch it. Now a **project_id-only** body from the
+    task's `assigned_by` holder writes via `assigned_by`, re-checking `tasks:assign` because that
+    is what `owner_review_tasks` (083/095) gates on. Deliberately narrow: any other field in the
+    same body falls back to the self-scoped write and 404s. No RLS change — `guard_member_task_review`
+    already blocks `user_id`/`tenant_id`/the time-logging columns, and never covered `project_id`.
+- **Pending tasks now appear in the updates feeds.** 095 merged project-linked tasks at read time
+  but filtered `status = 'completed'`, so a task only surfaced once done. Both feeds now show work
+  in progress as a pending entry that is **replaced** by the completed entry when the task closes
+  (one task row = one entry, never both). A task in `pending_review` still counts as in progress.
+  - Project stream: `app/api/projects/[id]/updates/route.ts` + the duplicate build in
+    `app/(app)/projects/[id]/page.tsx`. Range filters now apply to whichever timestamp the entry
+    sorts on, since a pending task has no `completed_at`.
+  - Global `/updates`: previously read only the `updates` table. Tasks are merged in the page via
+    the service client (same reason the project feed uses it — `member_tasks` RLS would give each
+    viewer a different feed), scoped to the caller's tenant and to tasks that name a project.
+    Rendered as `task_pending` / `task_completed` synthetic types. **Nothing is written to
+    `updates`** — its `update_type` CHECK (020) is untouched and a task keeps one home row.
+- **Team-member desktop home** (`TeamMemberHome.tsx`, desktop-only + team-member-only): Add Update
+  moved under Broadcasts in the right rail; Tasks now spans the full work surface.
+- **Removed the "Part…" (drawing_role) picker** from the team-member Tasks card at the client's
+  request. The column and its data are untouched — the API still returns it and reports read it.
+- **Shift ribbon hover readout.** Hovering (or keyboard-focusing) a ribbon column now shows a
+  styled card with the weekday, the check-in–check-out clock times, hours, overtime and a late
+  flag. The native `title` was ~1s-delayed, unstyled and keyboard-invisible; it is kept as the
+  print/AT fallback. Columns are `tabIndex={0}`, and the card re-anchors at both ends of the
+  ribbon so it never hangs off the edge.
+
+`tsc` clean, `npm run build` passes, no new eslint findings on touched files.
+
+### Team coordination, named reviewers, own profile (2026-08-06)
+
+Client batch: some members need to add people to projects and see who is doing what, tasks need to
+be sendable to a chosen reviewer, and everyone needs their own profile page. **Migration 096 was
+applied 2026-08-06** (see the entry at the top of this file) — `/tasks` and the team-member card
+both send `review_requested_to`, so this code must not deploy ahead of it. It no longer can.
+
+`tsc` clean, `eslint` clean on all touched files, `npm run build` passes.
+
+- **`team:coordinate` (096) opens a redacted `/team`.** Reuses the existing page rather than adding
+  a route, per the owner's call. The redaction is in the **queries**, not the markup: a coordinator's
+  `users` select omits `salary_inr` / `phone` / `experience_years` entirely, and the attendance,
+  tag and site-check-in queries stay behind `team:create_user`. Hiding those in the client would
+  still have shipped them over the wire.
+  - Hidden for a coordinator: pay, KPI score / grade / leaderboard, attendance, leave approvals,
+    invite form, per-row edit-remove menu, Access Matrix link, and the "Full profile" link (that
+    page renders salary). Shown: members, active-task counts, the detail modal's task list, the
+    project-assignment panel, and the review queue if they hold `tasks:assign`.
+  - `member_tasks` **is** queried for a coordinator — who-is-on-what is the point — but without
+    `review_status`, a KPI input belonging to the half they cannot see.
+  - No grants were made. Grant `team:coordinate` per user in the Access Matrix after applying 096.
+    It groups itself under "Team Management" there automatically (groups derive from `CAPABILITIES`).
+- **Nav defs gained a `capability` field.** `team:coordinate` is deliberately conferred by no tag,
+  so the existing role/tag gating would have left a coordinator with a page they could open and no
+  link to reach it. `layout.tsx` resolves nav capabilities once and passes the held set to `TopBar`.
+- **Named reviewers.** The submit-for-review confirmation now carries a "Send to" picker on both
+  surfaces (`/tasks`, team-member `TasksCard`), backed by `GET /api/member-tasks/reviewers` —
+  everyone holding `tasks:assign`, minus self. That route reads through the **service client**:
+  `user_capabilities` RLS shows a plain member only their own rows, so the caller's client would
+  return an empty pool for everyone but the owner. It returns names only, scoped to the caller's
+  own tenant.
+  - The review queue is now filtered by addressee. Named tasks go to that person alone; unnamed ones
+    keep the old routing (assigner, or any owner for self-set work) so nothing reviewable before
+    this batch became stranded.
+  - `ConfirmDialog` gained an optional `children` slot to host the picker.
+- **Assign-task modal gained a project select** (the POST route already accepted `project_id`).
+  Naming a project routes the finished task through review per 095.
+- **"Add to a project" panel** on `/team`, gated on the pre-existing `team:assign_to_project`;
+  posts to the existing `POST /api/projects/[id]/assignments`. No new API surface.
+- **Own profile.** `/team/[memberId]` now lets a caller read **their own** row without
+  `office_attendance:view_all` — every query there is already filtered to `memberId` and RLS scopes
+  each independently. `/me` is a thin redirect to it, in the nav for team members and site
+  engineers. The owner is still bounced to `/team`: that page has no owner metrics.
+- **Live worked-hours after check-in.** `accumulated_minutes` (068) only advances on check-**out**,
+  so an open cycle displayed as nothing. `AttendanceCard` now samples the clock in a 30s timer
+  (never during render — impure, and it would break hydration) and adds the open cycle to the stored
+  total, labelled "Working". Display only; the cleanup zeroes it on check-out so the server's
+  recomputed total is never double-counted.
+- **"Due today" is no longer "overdue".** `new Date("2026-08-06")` parses as midnight **UTC**, so a
+  task due today compared as already past at any hour. New shared `dueState()` / `dueSuffix()` in
+  `lib/tasks/confirm-copy.ts` closes the day at its last local second — matching 084, which treats
+  `completed_at::date <= due_date` as on time. Applied in `/tasks` (both card and table) and
+  `MemberDetailModal`, which had the correct logic inline and now shares it.
+- **The task card names its assigner.** The bug was in the page, not the card: `/tasks` fetched the
+  member list **only when `canAssign`**, so a plain member's lookup was empty and the card rendered
+  a bare "Assigned" with no name. Now fetched for everyone (id / name / role, tenant-scoped by RLS).
+  The team-member `TasksCard` gained the same line plus a due-date state.
+
+**Not done / known:**
+- [x] **096 applied 2026-08-06.** The guard clause now has a behavioural test (run ad-hoc in a
+      rolled-back transaction, not committed to `supabase/tests/` — the no-Docker pgtap gap stands
+      for the routing overload, which was smoke-tested only).
+- [ ] `lib/supabase/types.ts` was **not** regenerated for `review_requested_to`; the task routes
+      already cast through `any`, so it type-checks, but the drift noted in earlier batches grows.
+- [ ] A coordinator's member rows still call the same `memberScore()` path; it just scores from
+      empty inputs. Harmless (the grade is not rendered for them) but the computation is dead work.
+
+(Previous: 2026-08-05 — site engineer bridge access + audit page removal shipped; 095 applied)
 
 ### Shipped to production (2026-08-05)
 

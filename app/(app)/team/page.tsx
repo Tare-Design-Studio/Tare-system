@@ -51,18 +51,30 @@ export default async function TeamPage() {
   if (!user) redirect("/login");
 
   // Check capability
-  const [capManage, capBroadcast, capTags, capAssign, capLeave] = await Promise.all([
-    supabase.rpc("has_capability", { p_capability: "team:create_user" }),
-    supabase.rpc("has_capability", { p_capability: "broadcast:create" }),
-    supabase.rpc("has_capability", { p_capability: "team_member_tags:manage" }),
-    supabase.rpc("has_capability", { p_capability: "tasks:assign" }),
-    supabase.rpc("has_capability", { p_capability: "leave:approve" }),
-  ]);
+  const [capManage, capBroadcast, capTags, capAssign, capLeave, capCoordinate, capAssignProject] =
+    await Promise.all([
+      supabase.rpc("has_capability", { p_capability: "team:create_user" }),
+      supabase.rpc("has_capability", { p_capability: "broadcast:create" }),
+      supabase.rpc("has_capability", { p_capability: "team_member_tags:manage" }),
+      supabase.rpc("has_capability", { p_capability: "tasks:assign" }),
+      supabase.rpc("has_capability", { p_capability: "leave:approve" }),
+      supabase.rpc("has_capability", { p_capability: "team:coordinate" }),
+      supabase.rpc("has_capability", { p_capability: "team:assign_to_project" }),
+    ]);
   const canManage = capManage.data;
   const canBroadcast = capBroadcast.data;
   const canManageTags = capTags.data === true;
   const canAssign = capAssign.data === true;
   const canApproveLeave = capLeave.data === true;
+  const canAssignToProject = capAssignProject.data === true;
+
+  // A coordinator (096) reaches this page without team:create_user and sees a
+  // redacted version: members, who is on what, and the project assignment panel.
+  // `canManage` still gates every pay / attendance / KPI query below, so their
+  // payload never contains those figures — the redaction is in the queries, not
+  // only in the markup.
+  const canCoordinate = capCoordinate.data === true;
+  if (!canManage && !canCoordinate) redirect("/");
 
   const todayStr = new Date().toISOString().slice(0, 10);
   const currentMonthStart = todayStr.slice(0, 7) + "-01";
@@ -70,12 +82,23 @@ export default async function TeamPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any;
   // Fetch team members, broadcasts, daily tasks, and attendance in parallel
-  const [membersRes, broadcastsRes, dailyTasksRes, attendanceRes, memberTasksRes, tagRowsRes, siteCheckInsRes, projectAssignmentsRes] = await Promise.all([
-    supabase
-      .from("users")
-      .select("id, full_name, role, role_label, is_active, last_login_at, phone, experience_years, salary_inr")
-      .is("deleted_at", null)
-      .order("full_name"),
+  const [membersRes, broadcastsRes, dailyTasksRes, attendanceRes, memberTasksRes, tagRowsRes, siteCheckInsRes, projectAssignmentsRes, assignableProjectsRes] = await Promise.all([
+    // Pay and personal details are selected only for a manager. A coordinator's
+    // response body must not carry salary_inr at all — hiding it in the client
+    // would still ship it over the wire. Two literal selects rather than one
+    // conditional string: the typed client parses the select at compile time and
+    // cannot infer a row type from a ternary.
+    canManage
+      ? supabase
+        .from("users")
+        .select("id, full_name, role, role_label, is_active, last_login_at, phone, experience_years, salary_inr")
+        .is("deleted_at", null)
+        .order("full_name")
+      : supabase
+        .from("users")
+        .select("id, full_name, role, role_label, is_active, last_login_at")
+        .is("deleted_at", null)
+        .order("full_name"),
 
     supabase
       .from("owner_broadcasts")
@@ -102,14 +125,21 @@ export default async function TeamPage() {
         .not("check_in_at", "is", null)
       : Promise.resolve({ data: null, error: null }),
 
-    // Member tasks summary (owner view). Lifecycle columns come from migration
-    // 083; review_status feeds the quality half of the derived score.
-    canManage
+    // Member tasks summary. Lifecycle columns come from migration 083;
+    // review_status feeds the quality half of the derived score.
+    //
+    // A coordinator gets this too — "who is doing what" is the whole point of
+    // their view — but without the review verdicts, which are KPI inputs and
+    // belong to the performance half they cannot see. RLS still applies:
+    // reading other members' tasks needs member_tasks:view_all, so a coordinator
+    // without it simply sees fewer rows rather than an error.
+    canManage || canCoordinate
       ? db
         .from("member_tasks")
         .select(
           "user_id, title, completed, created_at, completed_at, tag, due_date, status, " +
-          "review_status, assigned_by, accepted_at, submitted_at, users!user_id(full_name)"
+          (canManage ? "review_status, " : "") +
+          "assigned_by, accepted_at, submitted_at, users!user_id(full_name)"
         )
         .order("created_at", { ascending: false })
       : Promise.resolve({ data: null, error: null }),
@@ -133,10 +163,25 @@ export default async function TeamPage() {
         .from("project_assignments")
         .select("user_id, projects:project_id(id, name, status)")
       : Promise.resolve({ data: null, error: null }),
+
+    // Active projects, used by BOTH the "add to a project" panel and the assign-task
+    // modal's project select. RLS (013 + 089's category restriction) already
+    // scopes this to what the caller may see, so no extra filter is needed
+    // beyond dropping finished work.
+    canAssignToProject || canAssign
+      ? db
+        .from("projects")
+        .select("id, name")
+        .is("deleted_at", null)
+        .not("status", "in", "(completed,cancelled)")
+        .order("name")
+      : Promise.resolve({ data: null, error: null }),
   ]);
 
   // Already name-ordered by the query; re-rank owner → team members → site engineers.
-  type MemberRow = { id: string; full_name: string; role: string; role_label: string | null; is_active: boolean; last_login_at: string | null; phone: string | null; experience_years: number | null; salary_inr: number | null };
+  // phone / experience_years / salary_inr are absent from a coordinator's select
+  // (see the query above), so they are optional here rather than nullable.
+  type MemberRow = { id: string; full_name: string; role: string; role_label: string | null; is_active: boolean; last_login_at: string | null; phone?: string | null; experience_years?: number | null; salary_inr?: number | null };
   const rows = [...((membersRes.data ?? []) as MemberRow[])].sort(
     (a, b) => (ROLE_RANK[a.role] ?? 99) - (ROLE_RANK[b.role] ?? 99)
   );
@@ -245,6 +290,8 @@ export default async function TeamPage() {
     .filter((p) => p.memberIds.length > 0)
     .sort((a, b) => a.name.localeCompare(b.name));
 
+  const assignableProjects = (assignableProjectsRes.data ?? []) as { id: string; name: string }[];
+
   // ── Derived scores ──────────────────────────────────────────────────────
   // This deployment has NOT ported v_kpi_scores (upstream 087) or login_streaks
   // (088), so the score is computed here from what migrations 083/084 do give
@@ -325,9 +372,9 @@ export default async function TeamPage() {
       tasks,
       role: m.role,
       role_label: m.role_label,
-      phone: m.phone,
-      experience_years: m.experience_years,
-      salary_inr: m.salary_inr,
+      phone: m.phone ?? null,
+      experience_years: m.experience_years ?? null,
+      salary_inr: m.salary_inr ?? null,
       tags: memberTags,
       isActive: m.is_active,
       isSelf: m.id === user.id,
@@ -335,7 +382,9 @@ export default async function TeamPage() {
     };
   });
 
-  const leaders: LeaderRow[] = boardMembers
+  // Leaderboard is a performance surface — empty for a coordinator, whose scores
+  // are computed from queries that returned nothing anyway.
+  const leaders: LeaderRow[] = (canManage ? boardMembers : [])
     .map((m) => ({ m, score: m.score }))
     .sort((a, b) => b.score - a.score || a.m.name.localeCompare(b.m.name))
     .slice(0, 5)
@@ -355,8 +404,10 @@ export default async function TeamPage() {
   return (
     <div className={styles.surface}>
       <PageHeader
-        title="Team & Access"
-        subtitle={`${rows.length} member${rows.length !== 1 ? "s" : ""} · Performance & Control`}
+        title={canManage ? "Team & Access" : "Team"}
+        subtitle={`${rows.length} member${rows.length !== 1 ? "s" : ""} · ${
+          canManage ? "Performance & Control" : "Who is on what"
+        }`}
         actions={
           <>
             {canManage && <DownloadReportButton months={availableReportMonths()} />}
@@ -396,6 +447,9 @@ export default async function TeamPage() {
         canManage={!!canManage}
         canManageTags={canManageTags}
         canAssign={canAssign}
+        canSeePerformance={!!canManage}
+        canAssignToProject={canAssignToProject}
+        projects={assignableProjects}
         currentUserId={user.id}
         nowMs={serverNowMs()}
       >

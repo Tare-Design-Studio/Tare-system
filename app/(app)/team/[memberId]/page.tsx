@@ -47,11 +47,18 @@ export default async function MemberDetailPage({
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Only users with office_attendance:view_all (Owner + tagged admins) may access this page
-  const { data: cap } = await supabase.rpc("has_capability", { p_capability: "office_attendance:view_all" });
-  if (!cap) redirect("/");
-
   const { memberId } = await params;
+
+  // Viewing SOMEONE ELSE needs office_attendance:view_all (Owner + tagged
+  // admins). Your own row is always yours to read (096) — every query below is
+  // filtered to memberId, and RLS independently scopes each of them to what the
+  // caller may see, so a member reaching their own page reads only their own
+  // attendance, tasks and leave.
+  const isSelf = memberId === user.id;
+  if (!isSelf) {
+    const { data: cap } = await supabase.rpc("has_capability", { p_capability: "office_attendance:view_all" });
+    if (!cap) redirect("/");
+  }
   const sp = await searchParams;
   const rawRange = sp.range ?? "month";
   const range: Range = VALID_RANGES.includes(rawRange as Range) ? (rawRange as Range) : "month";
@@ -64,8 +71,9 @@ export default async function MemberDetailPage({
     .eq("id", user.id)
     .single();
 
-  // Redirect if owner tries to access their own detail page
-  if (currentUser?.id === memberId) redirect("/team");
+  // The owner's own "profile" is the dashboard — this page has no owner metrics
+  // to show. Everyone else may read their own (096).
+  if (isSelf && currentUser?.role === "owner") redirect("/team");
 
   const start = rangeStart(range);
   const today = new Date().toISOString().slice(0, 10);

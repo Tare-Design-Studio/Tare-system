@@ -266,12 +266,10 @@ export default async function ProjectDetailPage({ params }: Ctx) {
     // page has already established this user may view this project.
     createServiceClient()
       .from("member_tasks")
-      .select("id, title, tag, completed_at, review_status, users:user_id (id, full_name, role)")
+      .select("id, title, tag, status, completed, completed_at, created_at, review_status, users:user_id (id, full_name, role)")
       .eq("project_id", id)
       .eq("tenant_id", p.tenant_id)
-      .eq("status", "completed")
-      .not("completed_at", "is", null)
-      .order("completed_at", { ascending: false })
+      .order("created_at", { ascending: false })
       .limit(50),
   ]);
 
@@ -301,23 +299,30 @@ export default async function ProjectDetailPage({ params }: Ctx) {
     })
   );
 
-  // Completed tasks join the same stream, newest first. Their completed_at is
-  // mapped onto created_at so one sort key covers both kinds.
+  // Project-linked tasks join the same stream, newest first. Work in progress
+  // shows as a pending entry; once the task closes, the same row becomes its
+  // completed entry (one task row = one entry, never both). The timestamp the
+  // entry sorts on is mapped onto created_at so one sort key covers both kinds.
   const projectStream = [
     ...projectUpdates,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ...((projectTasksRes.data ?? []) as any[]).map((t) => ({
-      id: t.id,
-      entry_kind: "task" as const,
-      title: t.title,
-      tag: t.tag,
-      review_status: t.review_status,
-      created_at: t.completed_at,
-      users: t.users,
-      // The stream filters by author_id; for a task that is the member who did it.
-      author_id: t.users?.id ?? "",
-      update_type: "task",
-    })),
+    ...((projectTasksRes.data ?? []) as any[]).map((t) => {
+      // A project-linked task sitting in pending_review is still in progress.
+      const done = t.status === "completed" || (t.completed && t.status !== "pending_review");
+      return {
+        id: t.id,
+        entry_kind: "task" as const,
+        task_state: (done ? "completed" : "pending") as "pending" | "completed",
+        title: t.title,
+        tag: t.tag,
+        review_status: t.review_status,
+        created_at: (done ? t.completed_at : null) ?? t.created_at,
+        users: t.users,
+        // The stream filters by author_id; for a task that is the member who did it.
+        author_id: t.users?.id ?? "",
+        update_type: "task",
+      };
+    }),
   ].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const projectTables = (tablesRes.data ?? []) as any[];

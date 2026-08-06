@@ -52,14 +52,17 @@ export default async function TasksPage() {
           .eq("status", "pending_review")
           .order("submitted_at", { ascending: false })
       : Promise.resolve({ data: [] }),
-    canAssign
-      ? sb
-          .from("users")
-          .select("id, full_name, role")
-          .eq("is_active", true)
-          .is("deleted_at", null)
-          .order("full_name")
-      : Promise.resolve({ data: [] }),
+    // Fetched for EVERYONE, not just assign-holders: a plain member needs this
+    // to see who assigned their task. Without it `memberName[assigned_by]` was
+    // empty and the card read a bare "Assigned" with no name. Only id/name/role,
+    // and `users` RLS is tenant-scoped, so this discloses nothing a member
+    // cannot already see on the team page.
+    sb
+      .from("users")
+      .select("id, full_name, role")
+      .eq("is_active", true)
+      .is("deleted_at", null)
+      .order("full_name"),
     // Every active project in the tenant — both task pickers list all of them.
     sb
       .from("projects")

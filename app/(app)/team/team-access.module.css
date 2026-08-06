@@ -1179,3 +1179,269 @@
   .fieldRow { grid-template-columns: 1fr; }
   .statGrid { grid-template-columns: 1fr; }
 }
+
+/* ── Team overview redesign ───────────────────────────────────────────────
+   Same language as the member profile page: one headline band that answers
+   "how is the team doing?", then a roster whose rows encode load and
+   blockers instead of a flat strip of equal-weight metric chips. */
+
+.headline {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  background: var(--aos-paper);
+  border: 1px solid rgba(30, 28, 24, 0.05);
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 1px 0 #fff inset, 0 20px 40px -34px rgba(30, 28, 24, 0.28);
+  margin-bottom: 16px;
+}
+
+.headlineCell {
+  padding: 20px 24px 22px;
+  border-right: 1px solid var(--aos-line);
+  min-width: 0;
+}
+
+.headlineCell:last-child { border-right: none; }
+
+.headlineLabel {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--aos-muted);
+  margin-bottom: 10px;
+}
+
+.headlineValue {
+  font-family: var(--font-serif);
+  font-size: 38px;
+  line-height: 0.95;
+  color: var(--aos-ink);
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.headlineUnit {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--aos-muted);
+}
+
+.headlineFoot {
+  font-size: 11.5px;
+  color: var(--aos-muted);
+  margin-top: 9px;
+}
+
+.headlineClear { color: var(--color-forest); }
+.headlineRaised { color: var(--color-rust); }
+
+/* Roster rows — replaces .memberRow's grid of grey chips. */
+.roster {
+  display: flex;
+  flex-direction: column;
+}
+
+.rosterRow {
+  display: grid;
+  grid-template-columns: auto minmax(140px, 1.4fr) minmax(0, 1.1fr) auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 4px;
+  border-bottom: 1px solid var(--aos-line);
+  min-width: 0;
+  background: none;
+  border-radius: 0;
+}
+
+.roster > .rosterRow:last-child { border-bottom: none; }
+
+.rosterRowButton {
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  transition: padding-left 0.15s ease;
+}
+
+.rosterRowButton:hover { padding-left: 10px; }
+.rosterRowButton:hover .memberName { color: var(--aos-accent); }
+
+.rosterOwnerRow {
+  border-bottom: 1px solid var(--aos-line);
+}
+
+/* Workload bar — active task count as a length, so the busiest and the
+   idle read instantly down the column. */
+.loadWrap {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.loadBar {
+  flex: 1;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--aos-bg-2);
+  overflow: hidden;
+  min-width: 40px;
+}
+
+.loadFill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--aos-accent);
+  transition: width 0.4s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.loadFillHeavy { background: var(--color-amber); }
+.loadFillIdle { background: var(--aos-line-2); }
+
+.loadLabel {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--aos-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Presence read as compact mono figures rather than pill chips. */
+.presence {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--aos-muted);
+  white-space: nowrap;
+  text-align: right;
+}
+
+.presenceStrong { color: var(--aos-ink-2); font-weight: 600; }
+
+/* Attention flag — only rendered when something is actually wrong. */
+.flagDot {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-rust);
+  white-space: nowrap;
+}
+
+.flagDot::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.rosterFilters {
+  display: flex;
+  gap: 18px;
+  border-bottom: 1px solid var(--aos-line);
+  margin-bottom: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.rosterFilters::-webkit-scrollbar { display: none; }
+
+.rosterTab {
+  appearance: none;
+  background: none;
+  border: none;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--aos-muted);
+  padding: 0 0 10px;
+  cursor: pointer;
+  position: relative;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 0.15s;
+}
+
+.rosterTab:hover { color: var(--aos-ink); }
+.rosterTabActive, .rosterTabActive:hover { color: var(--aos-ink); }
+
+.rosterTabActive::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--aos-accent);
+  border-radius: 2px 2px 0 0;
+}
+
+.rosterTabCount {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--aos-muted);
+  background: var(--aos-bg-2);
+  border-radius: 999px;
+  padding: 2px 6px;
+}
+
+.rosterTabActive .rosterTabCount {
+  background: rgba(45, 106, 79, 0.12);
+  color: var(--color-forest);
+}
+
+.rosterTab:focus-visible,
+.rosterRowButton:focus-visible {
+  outline: 2px solid var(--color-forest);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (max-width: 1100px) {
+  .headline { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .headlineCell:nth-child(2) { border-right: none; }
+  .headlineCell:nth-child(1), .headlineCell:nth-child(2) {
+    border-bottom: 1px solid var(--aos-line);
+  }
+}
+
+@media (max-width: 820px) {
+  .rosterRow {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    row-gap: 8px;
+  }
+  /* Workload spans the full width on its own line below the name. */
+  .loadWrap { grid-column: 2 / -1; }
+  .presence { grid-column: 2 / -1; text-align: left; }
+}
+
+@media (max-width: 640px) {
+  .headline { grid-template-columns: minmax(0, 1fr); }
+  .headlineCell {
+    border-right: none;
+    border-bottom: 1px solid var(--aos-line);
+    padding: 16px 20px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .headlineCell:last-child { border-bottom: none; }
+  .headlineLabel { margin-bottom: 0; order: 1; }
+  .headlineValue { order: 0; width: 100%; font-size: 30px; }
+  .headlineFoot { order: 2; margin-top: 0; width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loadFill { transition: none; }
+  .rosterRowButton { transition: none; }
+}

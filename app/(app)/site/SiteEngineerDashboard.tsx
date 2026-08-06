@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useCallback, useEffect } from "react";
 import { Project, Engineer, MaterialPlan, Expense, CheckIn, SiteVisit } from "./components/shared";
 import type { FeedUpdate } from "@/components/updates/UpdatesFeed";
 import { DesktopSiteEngineer } from "./components/DesktopSiteEngineer";
@@ -12,26 +11,12 @@ type Props = {
   projects: Project[];
   nowMs: number;
   siteVisits: SiteVisit[];
+  // Tab and project both come from the URL — the layout chrome drives them.
+  tab: string;
+  projectId: string;
 };
 
-export default function SiteEngineerDashboard({ engineer, projects, nowMs, siteVisits }: Props) {
-  const router = useRouter();
-  const [projectId, setProjectId] = useState(projects[0]?.id ?? "");
-  const [tab, setTab] = useState("today");
-
-  // "Details" is not a tab panel — it routes to the shared owner project page
-  // so site engineers see the exact same project details view.
-  const handleTab = (next: string) => {
-    if (next === "details") {
-      if (projectId) router.push(`/projects/${projectId}`);
-      return;
-    }
-    if (next === "bridge") {
-      router.push("/bridge");
-      return;
-    }
-    setTab(next);
-  };
+export default function SiteEngineerDashboard({ engineer, projects, nowMs, siteVisits, tab, projectId }: Props) {
   const [plans, setPlans] = useState<MaterialPlan[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
@@ -59,13 +44,16 @@ export default function SiteEngineerDashboard({ engineer, projects, nowMs, siteV
     }
   }, []);
 
-  // Load on mount and project switch
-  useState(() => { refresh(projectId); });
-
-  const switchProject = (pid: string) => {
-    setProjectId(pid);
-    refresh(pid);
-  };
+  // Load on mount and whenever the chrome switches project. The await defers
+  // refresh past the synchronous effect body so no setState runs inline.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      await Promise.resolve();
+      if (!cancelled) refresh(projectId);
+    })();
+    return () => { cancelled = true; };
+  }, [projectId, refresh]);
 
   return (
     <>
@@ -74,7 +62,6 @@ export default function SiteEngineerDashboard({ engineer, projects, nowMs, siteV
           engineer={engineer}
           project={project}
           projects={projects}
-          projectId={projectId}
           nowMs={nowMs}
           tab={tab}
           plans={plans}
@@ -83,8 +70,6 @@ export default function SiteEngineerDashboard({ engineer, projects, nowMs, siteV
           updates={updates}
           loading={loading}
           siteVisits={siteVisits}
-          switchProject={switchProject}
-          setTab={handleTab}
           refresh={() => refresh(projectId)}
         />
       </div>
@@ -93,17 +78,13 @@ export default function SiteEngineerDashboard({ engineer, projects, nowMs, siteV
           engineer={engineer}
           project={project}
           projects={projects}
-          projectId={projectId}
           nowMs={nowMs}
           tab={tab}
           plans={plans}
           expenses={expenses}
           checkIns={checkIns}
           updates={updates}
-          loading={loading}
           siteVisits={siteVisits}
-          switchProject={switchProject}
-          setTab={handleTab}
           refresh={() => refresh(projectId)}
         />
       </div>

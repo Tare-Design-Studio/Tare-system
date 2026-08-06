@@ -1,5 +1,68 @@
 # SCHEMA.md
-(Updated: 2026-08-05 — migration 095 APPLIED: task project links + self-task review)
+(Updated: 2026-08-06 — migration 096 APPLIED: team coordination + named review)
+
+### Migration 096 — team coordination + named reviewer (applied 2026-08-06)
+
+**Applied with** `npx tsx scripts/migrate.ts`. Verification queries are at the foot of the
+migration file; all were run after apply (column nullable, FK `ON DELETE SET NULL`, partial index
+present, **both** arities of `emit_task_review_notification` present, guard clause in place).
+
+**First attempt failed and rolled back** — `syntax error at or near "SELECT"`. The 2-arg delegating
+form was declared `LANGUAGE plpgsql` with a bare `SELECT` body, which is `LANGUAGE sql`. Fixed in
+the file (it now reads `LANGUAGE sql`) and re-applied clean. `CREATE OR REPLACE` does change a
+function's language, so replacing 083's plpgsql 2-arg form was not itself a problem.
+
+**Applying it also recorded 095**, which was applied by hand on 2026-08-05 over `DATABASE_URL` and
+so was never written to `_migrations`. The runner replayed it; 095 is idempotent
+(`ADD COLUMN IF NOT EXISTS`, `CREATE OR REPLACE`, `DROP POLICY IF EXISTS`) and its column, policies
+and index were verified unchanged afterwards. The ledger now matches the database — apply future
+migrations through the runner so this does not recur.
+
+**`member_tasks.review_requested_to uuid REFERENCES users(id) ON DELETE SET NULL`** (nullable) +
+partial index `idx_member_tasks_named_reviewer (review_requested_to, submitted_at DESC)
+WHERE review_requested_to IS NOT NULL AND status = 'pending_review'`.
+- `SET NULL`, never `CASCADE` — deleting a reviewer's account must not delete the task history
+  084's KPI reads. A task whose named reviewer is gone falls back to the assigner/owner path.
+
+**Named review routing.** `emit_task_review_notification` gains a **3-argument overload**
+`(p_task_id, p_title, p_reviewer)`; the 083 2-arg form is **kept and delegates to it**. Changing a
+function's arity creates a second function rather than replacing the first, so dropping the old one
+would break any caller still passing two arguments.
+- Recipient = `COALESCE(p_reviewer, row.review_requested_to, row.assigned_by)`, then NULL (which
+  `emit_notification` broadcasts to owners). A recipient who does not hold `tasks:assign`, or who is
+  the submitter, is discarded back to NULL — a notification whose only action would 403 is worse
+  than the owner fallback.
+
+**`guard_member_task_review()` body replaced again** (083 → 086 → 096). New clause: a **reviewer**
+may not change `review_requested_to`, alongside the existing user_id / tenant_id / time-log
+protections. The task's own member keeps full control of their row (the early return is unchanged),
+so picking a reviewer stays theirs. Trigger name and its position after `member_task_before_update`
+(038) are untouched.
+
+**Deliberate RLS/API split — read before narrowing anything here.** `owner_review_tasks` (095)
+authorises **every** `tasks:assign` holder tenant-wide, so naming a reviewer does not stop a
+different holder from returning the verdict. Narrowing that policy to the named reviewer would break
+the unnamed fallback (assigner / owner review), which is still the common path. The restriction is
+therefore enforced in `PATCH /api/member-tasks/[id]`'s `review` branch and the queue is filtered by
+addressee. The DB half stays "a reviewer may review anything except their own work", which is what
+086 and 095 already guarantee.
+
+**New capability `team:coordinate`** — declared in `lib/auth/capabilities.ts` only; **no rows are
+granted by this migration**. Opens a redacted `/team` (members, who-is-on-what, project assignment)
+without `team:create_user`. It confers no data access of its own: the salary / attendance / KPI
+queries on that page stay gated on `team:create_user`, so it widens the page, never the payload.
+Added to `TAG_EXCLUDED_CAPABILITIES` and deliberately absent from `tag_capability_set()` — like
+`tasks:assign` (087), `leave:approve` (088) and `performance:configure` (090), it is granted per
+user through the Access Matrix. Grant it there to whoever needs it after applying.
+
+**No pgtap test** for the new guard clause or the routing function — same gap 095 has (no Docker,
+locked decision). The guard clause **was** verified behaviourally after apply, inside a rolled-back
+transaction: acting as an owner who holds `tasks:assign`, a control write to `review_status`
+succeeded (proving `owner_review_tasks` authorised the row) while the same session's attempt to
+change `review_requested_to` raised `a reviewer cannot change who reviews a task`. The routing
+overload was smoke-tested only (2-arg form delegates and returns NULL for an unknown task).
+
+(Previous: 2026-08-05 — migration 095 APPLIED: task project links + self-task review)
 
 ### Migration 095 — task project links + reviewable self-set tasks (applied 2026-08-05)
 
@@ -822,7 +885,8 @@ Persistent personal tasks for team members (not date-scoped; carry over until do
 | completed_at | timestamptz | auto-set by trigger |
 | created_at / updated_at | timestamptz | auto-touched |
 | assigned_by | uuid | → users. **NULL = self-set todo** (legacy behaviour, no lifecycle) (083) |
-| project_id | uuid | → projects ON DELETE SET NULL. NULL = personal chore. Non-NULL routes the tick through owner review (095, NOT YET APPLIED) |
+| project_id | uuid | → projects ON DELETE SET NULL. NULL = personal chore. Non-NULL routes the tick through owner review (095) |
+| review_requested_to | uuid | → users ON DELETE SET NULL. NULL = no reviewer named, routing falls back to assigner then owners (096) |
 | tag | text | NOT NULL DEFAULT 'other', CHECK drawing/review/site/admin/other (083) |
 | due_date | date | (083) |
 | status | text | NOT NULL DEFAULT 'open', CHECK open/accepted/in_progress/pending_review/completed (083) |
@@ -832,7 +896,7 @@ Persistent personal tasks for team members (not date-scoped; carry over until do
 | reviewed_at | timestamptz | (083) |
 
 **Trigger:** `handle_member_task_update` — sets completed_at on flip, nulls on uncheck; since 083 also stamps the lifecycle timestamps and keeps `completed` ↔ `status` in lockstep.
-**RLS:** member reads/writes own; owner reads all via `daily_tasks:view_all`. Since 083: `owner_assign_tasks` (INSERT for others, needs `tasks:assign`) and `owner_review_tasks` (UPDATE, needs `tasks:assign` **and `assigned_by IS NOT NULL`**). 095 (NOT YET APPLIED) swaps that last predicate for **`user_id <> auth.uid()`**, so review reaches self-set tasks while nobody reviews their own.
+**RLS:** member reads/writes own; owner reads all via `daily_tasks:view_all`. Since 083: `owner_assign_tasks` (INSERT for others, needs `tasks:assign`) and `owner_review_tasks` (UPDATE, needs `tasks:assign` **and `assigned_by IS NOT NULL`**). 095 swaps that last predicate for **`user_id <> auth.uid()`**, so review reaches self-set tasks while nobody reviews their own. 096 adds `review_requested_to`; when it is set, only that person may return the verdict — enforced in the API, not RLS (see 096 above).
 
 ### `personal_reminders` (039_personal_reminders.sql)
 Private calendar reminders visible only to the creating user. In-app notification only.

@@ -5,7 +5,12 @@ import { serverNowMs } from "@/lib/serverNow";
 import SiteEngineerDashboard from "./SiteEngineerDashboard";
 import type { SiteVisit } from "./components/shared";
 
-export default async function SitePage() {
+const PANEL_TABS = ["today", "updates", "materials", "progress", "expenses"];
+
+export default async function SitePage({ searchParams }: {
+  searchParams: Promise<{ tab?: string; project?: string }>;
+}) {
+  const { tab: tabParam, project: projectParam } = await searchParams;
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect("/login");
@@ -105,12 +110,19 @@ export default async function SitePage() {
     });
   }
 
+  const tab = tabParam && PANEL_TABS.includes(tabParam) ? tabParam : "today";
+  const projectId = projects.some(p => p.id === projectParam)
+    ? (projectParam as string)
+    : projects[0]?.id ?? "";
+
   return (
     <SiteEngineerDashboard
       engineer={{ id: profile.id, name: profile.full_name, role: profile.role }}
       projects={projects}
       nowMs={serverNowMs()}
       siteVisits={siteVisits}
+      tab={tab}
+      projectId={projectId}
     />
   );
 }

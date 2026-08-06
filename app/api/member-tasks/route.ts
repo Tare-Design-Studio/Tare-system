@@ -10,7 +10,7 @@ const DRAWING_ROLES = ["design", "detailing", "technical", "checked"] as const;
 const TASK_SELECT =
   "id, user_id, title, tag, drawing_role, status, completed, completed_at, due_date, project_id, " +
   "assigned_by, accepted_at, started_at, submitted_at, review_status, " +
-  "reviewed_by, reviewed_at, created_at, updated_at";
+  "reviewed_by, reviewed_at, review_requested_to, created_at, updated_at";
 
 export async function GET(req: Request) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -25,7 +25,28 @@ export async function GET(req: Request) {
     // Tasks this user assigned to others (owner/PM view). RLS still scopes to tenant.
     query = query.eq("assigned_by", user.id).neq("user_id", user.id);
   } else if (scope === "review") {
-    query = query.eq("status", "pending_review");
+    // Named tasks belong to their addressee alone; unnamed ones keep the old
+    // behaviour (assigner or, for self-set work, the owners) so nothing that was
+    // reviewable before 096 becomes stranded.
+    //
+    // The caller's own submissions are excluded here rather than only in the
+    // client: 086 and the PATCH route both reject self-review, so returning them
+    // would only ever render a button that 403s.
+    const { data: isOwner } = await supabase
+      .from("users")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    query = query
+      .eq("status", "pending_review")
+      .neq("user_id", user.id);
+
+    query = isOwner?.role === "owner"
+      // An owner is the fallback recipient for every unnamed task, so they keep
+      // seeing the whole tenant queue minus work addressed to someone else.
+      ? query.or(`review_requested_to.is.null,review_requested_to.eq.${user.id}`)
+      : query.or(`review_requested_to.eq.${user.id},and(review_requested_to.is.null,assigned_by.eq.${user.id})`);
   } else {
     query = query.eq("user_id", user.id);
   }

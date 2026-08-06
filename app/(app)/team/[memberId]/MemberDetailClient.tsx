@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { Avatar, Chip, Icon } from "@/components/atoms";
 import styles from "./member-detail.module.css";
@@ -27,6 +27,14 @@ function fmtTime(iso: string) {
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+}
+
+// Weekday + date, for the shift ribbon's hover. "Mon, 04 Aug" reads faster than
+// a bare ISO string when you are scanning which day a short shift landed on.
+function fmtDayLong(iso: string) {
+  return new Date(iso).toLocaleDateString("en-IN", {
+    weekday: "short", day: "2-digit", month: "short",
+  });
 }
 
 // Humanised time-to-complete for a persistent task (created_at → completed_at).
@@ -140,9 +148,9 @@ const TAG_LABELS: Record<string, string> = {
 };
 
 const ROLE_CHIP: Record<string, { label: string; tone: "forest" | "indigo" | "amber" }> = {
-  owner:         { label: "Owner",        tone: "forest" },
-  team_member:   { label: "Team Member",  tone: "indigo" },
-  site_engineer: { label: "Site Engineer", tone: "amber" },
+  owner:         { label: "Owner",         tone: "forest" },
+  team_member:   { label: "Team Member",   tone: "indigo" },
+  site_engineer: { label: "Site Engineer", tone: "amber"  },
 };
 
 const STATUS_TONE: Record<string, "forest" | "amber" | "rose" | "sand" | "mint"> = {
@@ -150,6 +158,9 @@ const STATUS_TONE: Record<string, "forest" | "amber" | "rose" | "sand" | "mint">
   on_hold: "amber",
   completed: "mint",
 };
+
+// The widest range — offered when a range-scoped panel comes back empty.
+const WIDEST_RANGE: Range = "year";
 
 function initials(name: string) {
   return name.split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("");
@@ -159,10 +170,8 @@ function roleTone(role: string): "forest" | "amber" | "indigo" {
   return role === "owner" ? "forest" : role === "site_engineer" ? "amber" : "indigo";
 }
 
-// ─── Sub-components ──────────────────────────────────────────────────────────
+// ─── Primitives ──────────────────────────────────────────────────────────────
 
-// Empty state with an optional next step. Range-scoped cards pass `onWiden` so
-// "nothing here" offers the widest range instead of dead-ending.
 function EmptyState({ message, actionLabel, onAction, href }: {
   message: string;
   actionLabel?: string;
@@ -182,158 +191,324 @@ function EmptyState({ message, actionLabel, onAction, href }: {
   );
 }
 
-// The widest range — offered when a range-scoped card comes back empty.
-const WIDEST_RANGE: Range = "year";
-
-function StatTile({ label, value, unit }: { label: string; value: string | number; unit?: string }) {
+function Card({ title, subtitle, note, children }: {
+  title: string;
+  subtitle?: string;
+  note?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className={styles.statTile}>
-      <div className={styles.statTileLabel}>{label}</div>
-      <div className={styles.statTileValue}>
-        {value}
-        {unit && <span className={styles.statTileUnit}>{unit}</span>}
+    <section className={styles.card}>
+      <div className={styles.cardTitle}>
+        <div className={styles.cardTitleText}>
+          <h2 className="font-serif">{title}</h2>
+          {subtitle && <p>{subtitle}</p>}
+        </div>
+        {note && <span className={styles.cardNote}>{note}</span>}
       </div>
+      {children}
+    </section>
+  );
+}
+
+// Secondary numbers live here as inline label/value pairs rather than tiles, so
+// they read as supporting detail instead of competing with the headline band.
+function Facts({ items }: { items: { label: string; value: string | number; muted?: boolean }[] }) {
+  return (
+    <div className={styles.facts}>
+      {items.map((f) => (
+        <div key={f.label} className={styles.fact}>
+          <span className={styles.factLabel}>{f.label}</span>
+          <span className={`${styles.factValue} ${f.muted ? styles.factValueMuted : ""}`}>{f.value}</span>
+        </div>
+      ))}
     </div>
   );
 }
 
+// ─── Headline band ───────────────────────────────────────────────────────────
+
+function Headline({ cells }: {
+  cells: {
+    label: string;
+    value: string | number;
+    unit?: string;
+    foot?: string;
+    meterPct?: number;
+    tone?: "clear" | "raised";
+  }[];
+}) {
+  return (
+    <div className={styles.headline}>
+      {cells.map((c) => (
+        <div key={c.label} className={styles.headlineCell}>
+          <div className={styles.headlineLabel}>{c.label}</div>
+          <div
+            className={`${styles.headlineValue} ${
+              c.tone === "clear" ? styles.flagClear : c.tone === "raised" ? styles.flagRaised : ""
+            }`}
+          >
+            {c.value}
+            {c.unit && <span className={styles.headlineUnit}>{c.unit}</span>}
+          </div>
+          {c.meterPct != null && (
+            <div className={styles.meter}>
+              <div className={styles.meterFill} style={{ width: `${Math.min(100, Math.max(0, c.meterPct))}%` }} />
+            </div>
+          )}
+          {c.foot && <div className={styles.headlineFoot}>{c.foot}</div>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Shift ribbon — the signature element ────────────────────────────────────
+// One column per worked day, ordered oldest → newest. Bar height encodes hours
+// worked against the tallest day in range, with overtime stacked on top in
+// amber. A month of attendance reads as a skyline: short days, long days and
+// gaps are visible at a glance instead of hiding inside a grid of day numbers.
+
+function ShiftRibbon({ attendance }: { attendance: AttendanceLog[] }) {
+  const days = useMemo(() => [...attendance].reverse(), [attendance]);
+  const peak = useMemo(
+    () => Math.max(...days.map((d) => d.total_minutes ?? 0), 60),
+    [days]
+  );
+  // Which column's readout is showing. Hover and keyboard focus both set it, so
+  // the ribbon is not mouse-only.
+  const [hovered, setHovered] = useState<number | null>(null);
+
+  if (days.length === 0) return null;
+
+  return (
+    <>
+      <div className={styles.ribbonWrap}>
+      <div className={styles.ribbon} role="img" aria-label={`Hours worked across ${days.length} days`}>
+        {days.map((d, i) => {
+          const total = d.total_minutes ?? 0;
+          const ot = d.overtime_minutes ?? 0;
+          const base = Math.max(0, total - ot);
+          const open = !d.check_out_at;
+          const delay = `${Math.min(i * 12, 400)}ms`;
+          // Day, then the clock times behind the bar's height, then the
+          // exceptions. A day with no check-in recorded omits the span rather
+          // than showing an empty dash.
+          const span = d.check_in_at
+            ? `${fmtTime(d.check_in_at)}${d.check_out_at ? ` – ${fmtTime(d.check_out_at)}` : ""}`
+            : null;
+          const meta = [
+            open ? "Still on the clock" : fmtHours(total),
+            ot > 0 ? `+${fmtHours(ot)} overtime` : null,
+          ].filter(Boolean).join(" · ");
+          // Native title kept as the accessible/print fallback.
+          const flat = [fmtDayLong(d.work_date), span, meta, d.is_late ? "late in" : null]
+            .filter(Boolean).join(" · ");
+
+          return (
+            <div
+              key={d.id}
+              className={styles.ribbonCol}
+              title={flat}
+              tabIndex={0}
+              onMouseEnter={() => setHovered(i)}
+              onMouseLeave={() => setHovered((h) => (h === i ? null : h))}
+              onFocus={() => setHovered(i)}
+              onBlur={() => setHovered((h) => (h === i ? null : h))}
+            >
+              {open ? (
+                <div
+                  className={`${styles.ribbonBar} ${styles.ribbonBarOpen}`}
+                  style={{ height: "38%", animationDelay: delay }}
+                />
+              ) : (
+                <>
+                  {ot > 0 && (
+                    <div
+                      className={styles.ribbonBarOvertime}
+                      style={{ height: `${(ot / peak) * 100}%`, animationDelay: delay }}
+                    />
+                  )}
+                  <div
+                    className={styles.ribbonBar}
+                    style={{ height: `${(base / peak) * 100}%`, animationDelay: delay }}
+                  />
+                </>
+              )}
+              {hovered === i && (
+                <div
+                  className={styles.ribbonTip}
+                  style={{
+                    // Keep the card inside the ribbon at both ends instead of
+                    // letting it hang off the edge.
+                    left: i < 2 ? 0 : i > days.length - 3 ? "auto" : "50%",
+                    right: i > days.length - 3 ? 0 : "auto",
+                    transform: i < 2 || i > days.length - 3 ? "none" : "translateX(-50%)",
+                  }}
+                >
+                  <div className={styles.ribbonTipDay}>{fmtDayLong(d.work_date)}</div>
+                  {span && <div className={styles.ribbonTipSpan}>{span}</div>}
+                  <div className={styles.ribbonTipMeta}>
+                    {meta}
+                    {d.is_late && <span className={styles.ribbonTipFlag}> · late in</span>}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      </div>
+      <div className={styles.ribbonFoot}>
+        <span>{fmtDate(days[0].work_date)}</span>
+        <span className={styles.ribbonLegend}>
+          <span className={styles.legendItem}>
+            <span className={styles.legendSwatch} style={{ background: "rgba(45,106,79,0.55)" }} />
+            Worked
+          </span>
+          <span className={styles.legendItem}>
+            <span className={styles.legendSwatch} style={{ background: "var(--color-amber)" }} />
+            Overtime
+          </span>
+        </span>
+        <span>{fmtDate(days[days.length - 1].work_date)}</span>
+      </div>
+    </>
+  );
+}
+
+// ─── Panels ──────────────────────────────────────────────────────────────────
+
 function ProjectsCard({ projects }: { projects: Project[] }) {
   return (
-    <div className={styles.card}>
-      <div className={styles.cardTitle}>
-        <div className={styles.cardTitleText}>
-          <h2 className="font-serif">Active Projects</h2>
-          <p>{projects.length} assignment{projects.length !== 1 ? "s" : ""}</p>
-        </div>
-      </div>
+    <Card
+      title="Assignments"
+      subtitle={projects.length > 0 ? `${projects.length} project${projects.length !== 1 ? "s" : ""}` : undefined}
+    >
       {projects.length === 0 ? (
-        <EmptyState message="No project assignments." actionLabel="Assign from a project" href="/projects" />
+        <EmptyState message="Not assigned to a project yet." actionLabel="Assign from a project" href="/projects" />
       ) : (
-        <div className={styles.projectList}>
+        <div className={styles.rows}>
           {projects.map((pa, i) => {
             const p = pa.projects;
             if (!p) return null;
             return (
-              <Link key={p.id ?? i} href={`/projects/${p.id}`} className={styles.projectRow}>
-                <span className={styles.projectName}>{p.name}</span>
-                {pa.contribution_pct != null && (
-                  <span className={styles.projectContrib}>{pa.contribution_pct}%</span>
-                )}
-                <Chip label={p.current_stage ?? "—"} tone="sand" size="sm" />
-                <Chip label={p.status} tone={STATUS_TONE[p.status] ?? "sand"} size="sm" />
+              <Link key={p.id ?? i} href={`/projects/${p.id}`} className={styles.row}>
+                <span className={styles.rowStack}>
+                  <span className={styles.rowName} style={{ display: "block" }}>{p.name}</span>
+                  <span className={styles.rowSub}>
+                    <Chip label={p.current_stage ?? "—"} tone="sand" size="sm" />
+                    <Chip label={p.status} tone={STATUS_TONE[p.status] ?? "sand"} size="sm" />
+                    {pa.contribution_pct != null && (
+                      <>
+                        <span className={styles.rowBar}>
+                          <span className={styles.rowBarFill} style={{ width: `${pa.contribution_pct}%` }} />
+                        </span>
+                        <span className={styles.rowMeta}>{pa.contribution_pct}%</span>
+                      </>
+                    )}
+                  </span>
+                </span>
               </Link>
             );
           })}
         </div>
       )}
-    </div>
+    </Card>
   );
 }
 
-function AttendanceCard({ attendance, range, onWiden }: { attendance: AttendanceLog[]; range: Range; onWiden: () => void }) {
+function AttendancePanel({ attendance, range, onWiden }: {
+  attendance: AttendanceLog[];
+  range: Range;
+  onWiden: () => void;
+}) {
   const daysPresent = attendance.length;
   const totalMinutes = attendance.reduce((s, r) => s + (r.total_minutes ?? 0), 0);
   const avgMinutes = daysPresent > 0 ? Math.round(totalMinutes / daysPresent) : 0;
-  const geofenceViolations = attendance.filter(
-    (r) => r.check_in_within_geofence === false || r.check_out_within_geofence === false
-  ).length;
-  // Overtime (091): minutes past the tenant's workday end, derived server-side.
   const overtimeMinutes = attendance.reduce((s, r) => s + (r.overtime_minutes ?? 0), 0);
   const otDays = attendance.filter((r) => (r.overtime_minutes ?? 0) > 0).length;
   const lateDays = attendance.filter((r) => r.is_late).length;
+  const geofenceViolations = attendance.filter(
+    (r) => r.check_in_within_geofence === false || r.check_out_within_geofence === false
+  ).length;
 
   return (
-    <div className={styles.card}>
-      <div className={styles.cardTitle}>
-        <div className={styles.cardTitleText}>
-          <h2 className="font-serif">Attendance</h2>
-          <p>Office check-in / check-out logs · overtime</p>
-        </div>
-      </div>
-      <div className={styles.statTiles}>
-        <StatTile label="Days Present" value={daysPresent} unit="d" />
-        <StatTile label="Total Hours" value={fmtHours(totalMinutes)} />
-        <StatTile label="Avg / Day" value={fmtHours(avgMinutes)} />
-        <StatTile label="Overtime" value={fmtHours(overtimeMinutes)} />
-        <StatTile label="OT Days" value={otDays} unit="d" />
-        <StatTile label="Late Days" value={lateDays} unit="d" />
-        <StatTile label="Geofence Flags" value={geofenceViolations} />
-      </div>
-      {attendance.length > 0 && (
-        <div className={styles.attendanceStrip}>
-          {attendance.slice(0, 60).map((row) => {
-            const day = new Date(row.work_date).getDate();
-            const hasCheckout = !!row.check_out_at;
-            return (
-              <div
-                key={row.id}
-                className={`${styles.attendanceDay} ${hasCheckout ? styles.attendanceDayPresent : styles.attendanceDayPartial}`}
-                title={`${row.work_date} · ${fmtHours(row.total_minutes)}${(row.overtime_minutes ?? 0) > 0 ? ` · +${fmtHours(row.overtime_minutes)} OT` : ""}${row.is_late ? " · late" : ""}`}
-              >
-                {day}
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {attendance.length === 0 && (
+    <Card
+      title="Attendance"
+      subtitle="Office hours, overtime and exceptions"
+      note={daysPresent > 0 ? `${daysPresent} day${daysPresent !== 1 ? "s" : ""} logged` : undefined}
+    >
+      {daysPresent === 0 ? (
         <EmptyState
-          message="No attendance records in range."
+          message="No attendance logged in this range."
           actionLabel={range !== WIDEST_RANGE ? "Look at the full year" : undefined}
           onAction={onWiden}
         />
+      ) : (
+        <>
+          <ShiftRibbon attendance={attendance} />
+          <Facts
+            items={[
+              { label: "Total", value: fmtHours(totalMinutes) },
+              { label: "Average day", value: fmtHours(avgMinutes) },
+              { label: "Overtime", value: fmtHours(overtimeMinutes) },
+              { label: "OT days", value: otDays, muted: otDays === 0 },
+              { label: "Late in", value: lateDays, muted: lateDays === 0 },
+              { label: "Geofence flags", value: geofenceViolations, muted: geofenceViolations === 0 },
+            ]}
+          />
+        </>
       )}
-    </div>
+    </Card>
   );
 }
 
-function TasksCard({ dailyTasks, memberTasks, range, onWiden }: { dailyTasks: DailyTask[]; memberTasks: MemberTask[]; range: Range; onWiden: () => void }) {
-  const totalDaily = dailyTasks.length;
-  const doneDaily = dailyTasks.filter((t) => t.is_done).length;
-  const totalPersistent = memberTasks.length;
-  const donePersistent = memberTasks.filter((t) => t.completed).length;
-  const completionPct = (totalDaily + totalPersistent) > 0
-    ? Math.round(((doneDaily + donePersistent) / (totalDaily + totalPersistent)) * 100)
-    : 0;
-
+function TasksPanel({ dailyTasks, memberTasks, range, onWiden }: {
+  dailyTasks: DailyTask[];
+  memberTasks: MemberTask[];
+  range: Range;
+  onWiden: () => void;
+}) {
   const [showAll, setShowAll] = useState(false);
-  const visibleDaily = showAll ? dailyTasks : dailyTasks.slice(0, 10);
+  const visibleDaily = showAll ? dailyTasks : dailyTasks.slice(0, 12);
+
+  const doneDaily = dailyTasks.filter((t) => t.is_done).length;
+  const donePersistent = memberTasks.filter((t) => t.completed).length;
+
+  if (dailyTasks.length === 0 && memberTasks.length === 0) {
+    return (
+      <Card title="Tasks" subtitle="Daily log and assigned tasks">
+        <EmptyState
+          message="No tasks in this range."
+          actionLabel={range !== WIDEST_RANGE ? "Look at the full year" : undefined}
+          onAction={onWiden}
+        />
+      </Card>
+    );
+  }
 
   return (
-    <div className={styles.card}>
-      <div className={styles.cardTitle}>
-        <div className={styles.cardTitleText}>
-          <h2 className="font-serif">Tasks</h2>
-          <p>Daily log + persistent tasks in range</p>
-        </div>
-      </div>
-      <div className={styles.statTiles}>
-        <StatTile label="Daily Tasks" value={totalDaily} />
-        <StatTile label="Completed" value={doneDaily} />
-        <StatTile label="Persistent" value={`${donePersistent}/${totalPersistent}`} />
-        <StatTile label="Completion" value={completionPct} unit="%" />
-      </div>
-
+    <Card title="Tasks" subtitle="Daily log and assigned tasks">
       {dailyTasks.length > 0 && (
         <>
-          <div style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>Daily Log</div>
-          <div className={styles.taskList}>
+          <div className={styles.taskGroupLabel}>
+            Daily log · {doneDaily} of {dailyTasks.length} done
+          </div>
+          <div className={styles.rows}>
             {visibleDaily.map((t) => (
-              <div key={t.id} className={styles.taskRow}>
-                <div className={`${styles.taskCheck} ${t.is_done ? styles.taskCheckDone : ""}`}>
-                  {t.is_done && <Icon name="check" size={10} />}
-                </div>
-                <div className={`${styles.taskTitle} ${t.is_done ? styles.taskDone : ""}`}>{t.description}</div>
-                <div className={styles.taskDate}>{fmtDate(t.task_date)}</div>
+              <div key={t.id} className={styles.row}>
+                <span className={`${styles.taskCheck} ${t.is_done ? styles.taskCheckDone : ""}`}>
+                  {t.is_done && <Icon name="check" size={9} />}
+                </span>
+                <span className={`${styles.rowName} ${t.is_done ? styles.taskDone : ""}`}>{t.description}</span>
+                <span className={styles.rowMeta}>{fmtDate(t.task_date)}</span>
               </div>
             ))}
           </div>
-          {dailyTasks.length > 10 && (
-            <button
-              onClick={() => setShowAll((v) => !v)}
-              style={{ marginTop: 10, fontSize: 12, color: "var(--color-forest)", background: "none", border: "none", cursor: "pointer", padding: "4px 0" }}
-            >
-              {showAll ? "Show less" : `Show all ${dailyTasks.length} tasks`}
+          {dailyTasks.length > 12 && (
+            <button type="button" onClick={() => setShowAll((v) => !v)} className={styles.linkBtn}>
+              {showAll ? "Show fewer" : `Show all ${dailyTasks.length}`}
             </button>
           )}
         </>
@@ -341,41 +516,38 @@ function TasksCard({ dailyTasks, memberTasks, range, onWiden }: { dailyTasks: Da
 
       {memberTasks.length > 0 && (
         <>
-          <div style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: "0.08em", margin: "16px 0 8px" }}>Persistent Tasks</div>
-          <div className={styles.taskList}>
+          <div className={styles.taskGroupLabel}>
+            Assigned · {donePersistent} of {memberTasks.length} done
+          </div>
+          <div className={styles.rows}>
             {memberTasks.slice(0, 20).map((t) => (
-              <div key={t.id} className={styles.taskRow}>
-                <div className={`${styles.taskCheck} ${t.completed ? styles.taskCheckDone : ""}`}>
-                  {t.completed && <Icon name="check" size={10} />}
-                </div>
-                <div className={`${styles.taskTitle} ${t.completed ? styles.taskDone : ""}`}>{t.title}</div>
+              <div key={t.id} className={styles.row}>
+                <span className={`${styles.taskCheck} ${t.completed ? styles.taskCheckDone : ""}`}>
+                  {t.completed && <Icon name="check" size={9} />}
+                </span>
+                <span className={`${styles.rowName} ${t.completed ? styles.taskDone : ""}`}>{t.title}</span>
                 {t.completed && t.completed_at && (
-                  <span
-                    title={`Completed in ${fmtDuration(t.created_at, t.completed_at)}`}
-                    style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 999, background: "var(--color-forest)18", color: "var(--color-forest)", whiteSpace: "nowrap" }}
-                  >
+                  <span className={styles.durationTag} title={`Took ${fmtDuration(t.created_at, t.completed_at)}`}>
                     {fmtDuration(t.created_at, t.completed_at)}
                   </span>
                 )}
-                <div className={styles.taskDate}>{t.completed && t.completed_at ? fmtDate(t.completed_at) : fmtDate(t.created_at)}</div>
+                <span className={styles.rowMeta}>
+                  {t.completed && t.completed_at ? fmtDate(t.completed_at) : fmtDate(t.created_at)}
+                </span>
               </div>
             ))}
           </div>
         </>
       )}
-
-      {dailyTasks.length === 0 && memberTasks.length === 0 && (
-        <EmptyState
-          message="No tasks in this range."
-          actionLabel={range !== WIDEST_RANGE ? "Look at the full year" : undefined}
-          onAction={onWiden}
-        />
-      )}
-    </div>
+    </Card>
   );
 }
 
-function PerformanceCard({ performance, range, onWiden }: { performance: PerfRow[]; range: Range; onWiden: () => void }) {
+function PerformancePanel({ performance, range, onWiden }: {
+  performance: PerfRow[];
+  range: Range;
+  onWiden: () => void;
+}) {
   const totals = performance.reduce(
     (acc, row) => {
       acc.drawings += row.drawings_completed;
@@ -387,62 +559,171 @@ function PerformanceCard({ performance, range, onWiden }: { performance: PerfRow
   );
 
   return (
-    <div className={styles.card}>
-      <div className={styles.cardTitle}>
-        <div className={styles.cardTitleText}>
-          <h2 className="font-serif">Performance</h2>
-          <p>Drawings, revisions, errors by month</p>
-        </div>
-      </div>
-      <div className={styles.statTiles}>
-        <StatTile label="Drawings" value={totals.drawings} />
-        <StatTile label="Revisions" value={totals.revisions} />
-        <StatTile label="Errors" value={totals.errors} />
-        <StatTile label="Months" value={performance.length} />
-      </div>
-      {performance.length > 0 ? (
-        <div className={styles.tableWrap}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Month</th>
-                <th>Drawings</th>
-                <th>Revisions</th>
-                <th>Errors</th>
-                <th>Deadline %</th>
-                <th>Rating</th>
-                <th>Site Delay</th>
-                <th>Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {performance.map((row) => (
-                <tr key={row.period_month}>
-                  <td style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>{row.period_month.slice(0, 7)}</td>
-                  <td>{row.drawings_completed}</td>
-                  <td>{row.revisions}</td>
-                  <td>
-                    {row.errors > 0 ? (
-                      <span style={{ color: "var(--color-rose)", fontWeight: 600 }}>{row.errors}</span>
-                    ) : row.errors}
-                  </td>
-                  <td>{row.deadline_met_pct != null ? `${row.deadline_met_pct}%` : "—"}</td>
-                  <td>{row.client_rating != null ? row.client_rating : "—"}</td>
-                  <td>{row.site_delay_days > 0 ? `${row.site_delay_days}d` : "—"}</td>
-                  <td style={{ color: "var(--color-tan)", fontSize: 11 }}>{row.notes ?? ""}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
+    <Card
+      title="Performance"
+      subtitle="Drawings, revisions and errors by month"
+      note={performance.length > 0 ? `${performance.length} month${performance.length !== 1 ? "s" : ""}` : undefined}
+    >
+      {performance.length === 0 ? (
         <EmptyState
-          message="No performance records in range."
+          message="No performance recorded in this range."
           actionLabel={range !== WIDEST_RANGE ? "Look at the full year" : undefined}
           onAction={onWiden}
         />
+      ) : (
+        <>
+          <div className={styles.tableWrap}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>Month</th>
+                  <th>Drawings</th>
+                  <th>Revisions</th>
+                  <th>Errors</th>
+                  <th>Deadline</th>
+                  <th>Rating</th>
+                  <th>Site delay</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {performance.map((row) => (
+                  <tr key={row.period_month}>
+                    <td className={styles.tableMonth}>{row.period_month.slice(0, 7)}</td>
+                    <td>{row.drawings_completed}</td>
+                    <td>{row.revisions}</td>
+                    <td className={row.errors > 0 ? styles.cellBad : undefined}>{row.errors}</td>
+                    <td>{row.deadline_met_pct != null ? `${row.deadline_met_pct}%` : "—"}</td>
+                    <td>{row.client_rating != null ? row.client_rating : "—"}</td>
+                    <td className={row.site_delay_days > 0 ? styles.cellBad : undefined}>
+                      {row.site_delay_days > 0 ? `${row.site_delay_days}d` : "—"}
+                    </td>
+                    <td className={styles.tableNote}>{row.notes ?? "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <Facts
+            items={[
+              { label: "Drawings", value: totals.drawings },
+              { label: "Revisions", value: totals.revisions },
+              { label: "Errors", value: totals.errors, muted: totals.errors === 0 },
+            ]}
+          />
+        </>
       )}
-    </div>
+    </Card>
+  );
+}
+
+function SiteHoursCard({ checkIns, range, onWiden }: {
+  checkIns: CheckIn[];
+  range: Range;
+  onWiden: () => void;
+}) {
+  // Aggregate worked minutes per project. Open sessions have no duration yet, so
+  // they count as a visit but add no time.
+  const rows = useMemo(() => {
+    const perProject = new Map<string, { name: string; minutes: number; sessions: number }>();
+    for (const c of checkIns) {
+      const key = c.project_id ?? "unknown";
+      const name = c.projects?.name ?? "Unknown project";
+      const entry = perProject.get(key) ?? { name, minutes: 0, sessions: 0 };
+      entry.sessions += 1;
+      if (c.duration_minutes != null) entry.minutes += c.duration_minutes;
+      perProject.set(key, entry);
+    }
+    return [...perProject.values()].sort((a, b) => b.minutes - a.minutes);
+  }, [checkIns]);
+
+  const peak = Math.max(...rows.map((r) => r.minutes), 1);
+
+  return (
+    <Card title="Time on site" subtitle="Hours split across sites">
+      {rows.length === 0 ? (
+        <EmptyState
+          message="No site time logged in this range."
+          actionLabel={range !== WIDEST_RANGE ? "Look at the full year" : undefined}
+          onAction={onWiden}
+        />
+      ) : (
+        <div className={styles.rows}>
+          {rows.map((r) => (
+            <div key={r.name} className={styles.row}>
+              <span className={styles.rowStack}>
+                <span className={styles.rowName} style={{ display: "block" }}>{r.name}</span>
+                <span className={styles.rowSub}>
+                  <span className={styles.rowBar}>
+                    <span className={styles.rowBarFill} style={{ width: `${(r.minutes / peak) * 100}%` }} />
+                  </span>
+                  <span className={styles.rowMeta}>
+                    {fmtHours(r.minutes)} · {r.sessions} visit{r.sessions !== 1 ? "s" : ""}
+                  </span>
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function CheckInsPanel({ checkIns, range, onWiden }: {
+  checkIns: CheckIn[];
+  range: Range;
+  onWiden: () => void;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const visible = showAll ? checkIns : checkIns.slice(0, 15);
+  const outsideZone = checkIns.filter((c) => !c.within_geofence).length;
+
+  return (
+    <Card
+      title="Check-ins"
+      subtitle="Every site visit in this range"
+      note={checkIns.length > 0 ? `${checkIns.length} visit${checkIns.length !== 1 ? "s" : ""}` : undefined}
+    >
+      {checkIns.length === 0 ? (
+        <EmptyState
+          message="No check-ins in this range."
+          actionLabel={range !== WIDEST_RANGE ? "Look at the full year" : undefined}
+          onAction={onWiden}
+        />
+      ) : (
+        <>
+          <div className={styles.rows}>
+            {visible.map((c) => (
+              <div key={c.id} className={styles.row}>
+                <span className={styles.checkinCol}>
+                  <span className={styles.checkinTime}>
+                    {fmtTime(c.checked_in_at)}{c.checked_out_at ? `–${fmtTime(c.checked_out_at)}` : ""}
+                  </span>
+                  <span className={styles.checkinDate}>
+                    {fmtDate(c.checked_in_at)}
+                    {c.checked_out_at ? ` · ${fmtHours(c.duration_minutes)}` : " · on site"}
+                  </span>
+                </span>
+                <span className={styles.rowName}>{c.projects?.name ?? "Unknown project"}</span>
+                {!c.within_geofence && <Chip label="Out of zone" tone="rose" size="sm" />}
+              </div>
+            ))}
+          </div>
+          {checkIns.length > 15 && (
+            <button type="button" onClick={() => setShowAll((v) => !v)} className={styles.linkBtn}>
+              {showAll ? "Show fewer" : `Show all ${checkIns.length}`}
+            </button>
+          )}
+          <Facts
+            items={[
+              { label: "Visits", value: checkIns.length },
+              { label: "Outside zone", value: outsideZone, muted: outsideZone === 0 },
+            ]}
+          />
+        </>
+      )}
+    </Card>
   );
 }
 
@@ -452,165 +733,33 @@ function BroadcastsCard({ broadcasts }: { broadcasts: BroadcastRecipient[] }) {
   const ackRate = total > 0 ? Math.round((acked / total) * 100) : 0;
 
   return (
-    <div className={styles.card}>
-      <div className={styles.cardTitle}>
-        <div className={styles.cardTitleText}>
-          <h2 className="font-serif">Broadcast Acknowledgements</h2>
-          <p>Owner broadcast read rate</p>
-        </div>
-      </div>
-      <div className={styles.statTiles} style={{ gridTemplateColumns: "repeat(3, minmax(0,1fr))" }}>
-        <StatTile label="Received" value={total} />
-        <StatTile label="Acknowledged" value={acked} />
-        <StatTile label="Ack Rate" value={ackRate} unit="%" />
-      </div>
-      {total === 0 && (
-        <EmptyState message="No broadcasts received." actionLabel="Send a broadcast" href="/team" />
-      )}
-    </div>
-  );
-}
-
-// Working days (Mon–Sat) elapsed in the range up to today — used to estimate leaves.
-function workingDaysInRange(range: Range): number {
-  const now = new Date();
-  const start = new Date(now);
-  if (range === "3m") start.setDate(start.getDate() - 90);
-  else if (range === "6m") start.setDate(start.getDate() - 180);
-  else if (range === "year") { start.setMonth(0); start.setDate(1); }
-  else { start.setDate(1); }
-  let count = 0;
-  const cur = new Date(start);
-  while (cur <= now) {
-    if (cur.getDay() !== 0) count++; // exclude Sundays
-    cur.setDate(cur.getDate() + 1);
-  }
-  return count;
-}
-
-function SiteHoursCard({ checkIns, range, onWiden }: { checkIns: CheckIn[]; range: Range; onWiden: () => void }) {
-  // Aggregate worked minutes per project (closed sessions only — open sessions
-  // have no duration yet and are excluded from totals).
-  const perProject = new Map<string, { name: string; minutes: number; sessions: number }>();
-  let totalMinutes = 0;
-  for (const c of checkIns) {
-    const key = c.project_id ?? "unknown";
-    const name = c.projects?.name ?? "Unknown project";
-    const entry = perProject.get(key) ?? { name, minutes: 0, sessions: 0 };
-    entry.sessions += 1;
-    if (c.duration_minutes != null) {
-      entry.minutes += c.duration_minutes;
-      totalMinutes += c.duration_minutes;
-    }
-    perProject.set(key, entry);
-  }
-  const rows = [...perProject.values()].sort((a, b) => b.minutes - a.minutes);
-
-  const daysOnSite = new Set(checkIns.map((c) => c.checked_in_at.slice(0, 10))).size;
-  const daysAbsent = Math.max(0, workingDaysInRange(range) - daysOnSite);
-
-  return (
-    <div className={styles.card}>
-      <div className={styles.cardTitle}>
-        <div className={styles.cardTitleText}>
-          <h2 className="font-serif">Site Hours</h2>
-          <p>Time on each site + days present / leave</p>
-        </div>
-      </div>
-      <div className={styles.statTiles}>
-        <StatTile label="Total Hours" value={fmtHours(totalMinutes)} />
-        <StatTile label="Days On Site" value={daysOnSite} unit="d" />
-        <StatTile label="Days Absent" value={daysAbsent} unit="d" />
-        <StatTile label="Sites Visited" value={rows.length} />
-      </div>
-      {rows.length > 0 ? (
-        <div className={styles.tableWrap}>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Site</th>
-                <th>Sessions</th>
-                <th>Hours</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.name}>
-                  <td>{r.name}</td>
-                  <td>{r.sessions}</td>
-                  <td>{fmtHours(r.minutes)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+    <Card title="Broadcasts" subtitle="Owner announcements read">
+      {total === 0 ? (
+        <EmptyState message="No broadcasts sent to this person." actionLabel="Send a broadcast" href="/team" />
       ) : (
-        <EmptyState
-          message="No site time logged in range."
-          actionLabel={range !== WIDEST_RANGE ? "Look at the full year" : undefined}
-          onAction={onWiden}
-        />
+        <>
+          <div className={styles.meter} style={{ marginTop: 4 }}>
+            <div className={styles.meterFill} style={{ width: `${ackRate}%` }} />
+          </div>
+          <Facts
+            items={[
+              { label: "Acknowledged", value: `${acked}/${total}` },
+              { label: "Read rate", value: `${ackRate}%`, muted: ackRate === 0 },
+            ]}
+          />
+        </>
       )}
-    </div>
-  );
-}
-
-function CheckInsCard({ checkIns, range, onWiden }: { checkIns: CheckIn[]; range: Range; onWiden: () => void }) {
-  const total = checkIns.length;
-  const withinGeo = checkIns.filter((c) => c.within_geofence).length;
-  const projects = new Set(checkIns.map((c) => c.project_id).filter(Boolean)).size;
-
-  return (
-    <div className={styles.card}>
-      <div className={styles.cardTitle}>
-        <div className={styles.cardTitleText}>
-          <h2 className="font-serif">Site Check-Ins</h2>
-          <p>All check-ins in selected range</p>
-        </div>
-      </div>
-      <div className={styles.statTiles}>
-        <StatTile label="Total Check-Ins" value={total} />
-        <StatTile label="Within Geofence" value={withinGeo} />
-        <StatTile label="Outside Geofence" value={total - withinGeo} />
-        <StatTile label="Projects Visited" value={projects} />
-      </div>
-      {checkIns.length > 0 ? (
-        <div className={styles.checkinList}>
-          {checkIns.map((c) => (
-            <div key={c.id} className={styles.checkinRow}>
-              <div>
-                <div className={styles.checkinTime}>
-                  {fmtTime(c.checked_in_at)}{c.checked_out_at ? ` – ${fmtTime(c.checked_out_at)}` : ""}
-                </div>
-                <div className={styles.checkinDate}>
-                  {fmtDate(c.checked_in_at)}{c.checked_out_at ? ` · ${fmtHours(c.duration_minutes)}` : " · on site"}
-                </div>
-              </div>
-              <div className={styles.checkinProject}>
-                {(c.projects as { name: string } | null)?.name ?? "Unknown project"}
-              </div>
-              <Chip
-                label={c.within_geofence ? "In Zone" : "Out of Zone"}
-                tone={c.within_geofence ? "forest" : "rose"}
-                size="sm"
-              />
-            </div>
-          ))}
-        </div>
-      ) : (
-        <EmptyState
-          message="No check-ins in range."
-          actionLabel={range !== WIDEST_RANGE ? "Look at the full year" : undefined}
-          onAction={onWiden}
-        />
-      )}
-    </div>
+    </Card>
   );
 }
 
 // ─── Export menu ─────────────────────────────────────────────────────────────
 
-function ExportMenu({ memberId, range, isSiteEngineer }: { memberId: string; range: Range; isSiteEngineer: boolean }) {
+function ExportMenu({ memberId, range, isSiteEngineer }: {
+  memberId: string;
+  range: Range;
+  isSiteEngineer: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -622,12 +771,20 @@ function ExportMenu({ memberId, range, isSiteEngineer }: { memberId: string; ran
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
   const base = `/api/team/${memberId}/export?range=${range}`;
 
   const items = isSiteEngineer
-    ? [{ label: "Check-Ins", href: `${base}&section=all` }]
+    ? [{ label: "Check-ins", href: `${base}&section=all` }]
     : [
-        { label: "All Data", href: `${base}&section=all` },
+        { label: "Everything", href: `${base}&section=all` },
         { label: "Attendance", href: `${base}&section=attendance` },
         { label: "Tasks", href: `${base}&section=tasks` },
         { label: "Performance", href: `${base}&section=performance` },
@@ -635,17 +792,24 @@ function ExportMenu({ memberId, range, isSiteEngineer }: { memberId: string; ran
 
   return (
     <div className={styles.exportBtn} ref={ref}>
-      <button className={styles.exportBtnToggle} onClick={() => setOpen((v) => !v)}>
+      <button
+        type="button"
+        className={styles.exportBtnToggle}
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+      >
         <Icon name="download" size={13} />
-        Export CSV
+        Export
       </button>
       {open && (
-        <div className={styles.exportMenu}>
+        <div className={styles.exportMenu} role="menu">
           {items.map((item) => (
             <a
               key={item.label}
               href={item.href}
               className={styles.exportMenuItem}
+              role="menuitem"
               download
               onClick={() => setOpen(false)}
             >
@@ -659,7 +823,9 @@ function ExportMenu({ memberId, range, isSiteEngineer }: { memberId: string; ran
   );
 }
 
-// ─── Main client component ────────────────────────────────────────────────────
+// ─── Main client component ───────────────────────────────────────────────────
+
+type TabKey = "overview" | "attendance" | "tasks" | "record";
 
 export default function MemberDetailClient({
   memberId,
@@ -673,6 +839,7 @@ export default function MemberDetailClient({
   const [range, setRange] = useState<Range>(initialRange);
   const [data, setData] = useState<MemberData>(initialData);
   const [loading, setLoading] = useState(false);
+  const [tab, setTab] = useState<TabKey>("overview");
 
   const fetchData = useCallback(async (r: Range) => {
     setLoading(true);
@@ -692,7 +859,7 @@ export default function MemberDetailClient({
     fetchData(r);
   }
 
-  // Offered by empty range-scoped cards so "nothing here" has a next step.
+  // Offered by empty range-scoped panels so "nothing here" has a next step.
   const widenRange = useCallback(() => {
     setRange(WIDEST_RANGE);
     fetchData(WIDEST_RANGE);
@@ -702,6 +869,68 @@ export default function MemberDetailClient({
   const isSiteEngineer = member.role === "site_engineer";
   const chip = ROLE_CHIP[member.role] ?? { label: member.role, tone: "indigo" as const };
 
+  const attendance = data.attendance ?? [];
+  const dailyTasks = data.dailyTasks ?? [];
+  const memberTasks = data.memberTasks ?? [];
+  const checkIns = data.checkIns ?? [];
+  const performance = data.performance ?? [];
+
+  // ── Headline figures ──────────────────────────────────────────────────────
+  // Three numbers that answer "is this person doing well?". Everything else on
+  // the page is supporting detail.
+  const totalMinutes = attendance.reduce((s, r) => s + (r.total_minutes ?? 0), 0);
+  const siteMinutes = checkIns.reduce((s, c) => s + (c.duration_minutes ?? 0), 0);
+  const hoursValue = isSiteEngineer ? siteMinutes : totalMinutes;
+  const daysCounted = isSiteEngineer
+    ? new Set(checkIns.map((c) => c.checked_in_at.slice(0, 10))).size
+    : attendance.length;
+
+  const totalTasks = dailyTasks.length + memberTasks.length;
+  const doneTasks = dailyTasks.filter((t) => t.is_done).length + memberTasks.filter((t) => t.completed).length;
+  const completionPct = totalTasks > 0 ? Math.round((doneTasks / totalTasks) * 100) : 0;
+
+  const lateDays = attendance.filter((r) => r.is_late).length;
+  const geoFlags = isSiteEngineer
+    ? checkIns.filter((c) => !c.within_geofence).length
+    : attendance.filter(
+        (r) => r.check_in_within_geofence === false || r.check_out_within_geofence === false
+      ).length;
+  const flags = lateDays + geoFlags;
+
+  const headlineCells = [
+    {
+      label: isSiteEngineer ? "Hours on site" : "Hours worked",
+      value: hoursValue > 0 ? Math.floor(hoursValue / 60) : "—",
+      unit: hoursValue > 0 ? "h" : undefined,
+      foot: daysCounted > 0 ? `across ${daysCounted} day${daysCounted !== 1 ? "s" : ""}` : "nothing logged yet",
+    },
+    {
+      label: "Tasks completed",
+      value: totalTasks > 0 ? completionPct : "—",
+      unit: totalTasks > 0 ? "%" : undefined,
+      meterPct: totalTasks > 0 ? completionPct : undefined,
+      foot: totalTasks > 0 ? `${doneTasks} of ${totalTasks} done` : "no tasks in range",
+    },
+    {
+      label: "Flags",
+      value: flags,
+      tone: (flags === 0 ? "clear" : "raised") as "clear" | "raised",
+      foot:
+        flags === 0
+          ? "clean record this range"
+          : [lateDays > 0 ? `${lateDays} late` : null, geoFlags > 0 ? `${geoFlags} out of zone` : null]
+              .filter(Boolean)
+              .join(" · "),
+    },
+  ];
+
+  const tabs: { key: TabKey; label: string; count?: number }[] = [
+    { key: "overview", label: "Overview" },
+    { key: "attendance", label: isSiteEngineer ? "Site visits" : "Attendance", count: isSiteEngineer ? checkIns.length : attendance.length },
+    { key: "tasks", label: "Tasks", count: totalTasks },
+    ...(isSiteEngineer ? [] : [{ key: "record" as TabKey, label: "Performance", count: performance.length }]),
+  ];
+
   return (
     <div className={styles.surface}>
       <Link href="/team" className={styles.backLink}>
@@ -709,12 +938,12 @@ export default function MemberDetailClient({
         Team
       </Link>
 
-      <div className={styles.pageHeader}>
+      <header className={styles.masthead}>
         <div className={styles.headerLeft}>
-          <Avatar initials={initials(member.full_name)} tone={roleTone(member.role)} size={56} />
+          <Avatar initials={initials(member.full_name)} tone={roleTone(member.role)} size={60} />
           <div className={styles.headerInfo}>
             <div className={styles.eyebrow}>
-              <Chip label={chip.label} tone={chip.tone} size="sm" />
+              <Chip label={member.role_label ?? chip.label} tone={chip.tone} size="sm" />
               {tags.map((t) => (
                 <Chip key={t.tag} label={TAG_LABELS[t.tag] ?? t.tag} tone="indigo" size="sm" />
               ))}
@@ -725,23 +954,24 @@ export default function MemberDetailClient({
               {member.phone && (
                 <span className={styles.metaItem}>
                   <Icon name="phone" size={11} />
-                  <span className={styles.metaValue}>{member.phone}</span>
+                  <a href={`tel:${member.phone}`} className={styles.metaLink}>{member.phone}</a>
                 </span>
               )}
               {member.experience_years != null && (
                 <span className={styles.metaItem}>
                   <Icon name="star" size={11} />
-                  <span className={styles.metaValue}>{member.experience_years} yrs exp</span>
+                  <span className={styles.metaValue}>{member.experience_years} yrs</span>&nbsp;experience
                 </span>
               )}
               {member.skill_score != null && (
                 <span className={styles.metaItem}>
-                  Skill:&nbsp;<span className={styles.metaValue}>{member.skill_score}</span>
+                  Skill&nbsp;<span className={styles.metaValue}>{member.skill_score}</span>
                 </span>
               )}
               {member.last_login_at && (
                 <span className={styles.metaItem}>
-                  Last seen:&nbsp;<span className={styles.metaValue}>{fmtDate(member.last_login_at)}</span>
+                  <Icon name="clock" size={11} />
+                  Last seen&nbsp;<span className={styles.metaValue}>{fmtDate(member.last_login_at)}</span>
                 </span>
               )}
             </div>
@@ -753,8 +983,10 @@ export default function MemberDetailClient({
             {(["month", "3m", "6m", "year"] as Range[]).map((r) => (
               <button
                 key={r}
+                type="button"
                 className={`${styles.rangePill} ${range === r ? styles.rangePillActive : ""}`}
                 onClick={() => handleRange(r)}
+                aria-pressed={range === r}
               >
                 {RANGE_LABELS[r]}
               </button>
@@ -762,50 +994,70 @@ export default function MemberDetailClient({
           </div>
           <ExportMenu memberId={memberId} range={range} isSiteEngineer={isSiteEngineer} />
         </div>
-      </div>
+      </header>
 
-      {loading && <div className={styles.loading}>Loading…</div>}
+      {loading ? (
+        <div className={styles.loading}>Loading…</div>
+      ) : (
+        <>
+          <Headline cells={headlineCells} />
 
-      {!loading && (
-        <div className={styles.grid12}>
-          {isSiteEngineer ? (
-            <>
-              <div className={styles.col4}>
+          <nav className={styles.tabs}>
+            {tabs.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                className={`${styles.tab} ${tab === t.key ? styles.tabActive : ""}`}
+                onClick={() => setTab(t.key)}
+                aria-pressed={tab === t.key}
+              >
+                {t.label}
+                {t.count != null && t.count > 0 && <span className={styles.tabCount}>{t.count}</span>}
+              </button>
+            ))}
+          </nav>
+
+          {tab === "overview" && (
+            <div className={`${styles.panel} ${styles.panelSplit}`}>
+              <div className={styles.panel}>
+                {isSiteEngineer ? (
+                  <SiteHoursCard checkIns={checkIns} range={range} onWiden={widenRange} />
+                ) : (
+                  <AttendancePanel attendance={attendance} range={range} onWiden={widenRange} />
+                )}
+              </div>
+              <div className={styles.panel}>
                 <ProjectsCard projects={data.projects ?? []} />
-              </div>
-              <div className={styles.col8}>
-                <SiteHoursCard checkIns={data.checkIns ?? []} range={range} onWiden={widenRange} />
-              </div>
-              <div className={styles.col12}>
-                <TasksCard dailyTasks={data.dailyTasks ?? []} memberTasks={data.memberTasks ?? []} range={range} onWiden={widenRange} />
-              </div>
-              <div className={styles.col8}>
-                <CheckInsCard checkIns={data.checkIns ?? []} range={range} onWiden={widenRange} />
-              </div>
-              <div className={styles.col4}>
                 <BroadcastsCard broadcasts={data.broadcasts ?? []} />
               </div>
-            </>
-          ) : (
-            <>
-              <div className={styles.col4}>
-                <ProjectsCard projects={data.projects ?? []} />
-              </div>
-              <div className={styles.col8}>
-                <AttendanceCard attendance={data.attendance ?? []} range={range} onWiden={widenRange} />
-              </div>
-              <div className={styles.col12}>
-                <TasksCard dailyTasks={data.dailyTasks ?? []} memberTasks={data.memberTasks ?? []} range={range} onWiden={widenRange} />
-              </div>
-              <div className={styles.col8}>
-                <PerformanceCard performance={data.performance ?? []} range={range} onWiden={widenRange} />
-              </div>
-              <div className={styles.col4}>
-                <BroadcastsCard broadcasts={data.broadcasts ?? []} />
-              </div>
-            </>
+            </div>
           )}
-        </div>
+
+          {tab === "attendance" && (
+            <div className={styles.panel}>
+              {isSiteEngineer ? (
+                <>
+                  <SiteHoursCard checkIns={checkIns} range={range} onWiden={widenRange} />
+                  <CheckInsPanel checkIns={checkIns} range={range} onWiden={widenRange} />
+                </>
+              ) : (
+                <AttendancePanel attendance={attendance} range={range} onWiden={widenRange} />
+              )}
+            </div>
+          )}
+
+          {tab === "tasks" && (
+            <div className={styles.panel}>
+              <TasksPanel dailyTasks={dailyTasks} memberTasks={memberTasks} range={range} onWiden={widenRange} />
+            </div>
+          )}
+
+          {tab === "record" && (
+            <div className={styles.panel}>
+              <PerformancePanel performance={performance} range={range} onWiden={widenRange} />
+            </div>
+          )}
+        </>
       )}
     </div>
   );

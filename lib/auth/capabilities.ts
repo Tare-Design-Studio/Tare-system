@@ -28,6 +28,9 @@ export const CAPABILITIES = [
   "team:edit_user",
   "team:deactivate_user",
   "team:assign_to_project",
+  // Restricted /team — members list, who-is-on-what, project assignment.
+  // No salary / attendance / KPI (migration 096).
+  "team:coordinate",
 
   // Materials
   "materials:plan",
@@ -172,11 +175,15 @@ export const FINANCE_CAPABILITIES: Capability[] = [
 //     at all stays an explicit per-user grant.
 //   performance:configure (090) — rewriting the KPI weights changes everyone's
 //     score. Same reasoning as tasks:assign: keep it off the tag path.
+//   team:coordinate (096)  — opens the team page (redacted) and the project
+//     assignment panel. Who may see the whole team's workload and move people
+//     between projects is the owner's explicit call, not a side effect of a tag.
 const TAG_EXCLUDED_CAPABILITIES: Capability[] = [
   "access_control:manage",
   "tasks:assign",
   "leave:approve",
   "performance:configure",
+  "team:coordinate",
 ];
 
 const ALL_DELEGABLE_CAPABILITIES: Capability[] = CAPABILITIES.filter(

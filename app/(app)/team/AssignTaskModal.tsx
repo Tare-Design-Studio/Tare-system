@@ -10,6 +10,11 @@ export interface AssignableMember {
   initials: string;
 }
 
+export interface AssignableTaskProject {
+  id: string;
+  name: string;
+}
+
 const TAGS = [
   { value: "drawing", label: "Drawing" },
   { value: "review", label: "Review" },
@@ -19,20 +24,23 @@ const TAGS = [
 ] as const;
 
 /**
- * Owner/PM modal to assign a task to a member with a tag + optional due date.
- * Posts to /api/member-tasks, which derives assigned_by from the session and
- * gates on tasks:assign — the client never supplies the assigner.
+ * Owner/PM modal to assign a task to a member with a tag, project and optional
+ * due date. Posts to /api/member-tasks, which derives assigned_by from the
+ * session and gates on tasks:assign — the client never supplies the assigner.
  */
 export function AssignTaskModal({
   members,
+  projects,
   onClose,
 }: {
   members: AssignableMember[];
+  projects: AssignableTaskProject[];
   onClose: () => void;
 }) {
   const [assignee, setAssignee] = useState(members[0]?.id ?? "");
   const [title, setTitle] = useState("");
   const [tag, setTag] = useState<string>("drawing");
+  const [projectId, setProjectId] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,6 +57,9 @@ export function AssignTaskModal({
           title: title.trim(),
           assignee_id: assignee,
           tag,
+          // Naming a project routes the finished task through review (095);
+          // leaving it blank keeps it a one-tap todo.
+          project_id: projectId || null,
           due_date: dueDate || undefined,
         }),
       });
@@ -107,6 +118,21 @@ export function AssignTaskModal({
             placeholder="e.g. Ground-floor plan revision"
             autoFocus
           />
+        </div>
+
+        <div className={styles.field}>
+          <label className={styles.fieldLabel} htmlFor="assign-project">Project (optional)</label>
+          <select
+            id="assign-project"
+            className={styles.input}
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+          >
+            <option value="">No project — personal task</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
         </div>
 
         <div className={styles.fieldRow}>

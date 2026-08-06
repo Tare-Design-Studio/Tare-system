@@ -3,7 +3,8 @@
 import { useState, useRef } from "react";
 import Link from "next/link";
 import ConfirmDialog from "@/components/atoms/ConfirmDialog";
-import { taskConfirmCopy, goesToReview } from "@/lib/tasks/confirm-copy";
+import { taskConfirmCopy, goesToReview, dueState } from "@/lib/tasks/confirm-copy";
+import { ReviewerPicker, useReviewers } from "@/components/tasks/ReviewerPicker";
 
 type MemberTask = {
   id: string;
@@ -15,20 +16,17 @@ type MemberTask = {
   project_id?: string | null;
   status?: string;
   reviewed_by?: string | null;
+  assigned_by?: string | null;
+  due_date?: string | null;
 };
 
 export type TaskProject = { id: string; name: string };
+/** id → full name, for showing who assigned a task. */
+export type MemberNames = Record<string, string>;
 
-// Which part of a drawing this task covers (client request #11). Recorded per
-// task so the split shows on the member's profile and in reports.
+// Which part of a drawing this task covers. Still carried on the row (the API
+// returns it and reports read it); no longer picked from this card.
 type DrawingRole = "design" | "detailing" | "technical" | "checked";
-
-const DRAWING_ROLES: { value: DrawingRole; label: string }[] = [
-  { value: "design", label: "Design" },
-  { value: "detailing", label: "Detail" },
-  { value: "technical", label: "Technical" },
-  { value: "checked", label: "Checked / signed" },
-];
 
 const C: React.CSSProperties = {
   background: "var(--color-paper-light)",
@@ -41,9 +39,11 @@ const C: React.CSSProperties = {
 export default function TasksCard({
   initialTasks,
   projects = [],
+  memberNames = {},
 }: {
   initialTasks: MemberTask[];
   projects?: TaskProject[];
+  memberNames?: MemberNames;
 }) {
   const [tasks, setTasks] = useState<MemberTask[]>(initialTasks);
   const [newTitle, setNewTitle] = useState("");
@@ -53,6 +53,9 @@ export default function TasksCard({
   const [editTitle, setEditTitle] = useState("");
   // Which tick is awaiting confirmation. null = no dialog open.
   const [confirming, setConfirming] = useState<{ id: string; completed: boolean } | null>(null);
+  // Who a submission is addressed to (096). Null = the owner, as before.
+  const [reviewerId, setReviewerId] = useState<string | null>(null);
+  const reviewers = useReviewers(true);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // A submitted task is neither pending nor done — it is with the owner. Without
@@ -81,11 +84,15 @@ export default function TasksCard({
     inputRef.current?.focus();
   }
 
-  async function toggle(id: string, completed: boolean) {
+  // `reviewer` is sent only when the tick submits for review — a reopen or a
+  // plain close must not stamp one onto the row.
+  async function toggle(id: string, completed: boolean, reviewer?: string | null) {
     const res = await fetch(`/api/member-tasks/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ completed }),
+      body: JSON.stringify(
+        reviewer === undefined ? { completed } : { completed, review_requested_to: reviewer }
+      ),
     });
     if (res.ok) {
       const updated = await res.json();
@@ -108,18 +115,6 @@ export default function TasksCard({
       setTasks((prev) => prev.map((t) => (t.id === id ? updated : t)));
     }
     setEditingId(null);
-  }
-
-  async function setDrawingRole(id: string, role: DrawingRole | "") {
-    const res = await fetch(`/api/member-tasks/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ drawing_role: role === "" ? null : role }),
-    });
-    if (res.ok) {
-      const updated = await res.json();
-      setTasks((prev) => prev.map((t) => (t.id === id ? updated : t)));
-    }
   }
 
   async function deleteTask(id: string) {
@@ -207,21 +202,32 @@ export default function TasksCard({
                   style={{ flex: 1, padding: "2px 6px", border: "1px solid var(--color-line)", borderRadius: 6, fontSize: 12, outline: "none" }}
                 />
               ) : (
-                <span style={{ flex: 1, fontSize: 12, color: "var(--color-ink)" }}>{t.title}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ fontSize: 12, color: "var(--color-ink)" }}>{t.title}</span>
+                  {(() => {
+                    // Who handed this over, and when it is wanted. A task due
+                    // TODAY is not late — see dueState.
+                    const assigner = t.assigned_by ? memberNames[t.assigned_by] : null;
+                    const due = dueState(t.due_date, Date.now());
+                    if (!assigner && due === "none") return null;
+                    return (
+                      <div style={{ fontSize: 10, color: "var(--color-tan)", marginTop: 2 }}>
+                        {assigner ? `From ${assigner}` : ""}
+                        {assigner && due !== "none" ? " · " : ""}
+                        {due !== "none" && (
+                          <span style={{
+                            color: due === "overdue"
+                              ? "var(--color-rust)"
+                              : due === "today" ? "var(--color-amber)" : undefined,
+                          }}>
+                            {due === "overdue" ? "Overdue" : due === "today" ? "Due today" : `Due ${t.due_date}`}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </div>
               )}
-              <select
-                value={t.drawing_role ?? ""}
-                onChange={(e) => setDrawingRole(t.id, e.target.value as DrawingRole | "")}
-                title="Which part of the drawing"
-                style={{
-                  padding: "2px 4px", fontSize: 10, color: t.drawing_role ? "var(--color-ink)" : "var(--color-tan)",
-                  background: "transparent", border: "1px solid var(--color-line)", borderRadius: 6,
-                  outline: "none", maxWidth: 96, cursor: "pointer",
-                }}
-              >
-                <option value="">Part…</option>
-                {DRAWING_ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-              </select>
               <button
                 onClick={() => { setEditingId(t.id); setEditTitle(t.title); }}
                 style={{ padding: 4, border: "none", background: "transparent", cursor: "pointer", color: "var(--color-tan)", display: "flex" }}
@@ -278,19 +284,36 @@ export default function TasksCard({
         <div style={{ fontSize: 12, color: "var(--color-tan)", padding: "8px 0" }}>No tasks yet. Add one above.</div>
       )}
 
-      {confirming && confirmTask && (
-        <ConfirmDialog
-          {...taskConfirmCopy({
-            completed: confirming.completed,
-            goesToReview: confirming.completed && goesToReview(confirmTask),
-          })}
-          onConfirm={() => {
-            toggle(confirming.id, confirming.completed);
-            setConfirming(null);
-          }}
-          onCancel={() => setConfirming(null)}
-        />
-      )}
+      {confirming && confirmTask && (() => {
+        const submitsForReview = confirming.completed && goesToReview(confirmTask);
+        return (
+          <ConfirmDialog
+            {...taskConfirmCopy({
+              completed: confirming.completed,
+              goesToReview: submitsForReview,
+              reviewerName: reviewers.find((r) => r.id === reviewerId)?.full_name ?? null,
+            })}
+            onConfirm={() => {
+              toggle(
+                confirming.id,
+                confirming.completed,
+                submitsForReview ? reviewerId : undefined
+              );
+              setConfirming(null);
+              setReviewerId(null);
+            }}
+            onCancel={() => setConfirming(null)}
+          >
+            {submitsForReview && (
+              <ReviewerPicker
+                reviewers={reviewers}
+                value={reviewerId}
+                onChange={setReviewerId}
+              />
+            )}
+          </ConfirmDialog>
+        );
+      })()}
     </div>
   );
 }

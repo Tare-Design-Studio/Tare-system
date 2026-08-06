@@ -11,11 +11,16 @@ const UpdateSchema = z.object({
 
 type Ctx = { params: Promise<{ id: string }> };
 
-// A completed task shown in the project stream. `created_at` carries the task's
-// completed_at so both entry kinds sort on one field.
+// A task shown in the project stream. `created_at` carries whichever timestamp
+// the entry sorts on: completed_at once it is done, else the task's own
+// created_at, so both entry kinds sort on one field.
+//
+// `task_state` is what the feed renders: work still in progress shows as
+// pending and is replaced by the completed entry when the task closes.
 type TaskEntry = {
   id: string;
   entry_kind: "task";
+  task_state: "pending" | "completed";
   title: string;
   tag: string;
   review_status: string | null;
@@ -98,33 +103,43 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     if (!callerTenant) return NextResponse.json({ error: "Profile not found" }, { status: 400 });
 
     const taskClient = createServiceClient();
+    // Both halves of a task's life appear here: work in progress shows as a
+    // pending entry, and the same task's completed entry replaces it once it
+    // closes (a task has one row, so it yields exactly one entry either way).
     let taskQuery = taskClient
       .from("member_tasks")
-      .select("id, title, tag, completed_at, review_status, users:user_id (id, full_name, role)")
+      .select("id, title, tag, status, completed, completed_at, created_at, review_status, users:user_id (id, full_name, role)")
       .eq("project_id", project_id)
       .eq("tenant_id", callerTenant)
-      .eq("status", "completed")
-      .not("completed_at", "is", null)
-      .order("completed_at", { ascending: false })
+      .order("created_at", { ascending: false })
       .limit(limit);
 
-    if (from) taskQuery = taskQuery.gte("completed_at", from);
-    if (to) taskQuery = taskQuery.lte("completed_at", to);
+    // Range filters apply to whichever timestamp the entry sorts on, so a
+    // pending task is filtered by when it was raised rather than a completed_at
+    // it does not have yet.
+    if (from) taskQuery = taskQuery.or(`completed_at.gte.${from},and(completed_at.is.null,created_at.gte.${from})`);
+    if (to) taskQuery = taskQuery.or(`completed_at.lte.${to},and(completed_at.is.null,created_at.lte.${to})`);
 
     // RLS decides visibility: a member sees their own rows, and holders of
     // daily_tasks:view_all see the whole tenant. A failure here must not take
     // the whole feed down — the updates half is the primary content.
     const { data: taskRows } = await taskQuery;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    tasks = ((taskRows ?? []) as any[]).map((t) => ({
-      id: t.id,
-      entry_kind: "task" as const,
-      title: t.title,
-      tag: t.tag,
-      review_status: t.review_status,
-      created_at: t.completed_at,
-      users: t.users,
-    }));
+    tasks = ((taskRows ?? []) as any[]).map((t) => {
+      // `completed` is the settled flag; a project-linked task sitting in
+      // pending_review is still work in progress, not a completed entry.
+      const done = t.status === "completed" || (t.completed && t.status !== "pending_review");
+      return {
+        id: t.id,
+        entry_kind: "task" as const,
+        task_state: (done ? "completed" : "pending") as "pending" | "completed",
+        title: t.title,
+        tag: t.tag,
+        review_status: t.review_status,
+        created_at: (done ? t.completed_at : null) ?? t.created_at,
+        users: t.users,
+      };
+    });
   }
 
   // Sign storage paths so raw keys never reach the browser.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 
 type AttendanceLog = {
   id: string;
@@ -39,7 +39,15 @@ const C: React.CSSProperties = {
 
 type Phase = "idle" | "confirm_in" | "confirm_out" | "loading";
 
-export default function AttendanceCard({ todayAttendance }: { todayAttendance: AttendanceLog | null }) {
+export default function AttendanceCard({
+  todayAttendance,
+  layout = "stacked",
+}: {
+  todayAttendance: AttendanceLog | null;
+  // "wide" lays the title, stats and action out on a single row — used when the
+  // card spans the full grid instead of sitting in a narrow column.
+  layout?: "stacked" | "wide";
+}) {
   const [log, setLog] = useState<AttendanceLog | null>(todayAttendance);
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -47,7 +55,46 @@ export default function AttendanceCard({ todayAttendance }: { todayAttendance: A
 
   const hasCheckedInToday = !!log?.check_in_at;
   const isOpen = !!log?.last_check_in_at; // currently in an active cycle
-  const workedMinutes = log?.accumulated_minutes ?? log?.total_minutes ?? null;
+
+  // `accumulated_minutes` (068) only advances on check-OUT, so while a cycle is
+  // open the stored figure is the total of the CLOSED cycles and the time being
+  // worked right now counts for nothing on screen. Tick the open cycle locally so
+  // the number grows as the day does.
+  //
+  // Display only — nothing is written. The server recomputes the real total on
+  // check-out, so a tab left open, a clock skew or a missed tick self-corrects
+  // rather than compounding.
+  //
+  // The wall clock is sampled inside the timer callback and held in state, never
+  // read during render: that would be impure, and it would differ between server
+  // and client on the first paint. Starting at 0 means the initial render shows
+  // the stored total alone — exactly what the server rendered, so hydration
+  // matches. A minute-resolution readout does not need a per-second timer.
+  const [openCycleMinutes, setOpenCycleMinutes] = useState(0);
+  const openedAt = log?.last_check_in_at ?? null;
+  useEffect(() => {
+    if (!isOpen || !openedAt) return;
+    const startedMs = new Date(openedAt).getTime();
+    // Floored at 0 so a client clock running behind the server can never
+    // subtract from the day.
+    const sample = () =>
+      setOpenCycleMinutes(Math.max(0, Math.floor((Date.now() - startedMs) / 60_000)));
+    // First sample just after mount so the open cycle appears without waiting a
+    // full interval, then the 30s cadence.
+    const first = setTimeout(sample, 50);
+    const t = setInterval(sample, 30_000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(t);
+      // Drop the open-cycle count on check-out. The server folds that time into
+      // accumulated_minutes, so leaving it here would add it on top a second time.
+      setOpenCycleMinutes(0);
+    };
+  }, [isOpen, openedAt]);
+
+  const storedMinutes = log?.accumulated_minutes ?? log?.total_minutes ?? null;
+  const workedMinutes =
+    storedMinutes == null && !isOpen ? null : (storedMinutes ?? 0) + openCycleMinutes;
 
   function startConfirm(action: "check_in" | "check_out") {
     if (resetTimer.current) clearTimeout(resetTimer.current);
@@ -93,6 +140,93 @@ export default function AttendanceCard({ todayAttendance }: { todayAttendance: A
     setPhase("idle");
   }
 
+  const wide = layout === "wide";
+
+  // Position on a 6am–midnight track, which is the span an office day falls in.
+  const pctOfDay = (iso: string | null): number | null => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    const mins = d.getHours() * 60 + d.getMinutes();
+    const start = 6 * 60;
+    const end = 24 * 60;
+    return Math.min(100, Math.max(0, ((mins - start) / (end - start)) * 100));
+  };
+
+  const inPct = pctOfDay(log?.check_in_at ?? null);
+  const outPct = isOpen ? 100 : pctOfDay(log?.check_out_at ?? null);
+
+  if (wide) {
+    return (
+      <div style={{ ...C, display: "grid", gridTemplateColumns: "minmax(150px, auto) 1fr minmax(190px, 220px)", gap: 28, alignItems: "center" }}>
+        {/* The day as one measured quantity, not four boxes of the same weight. */}
+        <div>
+          <div style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.6 }}>
+            {isOpen ? "Working today" : "Worked today"}
+          </div>
+          <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 38, lineHeight: 1, marginTop: 2 }}>
+            {fmtMinutes(workedMinutes) ?? "—"}
+          </div>
+          <div style={{ fontSize: 11, color: isOpen ? "var(--color-forest)" : "var(--color-tan)", marginTop: 4 }}>
+            {!hasCheckedInToday
+              ? "Not checked in yet"
+              : isOpen
+                ? `Counting since ${fmt(log?.last_check_in_at ?? null)}`
+                : `${log?.check_in_count ?? 1} check-in${(log?.check_in_count ?? 1) === 1 ? "" : "s"}`}
+          </div>
+        </div>
+
+        {/* Working span drawn against the shape of the day, so the total above
+            reads as a length rather than a number sitting in a box. */}
+        <div style={{ position: "relative", height: 46 }}>
+          <div style={{ position: "absolute", left: 0, right: 0, top: 20, height: 6, borderRadius: 99, background: "var(--color-line)" }} />
+          {inPct != null && outPct != null && (
+            <div style={{ position: "absolute", top: 20, left: `${inPct}%`, width: `${Math.max(0, outPct - inPct)}%`, height: 6, borderRadius: 99, background: "var(--color-forest)" }} />
+          )}
+          {inPct != null && (
+            <div style={{ position: "absolute", top: 0, left: `${inPct}%`, transform: "translateX(-50%)", fontSize: 11, fontWeight: 600, color: "var(--color-forest)", whiteSpace: "nowrap" }}>
+              {fmt(log?.check_in_at ?? null)} in
+            </div>
+          )}
+          {!isOpen && outPct != null && (
+            <div style={{ position: "absolute", top: 0, left: `${outPct}%`, transform: "translateX(-50%)", fontSize: 11, fontWeight: 600, color: "var(--color-forest)", whiteSpace: "nowrap" }}>
+              {fmt(log?.check_out_at ?? null)} out
+            </div>
+          )}
+          {[["6a", 0], ["12p", 33], ["6p", 66], ["12a", 100]].map(([label, pos]) => (
+            <div key={label} style={{ position: "absolute", top: 30, left: `${pos}%`, transform: "translateX(-50%)", fontSize: 10, color: "var(--color-tan)", fontFamily: "var(--font-mono)" }}>{label}</div>
+          ))}
+        </div>
+
+        <div>
+          {log?.within_geofence != null && (
+            <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11, marginBottom: 8, color: log.within_geofence ? "var(--color-forest)" : "var(--color-tan)" }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", flexShrink: 0, background: log.within_geofence ? "var(--color-forest)" : "var(--color-tan)" }} />
+              {log.within_geofence && log.office_name ? `At ${log.office_name}` : "Not at a registered office"}
+            </div>
+          )}
+          {error && <div style={{ fontSize: 11, color: "var(--color-rust)", marginBottom: 8 }}>{error}</div>}
+          {phase === "loading" ? (
+            <div style={{ fontSize: 12, color: "var(--color-tan)" }}>Logging…</div>
+          ) : !isOpen ? (
+            <button
+              onClick={() => (phase === "confirm_in" ? confirm("check_in") : startConfirm("check_in"))}
+              style={{ width: "100%", padding: "11px", borderRadius: 12, background: phase === "confirm_in" ? "var(--color-forest)" : "rgba(30,28,24,.06)", color: phase === "confirm_in" ? "#FFF" : "var(--color-ink)", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600 }}
+            >
+              {phase === "confirm_in" ? "Confirm" : hasCheckedInToday ? "Check In Again" : "Check In"}
+            </button>
+          ) : (
+            <button
+              onClick={() => (phase === "confirm_out" ? confirm("check_out") : startConfirm("check_out"))}
+              style={{ width: "100%", padding: "11px", borderRadius: 12, background: phase === "confirm_out" ? "var(--color-rust)" : "rgba(30,28,24,.06)", color: phase === "confirm_out" ? "#FFF" : "var(--color-ink)", border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600 }}
+            >
+              {phase === "confirm_out" ? "Confirm" : "Check Out"}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ ...C }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
@@ -101,34 +235,40 @@ export default function AttendanceCard({ todayAttendance }: { todayAttendance: A
         </div>
       </div>
 
-      {/* Status row */}
+      {/* Status row — label and value each stay on one line; tile shrinks the
+          value size rather than wrapping when space is tight (phones). */}
       <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
-        <div style={{ flex: 1, padding: "10px 12px", borderRadius: 12, background: "var(--color-bg)" }}>
-          <div style={{ fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{isOpen ? "Checked In" : "First In"}</div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: hasCheckedInToday ? "var(--color-forest)" : "var(--color-line)" }}>
+        <div style={{ flex: 1, minWidth: 0, padding: "10px 12px", borderRadius: 12, background: "var(--color-bg)" }}>
+          <div style={{ fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4, whiteSpace: "nowrap" }}>{isOpen ? "Checked In" : "First In"}</div>
+          <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", color: hasCheckedInToday ? "var(--color-forest)" : "var(--color-line)" }}>
             {fmt((isOpen ? log?.last_check_in_at : log?.check_in_at) ?? null)}
           </div>
         </div>
-        <div style={{ flex: 1, padding: "10px 12px", borderRadius: 12, background: "var(--color-bg)" }}>
-          <div style={{ fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Last Out</div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: log?.check_out_at && !isOpen ? "var(--color-forest)" : "var(--color-line)" }}>
+        <div style={{ flex: 1, minWidth: 0, padding: "10px 12px", borderRadius: 12, background: "var(--color-bg)" }}>
+          <div style={{ fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4, whiteSpace: "nowrap" }}>Last Out</div>
+          <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", color: log?.check_out_at && !isOpen ? "var(--color-forest)" : "var(--color-line)" }}>
             {fmt(isOpen ? null : log?.check_out_at ?? null)}
           </div>
         </div>
         {workedMinutes != null && (
-          <div style={{ flex: 1, padding: "10px 12px", borderRadius: 12, background: "var(--color-bg)" }}>
-            <div style={{ fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Worked</div>
-            <div style={{ fontSize: 14, fontWeight: 600 }}>{fmtMinutes(workedMinutes)}</div>
+          <div style={{ flex: 1, minWidth: 0, padding: "10px 12px", borderRadius: 12, background: "var(--color-bg)" }}>
+            <div style={{ fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4, whiteSpace: "nowrap" }}>
+              {isOpen ? "Working" : "Worked"}
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", color: isOpen ? "var(--color-forest)" : undefined }}>
+              {fmtMinutes(workedMinutes)}
+            </div>
           </div>
         )}
         {hasCheckedInToday && (
-          <div style={{ flex: 1, padding: "10px 12px", borderRadius: 12, background: "var(--color-bg)" }}>
-            <div style={{ fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Check-ins</div>
-            <div style={{ fontSize: 14, fontWeight: 600 }}>{log?.check_in_count ?? 1}</div>
+          <div style={{ flex: 1, minWidth: 0, padding: "10px 12px", borderRadius: 12, background: "var(--color-bg)" }}>
+            <div style={{ fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4, whiteSpace: "nowrap" }}>Check-ins</div>
+            <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>{log?.check_in_count ?? 1}</div>
           </div>
         )}
       </div>
 
+      <div>
       {/* Which office the last check-in matched. Shown only after an action, so
           the member can see the app put them at the right office — and notice
           straight away if it did not. Out-of-geofence is stated plainly rather
@@ -189,6 +329,7 @@ export default function AttendanceCard({ todayAttendance }: { todayAttendance: A
           </button>
         )
       )}
+      </div>
     </div>
   );
 }

@@ -7,7 +7,6 @@ import { Project, Engineer, MaterialPlan, Expense, CheckIn, SiteVisit, CATEGORY_
 import { UpdateComposer } from "@/components/updates/UpdateComposer";
 import { UpdatesFeed, type FeedUpdate } from "@/components/updates/UpdatesFeed";
 import SiteVisitsCard from "./SiteVisitsCard";
-import { signOut } from "@/app/(auth)/actions";
 
 // ── Icons ──────────────────────────────────────────────────────────────
 type IconName = "check" | "pin" | "plus" | "dashboard" | "list" | "trending" | "credit" | "feed" | "info" | "bridge";
@@ -29,41 +28,6 @@ const Icon = ({ name, size = 24, stroke = 1.5, color = "currentColor" }: { name:
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round" strokeLinejoin="round">
       <path d={p}/>
     </svg>
-  );
-};
-
-// ── Tab Bar ────────────────────────────────────────────────────────────
-const TabBar = ({ active, onTab }: { active: string; onTab: (id: string) => void }) => {
-  const tabs = [
-    { id: "today",     label: "Today",     icon: "dashboard" as IconName },
-    { id: "details",   label: "Details",   icon: "info"      as IconName },
-    { id: "updates",   label: "Updates",   icon: "feed"      as IconName },
-    { id: "materials", label: "Materials", icon: "list"      as IconName },
-    { id: "progress",  label: "Progress",  icon: "trending"  as IconName },
-    { id: "expenses",  label: "Expenses",  icon: "credit"    as IconName },
-    { id: "bridge",    label: "Bridge",    icon: "bridge"    as IconName },
-  ];
-  return (
-    <div style={{
-      position: "fixed", bottom: 0, left: 0, right: 0, height: 96, zIndex: 40,
-      paddingBottom: 28,
-      background: "rgba(251,248,242,.85)",
-      backdropFilter: "blur(20px) saturate(180%)",
-      WebkitBackdropFilter: "blur(20px) saturate(180%)",
-      borderTop: "1px solid rgba(30,28,24,.06)",
-      display: "flex",
-    }}>
-      {tabs.map(t => (
-        <button key={t.id} onClick={() => onTab(t.id)} style={{
-          flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4,
-          color: active === t.id ? "var(--color-forest)" : "var(--color-tan)",
-          border: "none", background: "none", padding: 0, cursor: "pointer"
-        }}>
-          <Icon name={t.icon} size={22} stroke={active === t.id ? 2 : 1.7} />
-          <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: .1 }}>{t.label}</span>
-        </button>
-      ))}
-    </div>
   );
 };
 
@@ -477,26 +441,22 @@ type Props = {
   engineer: Engineer;
   project: Project | undefined;
   projects: Project[];
-  projectId: string;
   tab: string;
   plans: MaterialPlan[];
   expenses: Expense[];
   checkIns: CheckIn[];
   updates: FeedUpdate[];
-  loading: boolean;
   nowMs: number;
   siteVisits: SiteVisit[];
-  switchProject: (pid: string) => void;
-  setTab: (tab: string) => void;
   refresh: () => void;
 };
 
 export function MobileSiteEngineer({
-  engineer, project, projects, projectId, tab, plans, expenses, checkIns, updates, nowMs, siteVisits, switchProject, setTab, refresh
+  engineer, project, projects, tab, plans, expenses, checkIns, updates, nowMs, siteVisits, refresh
 }: Props) {
   if (projects.length === 0) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, textAlign: "center", color: "var(--color-tan)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 20, textAlign: "center", color: "var(--color-tan)" }}>
         <div>
           <div className="font-serif" style={{ fontSize: 28, marginBottom: 12 }}>No active sites</div>
           <div style={{ fontSize: 14 }}>You have no active projects assigned.</div>
@@ -505,49 +465,15 @@ export function MobileSiteEngineer({
     );
   }
 
+  if (!project) return null;
+
   return (
-    <div style={{
-      minHeight: "100vh",
-      paddingBottom: 100,
-      background: "radial-gradient(900px 500px at 80% -5%, #D8E2DC 0%, transparent 60%), radial-gradient(600px 400px at -10% 100%, #E8DFCC 0%, transparent 55%), var(--bg)"
-    }}>
-      {/* Top project selector for mobile */}
-      <div style={{ position: "sticky", top: 0, zIndex: 30, background: "rgba(243,239,231,.92)", backdropFilter: "blur(16px)", borderBottom: "1px solid var(--color-line)", padding: "12px 20px", display: "flex", justifyContent: "center", alignItems: "center", gap: 10 }}>
-        <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
-          <select value={projectId} onChange={e => switchProject(e.target.value)}
-            style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--color-line)", background: "var(--color-paper-light)", fontSize: 14, fontWeight: 600, outline: "none", fontFamily: "inherit", color: "var(--color-ink)", width: "100%", textAlign: "center", appearance: "none" }}>
-            {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          <div style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
-            <Icon name="list" size={16} color="var(--color-tan)" />
-          </div>
-        </div>
-        <form action={signOut}>
-          <button
-            type="submit"
-            title="Sign out"
-            style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "var(--color-paper-light)", border: "1px solid var(--color-line)", borderRadius: 10, padding: 9, cursor: "pointer", color: "var(--color-tan)" }}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
-          </button>
-        </form>
-      </div>
-
-      {project && (
-        <div style={{ animation: "fadeIn 0.3s ease-out" }}>
-          {tab === "today"     && <SiteCheckInScreen project={project} checkIns={checkIns} onCheckin={refresh} nowMs={nowMs} siteVisits={siteVisits} />}
-          {tab === "updates"   && <UpdatesScreen     project={project} updates={updates}   onPosted={refresh} engineerId={engineer.id} />}
-          {tab === "materials" && <MaterialsScreen   project={project} plans={plans}       onLogged={refresh} />}
-          {tab === "progress"  && <ProgressScreen    project={project} />}
-          {tab === "expenses"  && <ExpensesScreen    project={project} expenses={expenses} onAdded={refresh} nowMs={nowMs} />}
-        </div>
-      )}
-
-      <TabBar active={tab} onTab={setTab} />
+    <div style={{ animation: "fadeIn 0.3s ease-out" }}>
+      {tab === "today"     && <SiteCheckInScreen project={project} checkIns={checkIns} onCheckin={refresh} nowMs={nowMs} siteVisits={siteVisits} />}
+      {tab === "updates"   && <UpdatesScreen     project={project} updates={updates}   onPosted={refresh} engineerId={engineer.id} />}
+      {tab === "materials" && <MaterialsScreen   project={project} plans={plans}       onLogged={refresh} />}
+      {tab === "progress"  && <ProgressScreen    project={project} />}
+      {tab === "expenses"  && <ExpensesScreen    project={project} expenses={expenses} onAdded={refresh} nowMs={nowMs} />}
     </div>
   );
 }

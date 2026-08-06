@@ -1,13 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Chip, Avatar } from "@/components/atoms";
+import { Chip } from "@/components/atoms";
 import { useClientNow } from "@/lib/useClientNow";
 import { Project, Engineer, MaterialPlan, Expense, CheckIn, SiteVisit, CATEGORY_LABELS, CATEGORY_TONE, formatDate, formatTime, formatMinutes } from "./shared";
 import { UpdateComposer } from "@/components/updates/UpdateComposer";
 import { UpdatesFeed, type FeedUpdate } from "@/components/updates/UpdatesFeed";
 import SiteVisitsCard from "./SiteVisitsCard";
-import { signOut } from "@/app/(auth)/actions";
 
 function TodayTab({ project, checkIns, onCheckin, nowMs, siteVisits }: { project: Project; checkIns: CheckIn[]; onCheckin: () => void; nowMs: number; siteVisits: SiteVisit[]; }) {
   const [checking, setChecking] = useState(false);
@@ -492,21 +491,10 @@ function UpdatesTab({ project, updates, onPosted, engineerId }: { project: Proje
   );
 }
 
-const TABS = [
-  { id: "today",     label: "Today"     },
-  { id: "details",   label: "Details"   },
-  { id: "updates",   label: "Updates"   },
-  { id: "materials", label: "Materials" },
-  { id: "progress",  label: "Progress"  },
-  { id: "expenses",  label: "Expenses"  },
-  { id: "bridge",    label: "Bridge"    },
-];
-
 type Props = {
   engineer: Engineer;
   project: Project | undefined;
   projects: Project[];
-  projectId: string;
   tab: string;
   plans: MaterialPlan[];
   expenses: Expense[];
@@ -515,80 +503,25 @@ type Props = {
   loading: boolean;
   nowMs: number;
   siteVisits: SiteVisit[];
-  switchProject: (pid: string) => void;
-  setTab: (tab: string) => void;
   refresh: () => void;
 };
 
 export function DesktopSiteEngineer({
-  engineer, project, projects, projectId, tab, plans, expenses, checkIns, updates, loading, nowMs, siteVisits, switchProject, setTab, refresh
+  engineer, project, projects, tab, plans, expenses, checkIns, updates, loading, nowMs, siteVisits, refresh
 }: Props) {
-  const avatarInitials = engineer.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase();
-
   if (projects.length === 0) {
     return (
-      <div style={{
-        minHeight: "100vh",
-        background: "radial-gradient(900px 500px at 80% -5%, #D8E2DC 0%, transparent 60%), radial-gradient(600px 400px at -10% 100%, #E8DFCC 0%, transparent 55%), var(--bg)"
-      }}>
-        <div style={{ maxWidth: 640, margin: "80px auto", textAlign: "center", color: "var(--color-tan)" }}>
-          <div className="font-serif" style={{ fontSize: 32, marginBottom: 12 }}>No active sites</div>
-          <div style={{ fontSize: 14 }}>You have no active projects assigned to you.</div>
-        </div>
+      <div style={{ maxWidth: 640, margin: "80px auto", textAlign: "center", color: "var(--color-tan)" }}>
+        <div className="font-serif" style={{ fontSize: 32, marginBottom: 12 }}>No active sites</div>
+        <div style={{ fontSize: 14 }}>You have no active projects assigned to you.</div>
       </div>
     );
   }
 
   return (
-    <div style={{
-      minHeight: "100vh",
-      background: "radial-gradient(900px 500px at 80% -5%, #D8E2DC 0%, transparent 60%), radial-gradient(600px 400px at -10% 100%, #E8DFCC 0%, transparent 55%), var(--bg)"
-    }}>
-      <div style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(243,239,231,.92)", backdropFilter: "blur(16px)", borderBottom: "1px solid var(--color-line)", marginBottom: 0 }}>
-        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 28px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 0" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <Avatar initials={avatarInitials} tone="teal" size={32} />
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>{engineer.name}</div>
-                <div style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 1 }}>Site Engineer</div>
-              </div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 1 }}>Project</div>
-              <select value={projectId} onChange={e => switchProject(e.target.value)}
-                style={{ padding: "8px 14px", borderRadius: 10, border: "1px solid var(--color-line)", background: "var(--color-paper-light)", fontSize: 13, fontWeight: 500, outline: "none", fontFamily: "inherit", color: "var(--color-ink)" }}>
-                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <Chip label={project?.current_stage ? project.current_stage.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase()) : "Active"} tone="teal" dot />
-              <form action={signOut}>
-                <button
-                  type="submit"
-                  title="Sign out"
-                  style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "1px solid var(--color-line)", borderRadius: 10, padding: 8, cursor: "pointer", color: "var(--color-tan)" }}
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                    <polyline points="16 17 21 12 16 7" />
-                    <line x1="21" y1="12" x2="9" y2="12" />
-                  </svg>
-                </button>
-              </form>
-            </div>
-          </div>
-
-          <div style={{ display: "flex", gap: 4, paddingBottom: 1 }}>
-            {TABS.map(t => (
-              <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: "10px 18px", borderRadius: "10px 10px 0 0", fontSize: 13, fontWeight: 500, background: tab === t.id ? "var(--color-paper-light)" : "transparent", color: tab === t.id ? "var(--color-ink)" : "var(--color-tan)", borderBottom: tab === t.id ? `2px solid var(--color-forest)` : "2px solid transparent", transition: "all .15s" }}>
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
+    <>
       {project && (
-        <div style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 28px 64px" }}>
+        <div>
           <div style={{ marginBottom: 28 }}>
             <div style={{ fontSize: 12, color: "var(--color-tan)", letterSpacing: .6, textTransform: "uppercase", marginBottom: 6 }}>
               {project.site_location ?? "No location set"}
@@ -609,6 +542,6 @@ export function DesktopSiteEngineer({
           {tab === "expenses"  && <ExpensesTab  project={project} plans={plans} expenses={expenses} onAdded={refresh} nowMs={nowMs} />}
         </div>
       )}
-    </div>
+    </>
   );
 }

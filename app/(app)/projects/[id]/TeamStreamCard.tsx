@@ -21,9 +21,12 @@ type Update = {
   author_id: string;
   users: { id: string; full_name: string; role: string } | null;
   images?: { id: string; url: string | null; drive_sync_status?: string }[];
-  // "task" rows are completed member_tasks linked to this project (095). They
-  // are read-only here — the task itself lives on the tasks pages.
+  // "task" rows are member_tasks linked to this project (095). They are
+  // read-only here — the task itself lives on the tasks pages. A task in
+  // progress shows as pending and is replaced by its completed entry when it
+  // closes.
   entry_kind?: "update" | "task";
+  task_state?: "pending" | "completed";
   title?: string;
   tag?: string;
   review_status?: string | null;
@@ -204,8 +207,19 @@ export default function TeamStreamCard({ assignments, updates: initialUpdates, p
                         </span>
                       </div>
                       {u.entry_kind === "task" ? (
-                        <div style={{ fontSize: 12, lineHeight: 1.5, color: "var(--color-ink)", display: "flex", alignItems: "center", gap: 6 }}>
-                          <span>Completed “{u.title}”</span>
+                        <div style={{ fontSize: 12, lineHeight: 1.5, color: "var(--color-ink)", display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          <span
+                            style={{
+                              fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4,
+                              padding: "1px 7px", borderRadius: 999,
+                              background: u.task_state === "pending" ? "rgba(226,166,75,0.16)" : "rgba(45,106,79,0.12)",
+                              color: u.task_state === "pending" ? "#A0720E" : "var(--color-forest)",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {u.task_state === "pending" ? "In progress" : "Task completed"}
+                          </span>
+                          <span>“{u.title}”</span>
                           {u.review_status && (
                             <span style={{ fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4, color: VERDICT_COLOR[u.review_status] ?? "var(--color-tan)" }}>
                               {u.review_status}

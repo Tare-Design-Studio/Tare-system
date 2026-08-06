@@ -4,8 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { serverNowMs } from "@/lib/serverNow";
 import { Avatar } from "@/components/atoms";
-import MobileHome, { type MobileProject } from "./MobileHome";
+import MobileHome from "./MobileHome";
 import TeamMemberHome from "./TeamMemberHome";
+import TeamMemberMobileHome, { type MemberProject } from "./TeamMemberMobileHome";
 import { BroadcastsPanel } from "./team/BroadcastsPanel";
 
 // ── Helpers ────────────────────────────────────────────────────────────
@@ -445,7 +446,7 @@ export default async function DashboardPage() {
     const today = new Date().toISOString().slice(0, 10);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = supabase as any;
-    const [assignedProjects, tasks, broadcastRows, memberTasksRes, attendanceRes, remindersRes, allProjectsRes] = await Promise.all([
+    const [assignedProjects, tasks, broadcastRows, memberTasksRes, attendanceRes, remindersRes, allProjectsRes, namesRes] = await Promise.all([
       supabase
         .from("project_assignments")
         .select("project_id, projects(id, name, status, project_type, project_checkpoints(completed_at))")
@@ -467,7 +468,7 @@ export default async function DashboardPage() {
         .limit(10),
       db
         .from("member_tasks")
-        .select("id, title, completed, completed_at, created_at, project_id, status, reviewed_by")
+        .select("id, title, completed, completed_at, created_at, project_id, status, reviewed_by, assigned_by, due_date")
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
         .limit(50),
@@ -493,15 +494,23 @@ export default async function DashboardPage() {
         .eq("status", "active")
         .order("name", { ascending: true })
         .limit(200),
+      // Names for "From <assigner>" on the task card. `users` RLS is
+      // tenant-scoped, and this reads id + name only.
+      db
+        .from("users")
+        .select("id, full_name")
+        .is("deleted_at", null),
     ]);
 
     const pickerProjects = (allProjectsRes.data ?? []) as { id: string; name: string }[];
+    const memberNames = Object.fromEntries(
+      ((namesRes.data ?? []) as { id: string; full_name: string }[]).map((u) => [u.id, u.full_name])
+    );
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const projects = (assignedProjects.data ?? [])
       .map((r) => r.projects)
       .filter(Boolean)
-      .flat() as any[];
+      .flat() as unknown as MemberProject[];
 
     type OBRow = { body: string; created_at: string; users: { full_name: string } | { full_name: string }[] | null };
     const broadcasts = (broadcastRows.data ?? []).map((r) => {
@@ -520,20 +529,24 @@ export default async function DashboardPage() {
       };
     });
 
-    const { dates, todayIdx } = computeWeek();
+    const memberTasks = (memberTasksRes.data ?? []) as {
+      id: string; title: string; completed: boolean; completed_at: string | null; created_at: string;
+      assigned_by?: string | null; due_date?: string | null;
+    }[];
+    const memberReminders = (remindersRes.data ?? []) as { id: string; title: string; reminder_at: string; type: string; is_done: boolean }[];
+
     return (
       <>
         <div className="mobile-only">
-          <MobileHome
+          <TeamMemberMobileHome
             firstName={firstName}
-            dates={dates}
-            todayIdx={todayIdx}
-            calendarEvents={[]}
             projects={projects}
-            financeData={null}
-            teamMembers={[]}
-            totalMembers={0}
-            updates={[]}
+            broadcasts={broadcasts}
+            memberTasks={memberTasks}
+            pickerProjects={pickerProjects}
+            memberNames={memberNames}
+            todayAttendance={attendanceRes.data ?? null}
+            reminders={memberReminders}
           />
         </div>
         <div className="desktop-only">
@@ -542,10 +555,11 @@ export default async function DashboardPage() {
             projects={projects}
             tasks={tasks.data ?? []}
             broadcasts={broadcasts}
-            memberTasks={(memberTasksRes.data ?? []) as { id: string; title: string; completed: boolean; completed_at: string | null; created_at: string }[]}
+            memberTasks={memberTasks}
             pickerProjects={pickerProjects}
+            memberNames={memberNames}
             todayAttendance={attendanceRes.data ?? null}
-            reminders={(remindersRes.data ?? []) as { id: string; title: string; reminder_at: string; type: string; is_done: boolean }[]}
+            reminders={memberReminders}
           />
         </div>
       </>
