@@ -40,6 +40,12 @@ async function run() {
   });
   await client.connect();
 
+  // 002 raises a WARNING naming any table that fails coverage; without this the
+  // notice is discarded and the failure says only "1 FAILED of 165".
+  client.on("notice", (n) => {
+    if (n.message?.startsWith("RLS COVERAGE FAILURE")) console.log(`  ⚠️  ${n.message}`);
+  });
+
   let allPass = true;
   let ran = 0;
 
@@ -67,7 +73,16 @@ async function run() {
       const failed = failSummary ? Number(failSummary[1]) : notOk;
       if (failed > 0) {
         allPass = false;
-        console.log(tap);
+        // Print only the failing assertions and their diagnostics, so the log
+        // names the offending table instead of scrolling 165 passing lines.
+        const lines = tap.split("\n");
+        const detail = lines.filter(
+          (l, i) =>
+            /^not ok /.test(l) ||
+            /^#/.test(l) ||
+            (i > 0 && /^not ok /.test(lines[i - 1]))
+        );
+        console.log(detail.length ? detail.join("\n") : tap);
         console.log(`  ❌ ${file}: ${failed} FAILED of ${planned ?? "?"}`);
       } else {
         ran += planned ?? 0;

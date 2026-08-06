@@ -76,6 +76,14 @@ BEGIN
     -- SECURITY DEFINER functions, e.g. the public rate-limit buckets.
     PERFORM ok(scoped_pols > 0 OR total_pols = 0,
                format('%s: scoped policy OR deny-all (no policies)', r.tablename));
+
+    -- Name the offending table in the log. pgtap's own "not ok" line carries
+    -- this too, but it does not survive the multi-statement result collection
+    -- in run-pgtap.ts, and a coverage failure is useless without the table.
+    IF NOT rls_on OR NOT forced OR NOT (scoped_pols > 0 OR total_pols = 0) THEN
+      RAISE WARNING 'RLS COVERAGE FAILURE: % (rls_on=%, forced=%, scoped_pols=%, total_pols=%)',
+        r.tablename, rls_on, forced, scoped_pols, total_pols;
+    END IF;
   END LOOP;
 END $$;
 
