@@ -23,9 +23,25 @@ DO $$ BEGIN CREATE ROLE service_role  NOLOGIN BYPASSRLS; EXCEPTION WHEN duplicat
 
 -- Minimal auth.users: public.users FKs to it (004). Only the columns the chain
 -- refers to. Note the app reads email from auth.users, not public.users.
+-- 069_demo_seed inserts real Supabase auth columns (instance_id, aud, role,
+-- encrypted_password, ...) to create working demo logins — carry those too,
+-- with the same defaults/types Supabase's auth.users uses.
 CREATE TABLE IF NOT EXISTS auth.users (
-  id    uuid PRIMARY KEY,
-  email text
+  instance_id             uuid,
+  id                      uuid PRIMARY KEY,
+  aud                     varchar(255),
+  role                    varchar(255),
+  email                   text,
+  encrypted_password      varchar(255),
+  email_confirmed_at      timestamptz,
+  raw_app_meta_data       jsonb,
+  raw_user_meta_data      jsonb,
+  created_at              timestamptz,
+  updated_at              timestamptz,
+  confirmation_token      varchar(255),
+  recovery_token          varchar(255),
+  email_change            varchar(255),
+  email_change_token_new  varchar(255)
 );
 
 -- Mirrors Supabase's implementation: the subject claim of the request JWT, NULL
