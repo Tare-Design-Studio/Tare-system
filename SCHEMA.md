@@ -142,6 +142,8 @@ attendance column-grant fix, multi-office attendance)
   presence board labels people by office). INSERT/UPDATE/DELETE require
   `office_attendance:configure` — moving an office moves the geofence, which decides who counts
   as present. Held by 4 users as of 2026-08-02.
+  093 enabled RLS but omitted `FORCE`, so owner-role queries bypassed both policies until
+  **097** forced it. (Updated: 2026-08-06)
 - `attendance_logs.check_in_office_id` / `check_out_office_id` → `offices(id) ON DELETE SET NULL`.
   Nullable on purpose: **no match is not an error**, it means remote or on site, and the check-in
   is still recorded.
@@ -961,6 +963,16 @@ different mechanism from the owner exemption FORCE removes. Confirmed empiricall
 `service_role` still reads all rows (projects=148 before and after). The ~20 routes using
 `createServiceClient()` are therefore unchanged. Idempotent — re-running picks up tables added later.
 (Updated: 2026-08-01)
+
+### FORCE RLS re-applied (097_force_rls_offices.sql)
+081 is idempotent but only ever **ran once**, so a table created after it starts unforced. `offices`
+(093) did: RLS enabled with two correctly scoped policies, but no `FORCE`, so an owner-role query
+bypassed both. The pgtap RLS coverage guardrail caught it (`offices: rls_on=t, forced=f`) — this is
+the failure mode 002_rls_coverage exists for. 097 re-runs 081's catalog loop, forcing RLS on every
+table where `relrowsecurity` is true and `relforcerowsecurity` is false.
+
+**Any migration that creates a table must pair `ENABLE ROW LEVEL SECURITY` with `FORCE ROW LEVEL
+SECURITY`** — 081/097 are backstops, not the mechanism. (Updated: 2026-08-06)
 
 ### payment_schedule.is_paid forced derived (082_payment_is_paid_force_derived.sql)
 **Money bug.** `is_paid` was recomputed only by `trg_payment_records_recompute` on `payment_records`
