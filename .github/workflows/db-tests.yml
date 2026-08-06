@@ -109,6 +109,13 @@ jobs:
         #
         # `|| true` on the first pass is therefore intentional. The second pass
         # has no such guard: if anything from 014 onward fails, the job fails.
+        #
+        # MIGRATE_SKIP leaves 069_demo_seed unapplied: it is demonstration data
+        # keyed to the production tenant and owner UUIDs, which this database
+        # does not have. It seeds no schema, so skipping it costs the RLS
+        # guardrails nothing. Production sets no MIGRATE_SKIP and still runs it.
+        env:
+          MIGRATE_SKIP: 069_demo_seed.sql
         run: |
           npx tsx scripts/migrate.ts || true
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/ci-seed-tenant.sql
@@ -119,12 +126,19 @@ jobs:
         # for an unrelated reason, the `|| true` would have swallowed it and the
         # second pass would resume from that point — so compare the count of
         # applied migrations against the files on disk.
+        #
+        # Expected count excludes whatever MIGRATE_SKIP left out, so a skipped
+        # demo seed does not read as a truncated chain.
+        env:
+          MIGRATE_SKIP: 069_demo_seed.sql
         run: |
           on_disk=$(ls supabase/migrations/*.sql | wc -l | tr -d ' ')
+          skipped=$(echo "$MIGRATE_SKIP" | tr ',' '\n' | grep -c '[^[:space:]]' || true)
+          expected=$((on_disk - skipped))
           applied=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM _migrations;")
-          echo "migrations on disk: $on_disk / applied: $applied"
-          if [ "$on_disk" != "$applied" ]; then
-            echo "Migration chain incomplete — $applied of $on_disk applied."
+          echo "migrations on disk: $on_disk / skipped: $skipped / expected: $expected / applied: $applied"
+          if [ "$expected" != "$applied" ]; then
+            echo "Migration chain incomplete — $applied of $expected applied."
             psql "$DATABASE_URL" -c "SELECT filename FROM _migrations ORDER BY filename;"
             exit 1
           fi

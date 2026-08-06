@@ -22,6 +22,13 @@ const MIGRATIONS_DIR = path.join(__dirname, "..", "supabase", "migrations");
 const SEED_DIR       = path.join(__dirname, "..", "supabase", "seed");
 const runSeed        = process.argv.includes("--seed");
 
+// Comma-separated filenames to leave unapplied. Only CI sets this: the demo
+// seed (069) hardcodes the production tenant and owner UUIDs, which the CI
+// database does not have. Unset in production, where every migration runs.
+const SKIP = new Set(
+  (process.env.MIGRATE_SKIP ?? "").split(",").map(s => s.trim()).filter(Boolean)
+);
+
 async function run() {
   const client = new Client({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
   await client.connect();
@@ -47,6 +54,10 @@ async function run() {
   for (const file of files) {
     if (applied.has(file)) {
       console.log(`  ⏭  ${file} (already applied)`);
+      continue;
+    }
+    if (SKIP.has(file)) {
+      console.log(`  ⏭  ${file} (skipped via MIGRATE_SKIP)`);
       continue;
     }
     const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), "utf8");
