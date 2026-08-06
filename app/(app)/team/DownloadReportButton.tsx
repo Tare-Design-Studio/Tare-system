@@ -56,10 +56,11 @@ export function DownloadReportButton({ months }: { months: ReportMonth[] }) {
         type="button"
         className={styles.button}
         aria-label="Download monthly report"
+        title="Download Report"
         onClick={() => setOpen((v) => !v)}
       >
         <Icon name="download" size={14} />
-        Download Report
+        <span className={styles.buttonLabel}>Download Report</span>
       </button>
       {open && (
         <div className={styles.headerInvitePanel} style={{ width: 300 }}>

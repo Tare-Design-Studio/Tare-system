@@ -22,11 +22,12 @@ type CalUpdate = {
   id: string;
   update_type: string;
   body: string | null;
-  author_role_on_project: string;
+  /** Absent for project-linked task entries — those have no author role. */
+  author_role_on_project?: string;
   created_at: string;
   project_id: string;
-  users: { id: string; full_name: string; role: string } | null;
-  projects: { id: string; name: string } | null;
+  users: { full_name: string } | null;
+  projects: { name: string } | null;
 };
 
 function eventHref(e: CalEvent): string | null {
@@ -92,6 +93,8 @@ const UPDATE_COLORS: Record<string, string> = {
   remark: "#F59E0B",
   material: "#EF4444",
   expense: "#EC4899",
+  task_pending: "#F59E0B",
+  task_completed: "#10B981",
 };
 
 const UPDATE_ICONS: Record<string, any> = {
@@ -102,7 +105,13 @@ const UPDATE_ICONS: Record<string, any> = {
   remark: "mail",
   material: "building",
   expense: "wallet",
+  task_pending: "clock",
+  task_completed: "check",
 };
+
+function updateTypeLabel(type: string): string {
+  return type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 const CornerArrow = () => (
   <button style={{
@@ -242,7 +251,7 @@ function DayUpdatesCard({ day, month, year, updates }: {
             No updates logged for this day.
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, maxHeight: 320, overflowY: "auto", paddingRight: 4 }}>
             {updates.map((update, i) => {
               const author = update.users;
               const project = update.projects;
@@ -275,7 +284,7 @@ function DayUpdatesCard({ day, month, year, updates }: {
                   }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 600, letterSpacing: -0.1, color: "var(--color-ink)" }}>
                       <Icon name={iconName as any} size={14} color={typeColor} />
-                      <span style={{ textTransform: "capitalize" }}>{update.update_type}</span>
+                      <span>{updateTypeLabel(update.update_type)}</span>
                       <span style={{ fontSize: 11, fontWeight: 400, color: "var(--color-tan)", marginLeft: "auto" }}>
                         {project?.name ?? "Project"}
                       </span>
@@ -288,7 +297,8 @@ function DayUpdatesCard({ day, month, year, updates }: {
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8 }}>
                       <Avatar name={author?.full_name ?? "Unknown"} size={18} />
                       <span style={{ fontSize: 10, color: "var(--color-tan)" }}>
-                        {author?.full_name ?? "Unknown"} · {update.author_role_on_project.replace(/_/g, " ")}
+                        {author?.full_name ?? "Unknown"}
+                        {update.author_role_on_project && ` · ${update.author_role_on_project.replace(/_/g, " ")}`}
                       </span>
                     </div>
                   </div>
@@ -298,9 +308,9 @@ function DayUpdatesCard({ day, month, year, updates }: {
           </div>
         )}
 
-        <button style={{ marginTop: 14, width: "100%", padding: "10px", borderRadius: 12, border: "1px dashed var(--color-line)", color: "var(--color-tan)", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "none", cursor: "pointer" }}>
+        <Link href="/updates" style={{ marginTop: 14, width: "100%", padding: "10px", borderRadius: 12, border: "1px dashed var(--color-line)", color: "var(--color-tan)", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "none", cursor: "pointer", textDecoration: "none", boxSizing: "border-box" }}>
           View all updates
-        </button>
+        </Link>
       </div>
     </Card>
   );
@@ -352,6 +362,11 @@ export default function CalendarClient({ initial, initialUpdates, initialYear, i
     const d = fmtDay(update.created_at);
     if (!updatesByDay[d]) updatesByDay[d] = [];
     updatesByDay[d].push(update);
+  }
+  // Updates and merged task entries aren't sorted against each other on
+  // arrival — order within each day explicitly so "most recent" is accurate.
+  for (const day of Object.keys(updatesByDay)) {
+    updatesByDay[Number(day)].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
   }
 
   const selectedEvents = selectedDay ? (eventsByDay[selectedDay] ?? []) : [];

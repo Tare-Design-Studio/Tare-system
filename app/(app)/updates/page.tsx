@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { createServiceClient } from "@/lib/supabase/service";
+import { fetchTaskUpdateEntries } from "@/lib/updates/taskEntries";
 import { PageHeader } from "../PageHeader";
 import UpdatesClient, { type UpdateRow } from "./UpdatesClient";
 
@@ -67,56 +67,15 @@ export default async function UpdatesPage({ searchParams }: { searchParams: Sear
   // Project-linked tasks join the same feed, exactly as they do on a project's
   // own stream: work in progress shows as pending, and the same task row becomes
   // its completed entry once it closes.
-  //
-  // Read through the service client for the same reason the project feed does —
-  // member_tasks RLS shows a plain member only their own rows, which would give
-  // each viewer a different feed. Scoped to the caller's tenant below, and only
-  // to tasks that already name a project.
   const { data: profile } = await supabase
     .from("users")
     .select("tenant_id")
     .eq("id", user.id)
     .single();
 
-  let taskRows: unknown[] = [];
-  if (profile?.tenant_id) {
-    const { data: rows } = await createServiceClient()
-      .from("member_tasks")
-      .select(`id, title, status, completed, completed_at, created_at, project_id,
-        users:user_id (full_name),
-        projects:project_id (name)`)
-      .eq("tenant_id", profile.tenant_id)
-      .not("project_id", "is", null)
-      .order("created_at", { ascending: false })
-      .limit(500);
-    taskRows = rows ?? [];
-  }
-
-  type TaskRow = {
-    id: string; title: string; status: string | null; completed: boolean;
-    completed_at: string | null; created_at: string; project_id: string;
-    users: { full_name: string } | { full_name: string }[] | null;
-    projects: { name: string } | { name: string }[] | null;
-  };
-
-  const taskEntries: UpdateRow[] = (taskRows as TaskRow[])
-    .map((t) => {
-      // A project-linked task sitting in pending_review is still in progress.
-      const done = t.status === "completed" || (t.completed && t.status !== "pending_review");
-      const at = (done ? t.completed_at : null) ?? t.created_at;
-      return {
-        id: `task-${t.id}`,
-        update_type: done ? "task_completed" : "task_pending",
-        body: t.title,
-        created_at: at,
-        project_id: t.project_id,
-        users: t.users,
-        projects: t.projects,
-      };
-    })
-    // The task query cannot use the same range filter as `updates` (which
-    // timestamp applies depends on state), so the range is applied here.
-    .filter((e) => e.created_at >= fromIso && e.created_at <= toIso);
+  const taskEntries = profile?.tenant_id
+    ? await fetchTaskUpdateEntries(profile.tenant_id, fromIso, toIso)
+    : [];
 
   const updates = [...((data ?? []) as UpdateRow[]), ...taskEntries]
     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1));

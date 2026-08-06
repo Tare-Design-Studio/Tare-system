@@ -2,13 +2,11 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Avatar, Chip, Icon } from "@/components/atoms";
 import { TagsPanel } from "./TagsPanel";
 import { MemberManageMenu } from "./MemberManageMenu";
 import { MemberEditModeProvider } from "./MemberEditMode";
 import { ReviewQueue } from "./ReviewQueue";
-import { AssignTaskModal } from "./AssignTaskModal";
 import { MemberDetailModal, type MemberDetail } from "./MemberDetailModal";
 import { AssignToProjectPanel, type AssignableProject } from "./AssignToProjectPanel";
 import styles from "./team-access.module.css";
@@ -85,15 +83,7 @@ export function TeamBoard({
   canManage, canManageTags, canAssign, canSeePerformance,
   canAssignToProject, projects, currentUserId, nowMs, children,
 }: TeamBoardProps) {
-  const router = useRouter();
   const [detail, setDetail] = useState<BoardMember | null>(null);
-  const [assignOpen, setAssignOpen] = useState(false);
-
-  // Self is excluded: a task you assign to yourself is work nobody can review
-  // (the API and migration 086 both block self-review).
-  const assignableMembers = members
-    .filter((m) => m.isActive && !m.isSelf)
-    .map((m) => ({ id: m.id, name: m.name, initials: m.initials }));
 
   const memberLookup = Object.fromEntries(
     members.map((m) => [m.id, { name: m.name, initials: m.initials }])
@@ -136,15 +126,6 @@ export function TeamBoard({
 
   return (
     <>
-      {canAssign && assignableMembers.length > 0 && (
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-          <button className={styles.button} type="button" onClick={() => setAssignOpen(true)}>
-            <Icon name="clipboard" size={14} />
-            Assign task
-          </button>
-        </div>
-      )}
-
       <div className={styles.headline}>
         <div className={styles.headlineCell}>
           <div className={styles.headlineLabel}>On the team</div>
@@ -221,7 +202,9 @@ export function TeamBoard({
                 </div>
                 <div />
                 <div />
-                <Chip label="You" tone="forest" size="sm" />
+                <div className={styles.rosterRowActions}>
+                  <Chip label="You" tone="forest" size="sm" />
+                </div>
               </div>
             )}
 
@@ -259,7 +242,8 @@ export function TeamBoard({
                 </div>
 
                 {/* Workload as a length, so the busiest and the idle read down
-                    the column without comparing numbers. */}
+                    the column without comparing numbers. Hidden on phone in
+                    favour of rosterRowSummary below. */}
                 <div className={styles.loadWrap}>
                   <span className={styles.loadBar}>
                     <span
@@ -288,7 +272,22 @@ export function TeamBoard({
                   <div />
                 )}
 
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {/* Phone-only collapsed second line: present-today dot + check-in
+                    time, active count as text, grade — replaces the load bar and
+                    the separate presence line above (hidden ≤820px). */}
+                <div className={styles.rosterRowSummary}>
+                  {m.todayCheckInAt && (
+                    <span className={styles.presentDot}>
+                      {new Date(m.todayCheckInAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+                    </span>
+                  )}
+                  <span className={styles.loadLabel}>
+                    {active === 0 ? "nothing on" : `${active} active`}
+                  </span>
+                  {canSeePerformance && <span className={styles.grade}>{m.grade}</span>}
+                </div>
+
+                <div className={styles.rosterRowActions}>
                   {reason && <span className={styles.flagDot}>{reason}</span>}
                   {canSeePerformance && <span className={styles.grade}>{m.grade}</span>}
                   <div
@@ -380,17 +379,6 @@ export function TeamBoard({
           {children}
         </div>
       </div>
-
-      {assignOpen && (
-        <AssignTaskModal
-          members={assignableMembers}
-          projects={projects}
-          onClose={() => {
-            setAssignOpen(false);
-            router.refresh();
-          }}
-        />
-      )}
 
       {detail && (
         <MemberDetailModal

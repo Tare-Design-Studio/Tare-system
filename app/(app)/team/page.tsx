@@ -7,6 +7,7 @@ import { InviteForm } from "./InviteForm";
 import { BroadcastsPanel } from "./BroadcastsPanel";
 import { DailyTasksWidget } from "./DailyTasksWidget";
 import { DownloadReportButton } from "./DownloadReportButton";
+import { AssignTaskTrigger } from "./AssignTaskTrigger";
 import { TeamBoard, type BoardMember, type LeaderRow } from "./TeamBoard";
 import { scoreToGrade, type MemberTaskMetrics } from "./taskTime";
 import LeaveApprovalCard from "./LeaveApprovalCard";
@@ -194,6 +195,10 @@ export default async function TeamPage() {
   type AttRow = { user_id: string; work_date: string; check_in_at: string | null; total_minutes: number | null; check_in_count: number | null; users: { full_name: string } | null };
   const attendanceRows = (attendanceRes.data ?? []) as AttRow[];
   const attendanceByUser = new Map<string, { full_name: string; days: number; total_minutes: number; check_ins: number }>();
+  // First check-in time for today specifically, surfaced on the phone roster row
+  // as a "present" indicator — distinct from the days/hours tallies above, which
+  // span the whole month.
+  const todayCheckInByUser = new Map<string, string>();
   for (const row of attendanceRows) {
     const name = row.users?.full_name ?? "Unknown";
     const existing = attendanceByUser.get(row.user_id) ?? { full_name: name, days: 0, total_minutes: 0, check_ins: 0 };
@@ -201,6 +206,9 @@ export default async function TeamPage() {
     existing.total_minutes += row.total_minutes ?? 0;
     existing.check_ins += row.check_in_count ?? 1;
     attendanceByUser.set(row.user_id, existing);
+    if (row.work_date === todayStr && row.check_in_at) {
+      todayCheckInByUser.set(row.user_id, row.check_in_at);
+    }
   }
   // Aggregate member tasks per user: active tasks, completed tasks with the time
   // actually taken, plus the quality signals (review verdicts, on-time %) that
@@ -369,6 +377,7 @@ export default async function TeamPage() {
       grade: scoreToGrade(score),
       score,
       quality: scoreToGrade(Math.max(0, score - qualityPenalty)),
+      todayCheckInAt: todayCheckInByUser.get(m.id) ?? null,
       tasks,
       role: m.role,
       role_label: m.role_label,
@@ -380,7 +389,7 @@ export default async function TeamPage() {
       isSelf: m.id === user.id,
       linkable: m.id !== user.id,
     };
-  });
+  }).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
 
   // Leaderboard is a performance surface — empty for a coordinator, whose scores
   // are computed from queries that returned nothing anyway.
@@ -401,6 +410,12 @@ export default async function TeamPage() {
       };
     });
 
+  // Self is excluded: a task you assign to yourself is work nobody can review
+  // (the API and migration 086 both block self-review).
+  const assignableMembers = boardMembers
+    .filter((m) => m.isActive && !m.isSelf)
+    .map((m) => ({ id: m.id, name: m.name, initials: m.initials }));
+
   return (
     <div className={styles.surface}>
       <PageHeader
@@ -409,12 +424,15 @@ export default async function TeamPage() {
           canManage ? "Performance & Control" : "Who is on what"
         }`}
         actions={
-          <>
+          <div className={styles.pageHeaderActions}>
             {canManage && <DownloadReportButton months={availableReportMonths()} />}
+            {canAssign && assignableMembers.length > 0 && (
+              <AssignTaskTrigger members={assignableMembers} projects={assignableProjects} />
+            )}
             {isOwner && (
-              <Link href="/settings/access-matrix" className={styles.button}>
+              <Link href="/settings/access-matrix" className={styles.button} title="Access Matrix">
                 <Icon name="shield" size={14} />
-                Access Matrix
+                <span className={styles.buttonLabel}>Access Matrix</span>
               </Link>
             )}
             {canManage && (
@@ -431,7 +449,7 @@ export default async function TeamPage() {
                 </div>
               </details>
             )}
-          </>
+          </div>
         }
       />
 

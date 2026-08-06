@@ -21,6 +21,8 @@ export interface MemberDetail {
   presentDays: number;
   hours: string;
   checkIns: number;
+  /** First check-in today, ISO timestamp — null if not checked in today. */
+  todayCheckInAt: string | null;
   siteVisits: number;
   grade: string;
   score: number;

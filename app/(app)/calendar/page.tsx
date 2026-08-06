@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { fetchTaskUpdateEntries } from "@/lib/updates/taskEntries";
 import CalendarClient from "./CalendarClient";
 
 export default async function CalendarPage() {
@@ -14,7 +15,7 @@ export default async function CalendarPage() {
   const startOf  = new Date(year, month, 1).toISOString();
   const endOf    = new Date(year, month + 1, 1).toISOString();
 
-  const [eventsRes, updatesRes] = await Promise.all([
+  const [eventsRes, updatesRes, profileRes] = await Promise.all([
     supabase
       .from("calendar_events")
       .select("id, title, description, starts_at, ends_at, visibility, source_type, project_id, enquiry_id, customer_id, assigned_user_id")
@@ -29,12 +30,19 @@ export default async function CalendarPage() {
       .gte("created_at", startOf)
       .lt("created_at", endOf)
       .order("created_at", { ascending: false }),
+    supabase.from("users").select("tenant_id").eq("id", user.id).single(),
   ]);
+
+  // Project-linked tasks join the same feed as the project's own update stream —
+  // see fetchTaskUpdateEntries for why this needs the service client.
+  const taskEntries = profileRes.data?.tenant_id
+    ? await fetchTaskUpdateEntries(profileRes.data.tenant_id, startOf, endOf)
+    : [];
 
   return (
     <CalendarClient
       initial={eventsRes.data ?? []}
-      initialUpdates={updatesRes.data ?? []}
+      initialUpdates={[...(updatesRes.data ?? []), ...taskEntries]}
       initialYear={year}
       initialMonth={month}
       todayYear={year}

@@ -126,13 +126,15 @@ export default function UpdatesClient({ updates, nowMs, selectedMonth, fromDate,
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", marginTop: 16, marginBottom: 20 }}>
         <Link href="/" style={{ fontSize: 12, color: "var(--color-tan)", textDecoration: "none", marginRight: 4 }}>← Back</Link>
 
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <select
+          value={selectedMonth ?? ""}
+          onChange={(e) => selectMonth(e.target.value)}
+          style={dateInputStyle}
+        >
           {monthKeys.map((k) => (
-            <button key={k} style={pill(selectedMonth === k)} onClick={() => selectMonth(k)}>
-              {monthLabel(k)}
-            </button>
+            <option key={k} value={k}>{monthLabel(k)}</option>
           ))}
-        </div>
+        </select>
 
         <div style={{ width: 1, height: 22, background: "var(--color-line)" }} />
 
