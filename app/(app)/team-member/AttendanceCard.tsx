@@ -101,6 +101,28 @@ export default function AttendanceCard({
   const workedMinutes =
     storedMinutes == null && !isOpen ? null : (storedMinutes ?? 0) + openCycleMinutes;
 
+  // Pulls today's row back from the server. Used when a check-out fails, so the
+  // card reflects what is actually stored rather than a stale open cycle. The
+  // list endpoint returns newest first and today's row is the first entry; if
+  // there is no row for today the card correctly falls back to "not checked in".
+  async function refresh() {
+    try {
+      const res = await fetch("/api/attendance", { cache: "no-store" });
+      if (!res.ok) return;
+      const rows = (await res.json()) as AttendanceLog[];
+      if (!Array.isArray(rows)) return;
+      const todayStr = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Kolkata",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date());
+      setLog(rows.find((r) => r.work_date?.slice(0, 10) === todayStr) ?? null);
+    } catch {
+      // Offline or transient — the error message from the failed action stands.
+    }
+  }
+
   function startConfirm(action: "check_in" | "check_out") {
     if (resetTimer.current) clearTimeout(resetTimer.current);
     setPhase(action === "check_in" ? "confirm_in" : "confirm_out");
@@ -137,6 +159,11 @@ export default function AttendanceCard({
       const body = await res.json().catch(() => ({}));
       setError(body.error ?? "Something went wrong");
       setPhase("idle");
+      // A failed check-out used to leave the card showing "Checked In" against a
+      // row the server had already closed (or never found), so the member
+      // pressed Check Out, saw an error, and stayed "clocked in" to everyone
+      // else. Re-read the authoritative row instead of trusting local state.
+      if (action === "check_out") void refresh();
       return;
     }
 

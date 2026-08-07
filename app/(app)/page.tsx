@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { serverNowMs } from "@/lib/serverNow";
+import { localDate } from "@/lib/attendance/day";
 import { Avatar } from "@/components/atoms";
 import MobileHome from "./MobileHome";
 import TeamMemberHome from "./TeamMemberHome";
@@ -438,7 +439,9 @@ export default async function DashboardPage() {
 
   // Team Member — fetch their scoped data
   if (profile?.role === "team_member") {
-    const today = new Date().toISOString().slice(0, 10);
+    // IST work_date, matching /api/attendance — a UTC date here would read
+    // yesterday's row before 05:30 IST and render the wrong check-in state.
+    const today = localDate();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const db = supabase as any;
     const [assignedProjects, tasks, broadcastRows, memberTasksRes, attendanceRes, remindersRes, allProjectsRes, namesRes] = await Promise.all([
@@ -604,7 +607,9 @@ export default async function DashboardPage() {
       .from("attendance_logs")
       .select("user_id, work_date, check_in_at, total_minutes")
       .gte("work_date", currentMonthStart)
-      .lte("work_date", todayStr)
+      // work_date is an IST calendar day; todayStr is a UTC date and lags it
+      // before 05:30 IST, which would drop today's attendance from the board.
+      .lte("work_date", localDate())
       .not("check_in_at", "is", null),
     db
       .from("member_tasks")

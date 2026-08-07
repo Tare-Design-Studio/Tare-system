@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { localDate } from "@/lib/attendance/day";
 
 function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371000;
@@ -102,8 +103,8 @@ export async function POST(req: Request) {
     }
   }
 
-  const today = new Date().toISOString().slice(0, 10);
   const nowDate = new Date();
+  const today = localDate(nowDate);
   const now = nowDate.toISOString();
 
   // worked_minutes = closed cycles + the currently-open cycle (if any).

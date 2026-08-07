@@ -1,5 +1,71 @@
 # SCHEMA.md
-(Updated: 2026-08-07 — migration 100 APPLIED: assigner may edit/delete/reassign tasks)
+(Updated: 2026-08-07 — migration 101 APPLIED: attendance IST day boundaries, auto check-out, geofence backfill)
+
+### Migration 101 — attendance IST correctness + auto check-out (applied 2026-08-07)
+
+**Applied with** `npx tsx scripts/migrate.ts`. Verified live afterwards (counts below).
+
+**Why.** Three client-reported attendance defects. Two shared one root cause: **the DB session
+TimeZone is UTC and the tenant works in IST (UTC+5:30)**, and nothing reconciled the two.
+
+1. **"People aren't being logged out — still says clocked in."** The API derived `work_date` with
+   `new Date().toISOString().slice(0,10)`, which is the **UTC** date and therefore still *yesterday*
+   until 05:30 IST. A check-out in that window looked up a `work_date` row that did not exist, got
+   `"No check-in found for today"` (400), and **never cleared `last_check_in_at`** — so the presence
+   board read the row as `status = "present"` indefinitely. **13 rows were stuck open in production.**
+
+2. **No auto check-out, and forgotten check-outs earned no OT.** `stamp_attendance_workday()` (088)
+   sets `overtime_minutes := NULL` whenever `check_out_at IS NULL`, so an open row accrued nothing.
+   Compounding it, that trigger compared against `work_date + workday_end_snapshot` evaluated in the
+   **UTC** session zone: 18:00 UTC = **23:30 IST**. Overtime only began accruing at half past eleven
+   at night. **1 row of 72 had any OT**; a real 18:16 IST check-out recorded 0 minutes instead of 16.
+
+3. **"Flagged / out of geofence" for people sitting in the office.** *No code defect* — already
+   fixed by 093. Every flagged row predates its office's row in `offices` (Mysore created
+   2026-08-04 09:55Z); every check-in after that is correctly inside the fence. Measured distances
+   on the 12 flagged rows were **5–55m** from the office, well inside the 200m radius. Stale data,
+   not stale logic — so this migration backfills rather than changing the matching rule.
+
+**Changes.**
+- `tenants.timezone text NOT NULL DEFAULT 'Asia/Kolkata'` — the workday window is a wall-clock
+  concept and can only be resolved against a zone. Per-tenant so a second city stays correct
+  instead of hardcoding IST in a function body. `CHECK (now() AT TIME ZONE timezone IS NOT NULL)`
+  (`NOT VALID`) rejects a typo'd zone at write time rather than silently falling back to UTC.
+- `stamp_attendance_workday()` **rewritten** — same contract as 088 (BEFORE INSERT OR UPDATE,
+  unconditionally overwrites client input, columns still REVOKEd from `authenticated`); the only
+  change is that the window is converted via `(work_date + t)::timestamp AT TIME ZONE tz` before
+  being compared to a `timestamptz`. Both `is_late` and `overtime_minutes` were affected.
+- `attendance_logs.auto_checked_out boolean NOT NULL DEFAULT false` — distinguishes a system-closed
+  row from a real one so payroll can question it. Derived: `REVOKE UPDATE` from `authenticated`,
+  matching `overtime_minutes` / `is_late`.
+- `close_stale_attendance()` + pg_cron job `close-stale-attendance` at `*/15 * * * *`. Closes cycles
+  open past the tenant cutoff (`workday_end + late_grace_minutes` = **18:15 IST** on defaults) and
+  folds the open cycle into `accumulated_minutes` exactly as the check-out API path does.
+  `SECURITY DEFINER`, `REVOKE ALL` from `public/anon/authenticated`. Idempotent — verified three
+  consecutive runs close 0 rows and leave `accumulated_minutes` byte-identical.
+
+**⚠️ ASSUMPTION AWAITING CLIENT CONFIRMATION.** The client asked to "log out everyone at 6.15 pm and
+then it comes out as ot". `check_out_at` is stamped with the **actual time the job runs**, not a flat
+18:15. A literal 18:15 stamp would erase real overtime for anyone genuinely still working at 9pm and —
+since OT accrues against `workday_end` (18:00) — would hand *everyone* exactly 15 minutes and nobody
+any more, which cannot be the intent. The 15-minute cadence bounds how long a forgotten check-out can
+inflate a day. **If the client does want a flat 18:15 cap, this is the line to change.**
+
+**Backfills (all verified).**
+- `close_stale_attendance()` run once inline: **stuck-open rows 13 → 0**, 14 rows now `auto_checked_out`.
+- `workday_end_snapshot` re-stamped on every row to re-fire the corrected trigger (the technique 088
+  used for its own backfill): **rows with OT 1 → 58**, and **0 rows** where stored OT differs from a
+  fresh IST recomputation. Spot-checked: the 18:16 IST check-out now reads 16 min. The six rows above
+  2h OT are all `auto_checked_out = false` — genuine late nights (one 09:46→02:44), not artifacts.
+- Geofence re-evaluated for rows with coordinates that were flagged `false` with a NULL office,
+  using the API's exact rule (nearest active office whose own radius contains the point):
+  **`check_in_within_geofence = false` 12 → 0**. Deliberately narrow — a genuinely remote check-in
+  finds no match and **keeps** its false flag; nothing correctly recorded is rewritten.
+
+**Application code** (`work_date` must be the IST calendar day everywhere): new `lib/attendance/day.ts`
+exports `localDate()`; called from `app/api/attendance/route.ts`, `app/api/attendance/board/route.ts`
+and the two attendance queries in `app/(app)/page.tsx`. `page.tsx:565`'s `todayStr` is left on UTC on
+purpose — it builds instant boundaries for unrelated owner-dashboard queries.
 
 ### Migration 100 — assigner edit, delete and reassign (applied 2026-08-07)
 

@@ -1,5 +1,34 @@
 # PROJECT_STATE.md
-(Updated: 2026-08-07 — task edit/delete/reassign + owner task view + editable calendar; migration 100 APPLIED)
+(Updated: 2026-08-07 — attendance IST fix + auto check-out; migration 101 APPLIED)
+
+### Attendance: IST day boundaries, auto check-out, geofence backfill (2026-08-07)
+
+**Migration 101 APPLIED 2026-08-07** through `scripts/migrate.ts`. `tsc` clean, `eslint` clean,
+`npm run build` passes. See SCHEMA.md 101 for the full record.
+
+Three defects reported by the client, all in office attendance. Two shared one root cause: the DB
+session runs in **UTC** while the tenant works in **IST**, and nothing reconciled them.
+
+- **"People aren't being logged out — still says clocked in." FIXED.** `work_date` was derived from
+  the UTC date, which lags IST until 05:30, so a check-out in that window looked up a row that did
+  not exist and left `last_check_in_at` set forever. **13 rows were stuck open in production; now 0.**
+  `work_date` now goes through `localDate()` in `lib/attendance/day.ts` everywhere. The card also
+  re-reads the server row when a check-out fails, instead of continuing to display "Checked In".
+- **Auto check-out at 18:15 IST. BUILT.** New `close_stale_attendance()` on a pg_cron job every 15
+  minutes. Closed rows are marked `auto_checked_out` so a system close is distinguishable from a
+  real one. Verified idempotent and verified end-to-end on a seeded open row (closes 18:15, 15 min
+  OT, 525 min worked).
+- **Overtime was never correct for anyone.** Not reported by the client, found while fixing the
+  above: the OT trigger compared against 18:00 **UTC** = 23:30 IST, so OT only accrued after half
+  eleven at night. **1 row of 72 had OT; now 58, with 0 mismatches against a fresh recomputation.**
+- **"Flagged / out of geofence" at the office. FIXED BY BACKFILL, no code change.** Already fixed by
+  093 — every flagged row predates its office existing in `offices`, and the flagged check-ins
+  measure **5–55m** from the office (radius is 200m). GPS was never the problem. **12 → 0.**
+
+**⚠️ OPEN — needs the client's answer.** They asked for "log out everyone at 6.15 pm and then it
+comes out as ot". The job stamps the **real** closing time, not a flat 18:15, because a flat stamp
+would erase genuine OT for someone working till 9pm and would give everyone exactly 15 minutes and
+nobody more (OT accrues against 18:00). Confirm which they want before treating this as settled.
 
 ### Tasks: assigner edit/delete, owner-wide view, editable calendar events (2026-08-07)
 

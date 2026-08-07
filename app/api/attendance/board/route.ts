@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { localDate } from "@/lib/attendance/day";
 
 // GET /api/attendance/board — today's presence for the whole team.
 //
@@ -34,7 +35,7 @@ export async function GET() {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const service = createServiceClient() as any;
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDate();
 
   const [{ data: members, error: mErr }, { data: logs, error: aErr }, { data: leave }] = await Promise.all([
     service
