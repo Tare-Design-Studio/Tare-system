@@ -73,6 +73,10 @@
 
 body {
   min-height: 100vh;
+  /* Last line of defence against a stray wide element scrolling the whole page
+     sideways on phones. `clip` rather than `hidden`: hidden would make body a
+     scroll container and break position:sticky and the fixed MobileNav. */
+  overflow-x: clip;
   background:
     radial-gradient(1200px 600px at 85% -10%, #D8E2DC 0%, transparent 60%),
     radial-gradient(900px 500px at -10% 110%, #E8DFCC 0%, transparent 55%),
@@ -133,6 +137,14 @@ body {
    pad by the safe-area inset. Browser tabs (non-standalone) need only 12px. */
 .mobile-main {
   padding: max(env(safe-area-inset-top, 0px), 12px) 16px 120px;
+  /* A single wide descendant (the all-tasks table) used to stretch this container
+     and scroll the entire shell sideways — header, tabs and card all shifted off
+     screen together. Clipping here means any future wide child is contained by
+     the page rather than dragging the layout with it; anything that genuinely
+     needs to scroll horizontally carries its own overflow-x, as the tasks table
+     does. min-width:0 stops it refusing to shrink below its content. */
+  overflow-x: clip;
+  min-width: 0;
 }
 
 /* Installed PWA (standalone): iOS draws content under a translucent status

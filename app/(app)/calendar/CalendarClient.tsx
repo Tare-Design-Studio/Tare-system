@@ -391,6 +391,8 @@ export default function CalendarClient({ initial, initialUpdates, initialYear, i
   // The event currently open for editing. Separate from `adding` so the modal
   // knows which of the two jobs it is doing.
   const [editingEvent, setEditingEvent] = useState<CalEvent | null>(null);
+  // Which event has its edit/delete pair revealed. One at a time.
+  const [menuEventId, setMenuEventId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [eventError, setEventError] = useState<string | null>(null);
 
@@ -677,30 +679,56 @@ export default function CalendarClient({ initial, initialUpdates, initialYear, i
                           </div>
                           <div>
                             {href ? <Link href={href} style={{ textDecoration: "none" }}>{inner}</Link> : inner}
+                            {/* Editing is behind a pencil so the day's events read as
+                                a schedule, not a row of controls. Expanded state is
+                                per event id — opening one closes the last. */}
                             {canEdit(e) && (
-                              <div style={{ display: "flex", gap: 4, marginTop: 6, justifyContent: "flex-end" }}>
-                                <button
-                                  onClick={() => setEditingEvent(e)}
-                                  title="Edit event"
-                                  style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid var(--color-line)", background: "transparent", color: "var(--color-tan)", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}
-                                >
-                                  Edit
-                                </button>
-                                <ConfirmPopover
-                                  title="Delete this event?"
-                                  message={`"${e.title}" will be removed from everyone's calendar. This cannot be undone.`}
-                                  onConfirm={() => deleteEvent(e.id)}
-                                >
-                                  {(open) => (
+                              <div style={{ display: "flex", gap: 4, marginTop: 6, justifyContent: "flex-end", alignItems: "center" }}>
+                                {menuEventId === e.id ? (
+                                  <>
                                     <button
-                                      onClick={open}
-                                      title="Delete event"
+                                      onClick={() => { setEditingEvent(e); setMenuEventId(null); }}
                                       style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid var(--color-line)", background: "transparent", color: "var(--color-tan)", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}
                                     >
-                                      Delete
+                                      Edit
                                     </button>
-                                  )}
-                                </ConfirmPopover>
+                                    <ConfirmPopover
+                                      title="Delete this event?"
+                                      message={`"${e.title}" will be removed from everyone's calendar. This cannot be undone.`}
+                                      onConfirm={() => deleteEvent(e.id)}
+                                    >
+                                      {(open) => (
+                                        <button
+                                          onClick={open}
+                                          style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid var(--color-line)", background: "transparent", color: "var(--color-tan)", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}
+                                        >
+                                          Delete
+                                        </button>
+                                      )}
+                                    </ConfirmPopover>
+                                    <button
+                                      onClick={() => setMenuEventId(null)}
+                                      aria-label="Close event actions"
+                                      style={{ padding: 4, borderRadius: 8, border: "none", background: "transparent", color: "var(--color-tan)", cursor: "pointer", display: "inline-flex" }}
+                                    >
+                                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                                        <path d="M18 6L6 18M6 6l12 12" />
+                                      </svg>
+                                    </button>
+                                  </>
+                                ) : (
+                                  <button
+                                    onClick={() => setMenuEventId(e.id)}
+                                    aria-label={`Edit or delete ${e.title}`}
+                                    title="Edit or delete"
+                                    style={{ padding: 5, borderRadius: 8, border: "1px solid var(--color-line)", background: "transparent", color: "var(--color-tan)", cursor: "pointer", display: "inline-flex" }}
+                                  >
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                                      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                    </svg>
+                                  </button>
+                                )}
                               </div>
                             )}
                           </div>
