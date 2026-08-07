@@ -25,7 +25,11 @@ const ALL_NAV_DEFS: NavItemDef[] = [
   { href: "/",           label: "Overview",     roles: ["owner", "team_member"] },
   { href: "/calendar",   label: "Calendar" },
   { href: "/projects",   label: "Projects" },
-  { href: "/tasks",      label: "My Tasks",     roles: ["team_member"] },
+  // tasks:assign is owner-granted per user (087), so role/tag gating alone left
+  // an owner or PM with a page they could open but no link to reach it — the
+  // same gap team:coordinate hit at /team. The page itself admits anyone with a
+  // personal list OR assign rights; this mirrors that test.
+  { href: "/tasks",      label: "My Tasks",     roles: ["team_member"], capability: "tasks:assign" },
   { href: "/me",         label: "My Profile",   roles: ["team_member", "site_engineer"] },
   { href: "/bridge",     label: "Bridge" },
   { href: "/customers",  label: "Customers",    roles: ["owner"], tags: ["accountant", "admin", "project_manager"] },

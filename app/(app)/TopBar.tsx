@@ -97,7 +97,10 @@ const ALL_NAV: NavItem[] = [
   {
     href: "/tasks", label: "My Tasks",
     icon: <Svg><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></Svg>,
+    // Mirrors the layout's def — tasks:assign is owner-granted per user (087),
+    // so role gating alone hid the page from the owner who grants it.
     roles: ["team_member"],
+    capability: "tasks:assign",
   },
   {
     href: "/me", label: "My Profile",

@@ -492,15 +492,20 @@ export default async function TeamPage() {
           />
         </div>
 
-        <div className={styles.card}>
-          <div className={styles.cardTitle}>
-            <div className={styles.cardTitleText}>
-              <h2 className="font-serif">My tasks today</h2>
-              <p>{todayStr} · self-reported daily log</p>
+        {/* The owner's own daily log does not belong on the board they use to
+            watch everyone else — their tasks live on /tasks. Members keep it:
+            it is where they self-report the day. */}
+        {!isOwner && (
+          <div className={styles.card}>
+            <div className={styles.cardTitle}>
+              <div className={styles.cardTitleText}>
+                <h2 className="font-serif">My tasks today</h2>
+                <p>{todayStr} · self-reported daily log</p>
+              </div>
             </div>
+            <DailyTasksWidget initial={dailyTasks} todayStr={todayStr} />
           </div>
-          <DailyTasksWidget initial={dailyTasks} todayStr={todayStr} />
-        </div>
+        )}
       </TeamBoard>
     </div>
   );

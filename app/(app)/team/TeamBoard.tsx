@@ -327,6 +327,11 @@ export function TeamBoard({
         </div>
 
         <div className={styles.sideStack}>
+          {/* Broadcasts leads the sidebar. At ≤1100px teamGrid collapses to one
+              column and the stack follows DOM order, so this is also what sits
+              directly under the members card on a phone. */}
+          {children}
+
           {canSeePerformance && (
           <div className={styles.card}>
             <div className={styles.cardTitle}>
@@ -375,8 +380,6 @@ export function TeamBoard({
           )}
 
           {canAssign && <ReviewQueue members={memberLookup} currentUserId={currentUserId} />}
-
-          {children}
         </div>
       </div>
 
