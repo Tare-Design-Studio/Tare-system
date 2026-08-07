@@ -349,6 +349,49 @@ export type Database = {
           },
         ]
       }
+      bridge_reads: {
+        Row: {
+          last_read_at: string
+          project_id: string
+          tenant_id: string
+          user_id: string
+        }
+        Insert: {
+          last_read_at?: string
+          project_id: string
+          tenant_id: string
+          user_id: string
+        }
+        Update: {
+          last_read_at?: string
+          project_id?: string
+          tenant_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bridge_reads_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bridge_reads_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bridge_reads_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       calendar_events: {
         Row: {
           assigned_user_id: string | null
@@ -4629,6 +4672,10 @@ export type Database = {
           p_request_id?: string | null
         }
         Returns: boolean
+      }
+      clear_bridge_notification: {
+        Args: { p_project_id: string }
+        Returns: undefined
       }
       compact_old_notifications: { Args: never; Returns: undefined }
       current_user_tenant_id: { Args: never; Returns: string }

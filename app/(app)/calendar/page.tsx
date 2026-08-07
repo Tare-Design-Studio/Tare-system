@@ -15,10 +15,10 @@ export default async function CalendarPage() {
   const startOf  = new Date(year, month, 1).toISOString();
   const endOf    = new Date(year, month + 1, 1).toISOString();
 
-  const [eventsRes, updatesRes, profileRes] = await Promise.all([
+  const [eventsRes, updatesRes, profileRes, canManageRes] = await Promise.all([
     supabase
       .from("calendar_events")
-      .select("id, title, description, starts_at, ends_at, visibility, source_type, project_id, enquiry_id, customer_id, assigned_user_id")
+      .select("id, title, description, starts_at, ends_at, visibility, source_type, project_id, enquiry_id, customer_id, assigned_user_id, created_by")
       .gte("starts_at", startOf)
       .lt("starts_at", endOf)
       .order("starts_at", { ascending: true }),
@@ -31,6 +31,11 @@ export default async function CalendarPage() {
       .lt("created_at", endOf)
       .order("created_at", { ascending: false }),
     supabase.from("users").select("tenant_id").eq("id", user.id).single(),
+    // Whoever may create events for others may also correct anyone's. Everyone
+    // else edits only what they created themselves — decided per event in the
+    // client from created_by. RLS (calendar_events_update/delete, 026) enforces
+    // the same rule; this only decides whether the controls are drawn.
+    supabase.rpc("has_capability", { p_capability: "calendar:create_for_others" }),
   ]);
 
   // Project-linked tasks join the same feed as the project's own update stream —
@@ -48,6 +53,8 @@ export default async function CalendarPage() {
       todayYear={year}
       todayMonth={month}
       todayDate={now.getDate()}
+      currentUserId={user.id}
+      canManageAll={canManageRes.data === true}
     />
   );
 }

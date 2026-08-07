@@ -1,5 +1,59 @@
 # SCHEMA.md
-(Updated: 2026-08-06 — migration 096 APPLIED: team coordination + named review)
+(Updated: 2026-08-07 — migration 100 APPLIED: assigner may edit/delete/reassign tasks)
+
+### Migration 100 — assigner edit, delete and reassign (applied 2026-08-07)
+
+**Applied with** `npx tsx scripts/migrate.ts`; rehearsed first inside a rolled-back transaction.
+Verified live afterwards: `assigner_delete_tasks` present on `member_tasks` (the table's **first**
+DELETE-specific policy), `guard_member_task_review()` carries the new assigner branch, and
+`_migrations` holds `100_assigner_edit_delete_tasks.sql` — no ledger drift.
+
+**Why.** The assign surface was write-once. An assigner could hand out a task and re-point its
+project, but could not fix a typo in the title, correct a due date, or move the work to a different
+person. Two things blocked it, both deliberate, so both were narrowed rather than removed:
+
+1. **There was no DELETE policy at all.** `member_own_tasks` is `FOR ALL`, so a member could delete
+   their own row and nobody could delete anything else. `assigner_delete_tasks` is the first
+   DELETE-specific policy on the table. It is scoped to `assigned_by = auth.uid()` **and**
+   `user_id <> auth.uid()`: a `tasks:assign` holder may REVIEW anyone's work (`owner_review_tasks`,
+   095) but may only DELETE what they personally handed out, because deletion is destructive and
+   unreviewable.
+
+2. **`guard_member_task_review()` raised on any `user_id` change** made by someone other than the
+   row's own member — *"a reviewer cannot reassign a task"*. That rule stops a REVIEWER laundering a
+   task onto someone else to dodge the self-review block. An assigner correcting their own
+   assignment is a different act. The guard now branches on `OLD.assigned_by = auth.uid()` **before**
+   the reviewer rules (an assigner is normally also a `tasks:assign` holder, so it would otherwise be
+   caught by them).
+
+**What the assigner branch still forbids:** cross-tenant moves; handing a task to an inactive or
+foreign-tenant user (mirrors the `EXISTS` check in `owner_assign_tasks`, 083); moving a task to
+*themselves* (that would make them both owner and assigner of the row, i.e. self-review by the back
+door, since the self-review check keys on `OLD.user_id`); and writing the clock by hand.
+
+**Reassignment resets the lifecycle** — `status → open`, and `accepted_at / started_at /
+submitted_at / completed / completed_at / review_status / reviewed_by / reviewed_at /
+review_requested_to` all cleared. The new assignee has not accepted, started or submitted anything,
+so inheriting the previous member's timestamps would credit them with hours they did not work and
+feed a false number into the performance algorithm. Enforced **in the trigger, not the API**, so it
+holds however the row is written.
+
+**Every 096 rule survives on the non-assigner path**: a reviewer still cannot reassign, cannot touch
+the time log, and cannot change who reviews a task. `tenant_id` is immutable on every path, and the
+086/096 self-review check runs ahead of all of this and is untouched.
+
+**Rollback:** `DROP POLICY assigner_delete_tasks ON member_tasks;` and restore the 096 body of
+`guard_member_task_review()`. No column or pre-existing policy is dropped.
+
+**Note on `calendar_events`:** the edit/delete calendar work shipped alongside this needed **no
+migration**. `calendar_events_update` and `calendar_events_delete` (026) already admit the row's
+`created_by` or a holder of `calendar:create_for_others`. The new
+`PATCH/DELETE /api/calendar/[id]` route adds one rule on top, in the API rather than the database:
+rows with a non-null `source_type` are refused (409). Those are projections —
+`sync_reminder_to_calendar()` rewrites a `reminder` event whenever `enquiry_reminders` moves, so an
+edit would silently revert, and a delete would orphan the reminder.
+
+(Previous: 2026-08-06 — migration 096 APPLIED: team coordination + named review)
 
 ### Migration 096 — team coordination + named reviewer (applied 2026-08-06)
 

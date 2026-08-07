@@ -27,6 +27,8 @@ type MemberTask = {
   review_status: ReviewStatus;
   reviewed_by: string | null;
   reviewed_at: string | null;
+  /** Who the member addressed this submission to (096). Null = unnamed. */
+  review_requested_to: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -39,6 +41,9 @@ type Props = {
   initialReview: MemberTask[];
   members: Member[];
   canAssign: boolean;
+  /** Owners see every task in the tenant, not only what they handed out. */
+  isOwner: boolean;
+  currentUserId: string;
   // Every active project in the tenant. Both the self-add and the assign picker
   // list all of them — a task may be logged against any project, not only the
   // ones the author happens to be assigned to.
@@ -144,6 +149,8 @@ export default function TasksClient({
   initialReview,
   members,
   canAssign,
+  isOwner,
+  currentUserId,
   projects,
 }: Props) {
   const [tab, setTab] = useState<"mine" | "assigned" | "review">("mine");
@@ -178,6 +185,14 @@ export default function TasksClient({
   const [assignSaving, setAssignSaving] = useState(false);
   const [assignError, setAssignError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // Inline edit of a row in "Assigned by me". Held as a draft rather than
+  // patching per keystroke — the title is free text, so a PATCH per character
+  // would be dozens of writes for one correction.
+  const [editRowId, setEditRowId] = useState<string | null>(null);
+  const [rowDraft, setRowDraft] = useState<{ title: string; assignee: string; due: string }>({
+    title: "", assignee: "", due: "",
+  });
 
   const memberName = useMemo(
     () => Object.fromEntries(members.map((m) => [m.id, m.full_name])),
@@ -335,6 +350,47 @@ export default function TasksClient({
     setEditingId(null);
   }
 
+  function startRowEdit(t: MemberTask) {
+    setEditRowId(t.id);
+    setRowDraft({ title: t.title, assignee: t.user_id, due: t.due_date ?? "" });
+  }
+
+  /** Save an inline edit from "Assigned by me". Sends only what actually moved. */
+  async function saveRowEdit(t: MemberTask) {
+    const title = rowDraft.title.trim();
+    if (!title) return;
+
+    const body: Record<string, unknown> = {};
+    if (title !== t.title) body.title = title;
+    if (rowDraft.assignee !== t.user_id) body.assignee_id = rowDraft.assignee;
+    if ((rowDraft.due || null) !== t.due_date) body.due_date = rowDraft.due || null;
+
+    setEditRowId(null);
+    if (Object.keys(body).length === 0) return;
+
+    await patch(t.id, body);
+    // Reassigning resets the lifecycle server-side (migration 100), and for a
+    // non-owner it also moves the row out of "assigned by me" scope entirely.
+    // Refetching is cheaper than replicating that reset in the client.
+    if (body.assignee_id) await reload("assigned");
+  }
+
+  async function deleteAssignedTask(id: string) {
+    setActionError(null);
+    try {
+      const res = await fetch(`/api/member-tasks/${id}`, { method: "DELETE" });
+      if (res.ok || res.status === 204) {
+        setAssigned((prev) => prev.filter((t) => t.id !== id));
+        setReview((prev) => prev.filter((t) => t.id !== id));
+      } else {
+        const e = await res.json().catch(() => null);
+        setActionError(e?.error ?? `Could not delete the task (${res.status}).`);
+      }
+    } catch {
+      setActionError("Network error — the task was not deleted.");
+    }
+  }
+
   async function deleteTask(id: string) {
     setActionError(null);
     try {
@@ -387,7 +443,7 @@ export default function TasksClient({
         <div style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
           <button style={pill(tab === "mine")} onClick={() => setTab("mine")}>My tasks</button>
           <button style={pill(tab === "assigned")} onClick={() => setTab("assigned")}>
-            Assigned by me{assigned.length ? ` · ${assigned.length}` : ""}
+            {isOwner ? "All tasks" : "Assigned by me"}{assigned.length ? ` · ${assigned.length}` : ""}
           </button>
           <button style={pill(tab === "review")} onClick={() => setTab("review")}>
             To review{review.length ? ` · ${review.length}` : ""}
@@ -636,8 +692,29 @@ export default function TasksClient({
                             {fmtDuration(elapsedMs)}
                           </span>
                         )}
+                        {/* Still awaiting a verdict, so the member may still change
+                            their mind about who they sent it to — the person they
+                            picked may be on leave, or it may have gone to the wrong
+                            one. Locked once reviewed: re-pointing a closed task
+                            would reattribute a verdict somebody already gave.
+                            guard_member_task_review() (096) permits this for the
+                            row's own member and nobody else. */}
                         {t.status === "pending_review" && (
-                          <span style={{ fontSize: 11, color: "var(--color-tan)" }}>Awaiting review</span>
+                          <>
+                            <span style={{ fontSize: 11, color: "var(--color-tan)" }}>Awaiting review from</span>
+                            <select
+                              value={t.review_requested_to ?? ""}
+                              disabled={busy}
+                              onChange={(e) => patch(t.id, { review_requested_to: e.target.value || null })}
+                              title="Who you want to review this task"
+                              style={{ ...miniInputStyle, cursor: "pointer", maxWidth: 150 }}
+                            >
+                              <option value="">Owner (default)</option>
+                              {reviewers.map((r) => (
+                                <option key={r.id} value={r.id}>{r.full_name}</option>
+                              ))}
+                            </select>
+                          </>
                         )}
                         {t.status === "completed" && t.review_status && (
                           <Chip size="sm" tone={VERDICT[t.review_status].tone} label={VERDICT[t.review_status].label} />
@@ -720,23 +797,34 @@ export default function TasksClient({
       {/* Assigned by me */}
       {canAssign && tab === "assigned" && (
         <Card>
-          <CardTitle title="Assigned by me" subtitle={`${assigned.length} task${assigned.length === 1 ? "" : "s"} handed to the team`} />
+          <CardTitle
+            title={isOwner ? "All team tasks" : "Assigned by me"}
+            subtitle={
+              isOwner
+                ? `${assigned.length} task${assigned.length === 1 ? "" : "s"} across the team`
+                : `${assigned.length} task${assigned.length === 1 ? "" : "s"} handed to the team`
+            }
+          />
           {assigned.length === 0 ? (
             <div style={{ textAlign: "center", padding: "50px 0", color: "var(--color-tan)", fontSize: 14 }}>
-              You have not assigned any tasks yet.
+              {isOwner ? "Nobody has any tasks yet." : "You have not assigned any tasks yet."}
             </div>
           ) : (
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--color-line)" }}>
-                    {["Task", "Assignee", "Project", "Type", "Due", "Status", "Logged", "Verdict"].map((h) => (
+                    {["Task", "Assignee", "Project", "Type", "Due", "Status", "Logged", "Reviewer", "Verdict", "Actions"].map((h) => (
                       <th key={h} style={{
                         textAlign: h === "Task" || h === "Assignee" ? "left" : "center",
                         padding: "8px 12px 12px",
                         fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase",
                         letterSpacing: 0.6, fontWeight: 500, whiteSpace: "nowrap",
-                      }}>{h}</th>
+                      }}>
+                        {/* The actions column is self-evident from its buttons; the
+                            label is there for screen readers, not for the eye. */}
+                        {h === "Actions" ? <span className="sr-only">{h}</span> : h}
+                      </th>
                     ))}
                   </tr>
                 </thead>
@@ -747,10 +835,52 @@ export default function TasksClient({
                     const logged = t.accepted_at && t.submitted_at
                       ? fmtDuration(new Date(t.submitted_at).getTime() - new Date(t.accepted_at).getTime())
                       : "—";
+                    const editing = editRowId === t.id;
+                    const busy = busyId === t.id;
+                    // Only the assigner may correct a task (migration 100). An owner
+                    // watching the whole firm still cannot rewrite work somebody else
+                    // handed out — they would get a 404 from the self-scoped path.
+                    const canEditRow = t.assigned_by === currentUserId;
                     return (
                       <tr key={t.id} style={{ borderBottom: i < assigned.length - 1 ? "1px solid var(--color-line)" : "none" }}>
-                        <td className="font-serif" style={{ padding: "14px 12px", fontSize: 16, color: "var(--color-ink)" }}>{t.title}</td>
-                        <td style={{ padding: "14px 12px" }}>{memberName[t.user_id] ?? "—"}</td>
+                        <td className="font-serif" style={{ padding: "14px 12px", fontSize: 16, color: "var(--color-ink)" }}>
+                          {editing ? (
+                            <input
+                              autoFocus
+                              value={rowDraft.title}
+                              onChange={(e) => setRowDraft((d) => ({ ...d, title: e.target.value }))}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") saveRowEdit(t);
+                                if (e.key === "Escape") setEditRowId(null);
+                              }}
+                              style={{ ...miniInputStyle, height: 30, fontSize: 14, width: "100%", minWidth: 160 }}
+                            />
+                          ) : (
+                            t.title
+                          )}
+                        </td>
+                        <td style={{ padding: "14px 12px" }}>
+                          {editing ? (
+                            <select
+                              value={rowDraft.assignee}
+                              onChange={(e) => setRowDraft((d) => ({ ...d, assignee: e.target.value }))}
+                              title="Move this task to a different member — their clock starts over"
+                              style={{ ...miniInputStyle, cursor: "pointer", maxWidth: 150 }}
+                            >
+                              {/* The current assignee may not be in `members` (that list
+                                  drops the viewer), so it is added explicitly or the
+                                  select would silently show the wrong person. */}
+                              {!members.some((m) => m.id === t.user_id) && (
+                                <option value={t.user_id}>{memberName[t.user_id] ?? "Current assignee"}</option>
+                              )}
+                              {members.map((m) => (
+                                <option key={m.id} value={m.id}>{m.full_name}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            memberName[t.user_id] ?? "—"
+                          )}
+                        </td>
                         {/* The assigner picked the project, so they can change it
                             here. Locked once the work is closed — re-pointing a
                             finished task would move history between projects. */}
@@ -781,15 +911,81 @@ export default function TasksClient({
                             ? "var(--color-rust)"
                             : due === "today" ? "var(--color-amber)" : "var(--color-tan)",
                         }}>
-                          {t.due_date ? fmtDate(t.due_date) : "—"}
-                          {due === "today" ? " · today" : ""}
+                          {editing ? (
+                            <input
+                              type="date"
+                              value={rowDraft.due}
+                              onChange={(e) => setRowDraft((d) => ({ ...d, due: e.target.value }))}
+                              style={miniInputStyle}
+                            />
+                          ) : (
+                            <>
+                              {t.due_date ? fmtDate(t.due_date) : "—"}
+                              {due === "today" ? " · today" : ""}
+                            </>
+                          )}
                         </td>
                         <td style={{ textAlign: "center", padding: "14px 12px", color: "var(--color-tan)" }}>{STATUS_LABEL[t.status]}</td>
                         <td className="mono" style={{ textAlign: "center", padding: "14px 12px", color: "var(--color-tan)" }}>{logged}</td>
+                        {/* Who the submission was addressed to (096). An unnamed task
+                            falls back to the assigner, then the owners — say so rather
+                            than printing a bare dash the owner has to decode. */}
+                        <td style={{ textAlign: "center", padding: "14px 8px", color: "var(--color-tan)" }}>
+                          {t.review_requested_to
+                            ? (memberName[t.review_requested_to] ??
+                               (t.review_requested_to === currentUserId ? "You" : "—"))
+                            : t.assigned_by
+                              ? `${memberName[t.assigned_by] ?? "Assigner"} (default)`
+                              : "Owner (default)"}
+                        </td>
                         <td style={{ textAlign: "center", padding: "14px 8px" }}>
                           {t.review_status
                             ? <Chip size="sm" tone={VERDICT[t.review_status].tone} label={VERDICT[t.review_status].label} />
                             : <span style={{ color: "var(--color-tan)" }}>—</span>}
+                        </td>
+                        <td style={{ padding: "14px 8px", whiteSpace: "nowrap" }}>
+                          {!canEditRow ? (
+                            <span style={{ color: "var(--color-tan)" }}>—</span>
+                          ) : editing ? (
+                            <span style={{ display: "inline-flex", gap: 6 }}>
+                              <Button size="sm" disabled={busy || !rowDraft.title.trim()} onClick={() => saveRowEdit(t)}>
+                                {busy ? "…" : "Save"}
+                              </Button>
+                              <Button size="sm" variant="secondary" onClick={() => setEditRowId(null)}>Cancel</Button>
+                            </span>
+                          ) : (
+                            <span style={{ display: "inline-flex", gap: 4 }}>
+                              <button
+                                onClick={() => startRowEdit(t)}
+                                disabled={busy}
+                                title="Edit task"
+                                style={{ padding: 6, border: "none", background: "transparent", cursor: "pointer", color: "var(--color-tan)", display: "inline-flex", borderRadius: 8 }}
+                              >
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                </svg>
+                              </button>
+                              <ConfirmPopover
+                                title="Withdraw this task?"
+                                message={`This permanently removes "${t.title}" from ${memberName[t.user_id] ?? "the assignee"}'s list, along with any time they logged against it.`}
+                                onConfirm={() => deleteAssignedTask(t.id)}
+                              >
+                                {(open) => (
+                                  <button
+                                    onClick={open}
+                                    title="Delete task"
+                                    style={{ padding: 6, border: "none", background: "transparent", cursor: "pointer", color: "var(--color-tan)", display: "inline-flex", borderRadius: 8 }}
+                                  >
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                                      <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                                      <path d="M10 11v6M14 11v6M9 6V4h6v2"/>
+                                    </svg>
+                                  </button>
+                                )}
+                              </ConfirmPopover>
+                            </span>
+                          )}
                         </td>
                       </tr>
                     );
@@ -804,7 +1000,14 @@ export default function TasksClient({
       {/* To review */}
       {canAssign && tab === "review" && (
         <Card>
-          <CardTitle title="Awaiting your review" subtitle={`${review.length} submission${review.length === 1 ? "" : "s"}`} />
+          <CardTitle
+            title={isOwner ? "Awaiting review" : "Awaiting your review"}
+            subtitle={
+              isOwner
+                ? `${review.length} submission${review.length === 1 ? "" : "s"} across the team — you can sign off any of them`
+                : `${review.length} submission${review.length === 1 ? "" : "s"}`
+            }
+          />
           {review.length === 0 ? (
             <div style={{ textAlign: "center", padding: "50px 0", color: "var(--color-tan)", fontSize: 14 }}>
               Nothing is waiting for review.
@@ -831,6 +1034,17 @@ export default function TasksClient({
                         <span>{memberName[t.user_id] ?? "Team member"}</span>
                         {logged && <span className="mono">Logged {logged}</span>}
                         {t.submitted_at && <span>Submitted {fmtDate(t.submitted_at)}</span>}
+                        {/* An owner sees the whole queue, so they need to know when a
+                            submission was addressed to someone else before they sign
+                            it off ahead of the person who was asked. */}
+                        {t.review_requested_to && t.review_requested_to !== currentUserId && (
+                          <span style={{ color: "var(--color-amber)" }}>
+                            For {memberName[t.review_requested_to] ?? "another reviewer"}
+                          </span>
+                        )}
+                        {!t.review_requested_to && t.assigned_by && t.assigned_by !== currentUserId && (
+                          <span>For {memberName[t.assigned_by] ?? "the assigner"} (default)</span>
+                        )}
                       </div>
                     </div>
                     <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>

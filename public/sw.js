@@ -4,7 +4,7 @@
 //
 // IMPORTANT: bump CACHE_VERSION on every deploy that changes static assets.
 // Old caches are purged on activate, so the next launch picks up new CSS/JS.
-const CACHE_VERSION = "v7";
+const CACHE_VERSION = "v8";
 const STATIC_CACHE = `architectos-static-${CACHE_VERSION}`;
 
 // ── Lifecycle ────────────────────────────────────────────────────────
@@ -118,13 +118,42 @@ self.addEventListener("push", (event) => {
   };
 
   event.waitUntil(
-    self.registration.showNotification(payload.title ?? "ArchitectOS", options)
+    self.registration.showNotification(payload.title ?? "ArchitectOS", options).then(async () => {
+      // Keep the home-screen icon badge honest. Without this, iOS applies its
+      // own badge on the first push and never updates or clears it, so the icon
+      // sat on "1" regardless of how many notifications were actually waiting.
+      // Counting the notifications still on screen is the only count available
+      // here (the SW has no session to query the API with).
+      if (!self.registration.getNotifications || !navigator.setAppBadge) return;
+      try {
+        const open = await self.registration.getNotifications();
+        await navigator.setAppBadge(open.length);
+      } catch {
+        // Badge support is patchy; never let it break notification delivery.
+      }
+    })
   );
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const url = event.notification.data?.url ?? "/";
+
+  event.waitUntil(
+    // Recount after the tap so the badge drops as notifications are dismissed.
+    // The bell re-syncs it to the true unread count once the app is open.
+    (async () => {
+      if (self.registration.getNotifications && navigator.setAppBadge) {
+        try {
+          const open = await self.registration.getNotifications();
+          if (open.length > 0) await navigator.setAppBadge(open.length);
+          else if (navigator.clearAppBadge) await navigator.clearAppBadge();
+        } catch {
+          // Ignore — badge support is patchy and must not block navigation.
+        }
+      }
+    })()
+  );
 
   event.waitUntil(
     clients

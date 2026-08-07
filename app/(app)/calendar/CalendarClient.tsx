@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Icon, Card, CardTitle, Avatar } from "@/components/atoms";
+import { Icon, Card, CardTitle, Avatar, ConfirmPopover } from "@/components/atoms";
 import { PageHeader } from "../PageHeader";
 
 type CalEvent = {
@@ -16,6 +16,7 @@ type CalEvent = {
   project_id: string | null;
   enquiry_id: string | null;
   customer_id: string | null;
+  created_by: string | null;
 };
 
 type CalUpdate = {
@@ -125,27 +126,60 @@ const CornerArrow = () => (
   </button>
 );
 
-// Add-event modal
-function AddEventModal({ onClose, onCreated }: { onClose: () => void; onCreated: (e: CalEvent) => void }) {
-  const [title, setTitle] = useState("");
-  const [date, setDate] = useState("");
-  const [time, setTime] = useState("09:00");
-  const [description, setDescription] = useState("");
+/** Local YYYY-MM-DD / HH:mm for a stored instant, so the form reopens on the
+ *  wall-clock time the user set rather than a UTC-shifted one. */
+function splitLocal(iso: string): { date: string; time: string } {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return {
+    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+  };
+}
+
+// Add / edit event modal. `event` present = editing that row.
+function EventModal({ event, onClose, onSaved }: {
+  event: CalEvent | null;
+  onClose: () => void;
+  onSaved: (e: CalEvent) => void;
+}) {
+  const initial = event ? splitLocal(event.starts_at) : null;
+  const [title, setTitle] = useState(event?.title ?? "");
+  const [date, setDate] = useState(initial?.date ?? "");
+  const [time, setTime] = useState(initial?.time ?? "09:00");
+  const [description, setDescription] = useState(event?.description ?? "");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function submit() {
     if (!title.trim() || !date) return;
     setLoading(true);
+    setError(null);
     const starts_at = new Date(`${date}T${time}:00`).toISOString();
-    const res = await fetch("/api/calendar", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, starts_at, description: description.trim() || null, visibility: "tenant" }),
-    });
-    setLoading(false);
-    if (res.ok) {
-      onCreated(await res.json());
-      onClose();
+    const body = {
+      title: title.trim(),
+      starts_at,
+      description: description.trim() || null,
+      ...(event ? {} : { visibility: "tenant" }),
+    };
+    try {
+      const res = await fetch(event ? `/api/calendar/${event.id}` : "/api/calendar", {
+        method: event ? "PATCH" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        onSaved(await res.json());
+        onClose();
+      } else {
+        // A failed save used to close the modal silently and drop the edit.
+        const e = await res.json().catch(() => null);
+        setError(e?.error ?? `Could not save this event (${res.status}).`);
+      }
+    } catch {
+      setError("Network error — the event was not saved.");
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -176,9 +210,13 @@ function AddEventModal({ onClose, onCreated }: { onClose: () => void; onCreated:
         }}
       >
         <div>
-          <div className="font-serif" style={{ fontSize: 24, fontWeight: 400, letterSpacing: -0.3 }}>Add Event</div>
+          <div className="font-serif" style={{ fontSize: 24, fontWeight: 400, letterSpacing: -0.3 }}>
+            {event ? "Edit Event" : "Add Event"}
+          </div>
           <div style={{ fontSize: 12.5, color: "var(--color-tan)", marginTop: 4, lineHeight: 1.4 }}>
-            Create a calendar event visible to your whole team. Add an optional description for context.
+            {event
+              ? "Update this event. Everyone who can see it will see the change."
+              : "Create a calendar event visible to your whole team. Add an optional description for context."}
           </div>
         </div>
 
@@ -208,13 +246,23 @@ function AddEventModal({ onClose, onCreated }: { onClose: () => void; onCreated:
           />
         </div>
 
+        {error && (
+          <p style={{
+            fontSize: 12, color: "var(--color-rose)", margin: 0,
+            padding: "8px 12px", borderRadius: 8,
+            background: "rgba(196,106,106,0.08)", border: "1px solid rgba(196,106,106,0.2)",
+          }}>
+            {error}
+          </p>
+        )}
+
         <div style={{ display: "flex", gap: 10, marginTop: 2 }}>
           <button
             onClick={submit}
             disabled={loading || !title.trim() || !date}
             style={{ flex: 1, padding: 12, borderRadius: 10, background: "var(--color-forest)", color: "#FFF", fontSize: 13, fontWeight: 600, border: "none", cursor: "pointer", opacity: loading || !title.trim() || !date ? 0.5 : 1 }}
           >
-            {loading ? "Saving…" : "Add Event"}
+            {loading ? "Saving…" : event ? "Save Changes" : "Add Event"}
           </button>
           <button onClick={onClose} style={{ padding: "12px 18px", borderRadius: 10, border: "1px solid var(--color-line)", background: "none", fontSize: 13, cursor: "pointer", color: "var(--color-tan)" }}>Cancel</button>
         </div>
@@ -316,7 +364,7 @@ function DayUpdatesCard({ day, month, year, updates }: {
   );
 }
 
-export default function CalendarClient({ initial, initialUpdates, initialYear, initialMonth, todayYear, todayMonth, todayDate }: {
+export default function CalendarClient({ initial, initialUpdates, initialYear, initialMonth, todayYear, todayMonth, todayDate, currentUserId, canManageAll }: {
   initial: CalEvent[];
   initialUpdates: CalUpdate[];
   initialYear: number;
@@ -324,6 +372,9 @@ export default function CalendarClient({ initial, initialUpdates, initialYear, i
   todayYear: number;
   todayMonth: number;
   todayDate: number;
+  currentUserId: string;
+  /** Holds calendar:create_for_others — may edit anyone's event, not just their own. */
+  canManageAll: boolean;
 }) {
   // "Today" is computed on the server and passed in as props. Calling
   // `new Date()` during render here would make the server and client disagree
@@ -337,7 +388,45 @@ export default function CalendarClient({ initial, initialUpdates, initialYear, i
   const [updates, setUpdates] = useState<CalUpdate[]>(initialUpdates);
   const [filterType, setFilterType] = useState<string>("all");
   const [adding, setAdding] = useState(false);
+  // The event currently open for editing. Separate from `adding` so the modal
+  // knows which of the two jobs it is doing.
+  const [editingEvent, setEditingEvent] = useState<CalEvent | null>(null);
   const [loading, setLoading] = useState(false);
+  const [eventError, setEventError] = useState<string | null>(null);
+
+  /** Trigger-generated events (reminders, tasks, checkpoints) are projections of
+   *  another record — sync_reminder_to_calendar() rewrites them whenever the
+   *  source moves, so an edit here would silently revert. Only events someone
+   *  actually created in this UI (source_type IS NULL) are editable, and only by
+   *  their author or a calendar:create_for_others holder — the same rule
+   *  calendar_events_update (026) enforces in the database. */
+  function canEdit(e: CalEvent): boolean {
+    if (e.source_type) return false;
+    return canManageAll || (!!e.created_by && e.created_by === currentUserId);
+  }
+
+  async function deleteEvent(id: string) {
+    setEventError(null);
+    try {
+      const res = await fetch(`/api/calendar/${id}`, { method: "DELETE" });
+      if (res.ok || res.status === 204) {
+        setEvents((prev) => prev.filter((e) => e.id !== id));
+      } else {
+        const e = await res.json().catch(() => null);
+        setEventError(e?.error ?? `Could not delete the event (${res.status}).`);
+      }
+    } catch {
+      setEventError("Network error — the event was not deleted.");
+    }
+  }
+
+  function upsertEvent(saved: CalEvent) {
+    setEvents((prev) =>
+      prev.some((e) => e.id === saved.id)
+        ? prev.map((e) => (e.id === saved.id ? saved : e))
+        : [...prev, saved]
+    );
+  }
 
   const weeks = weeksOf(year, month);
 
@@ -408,11 +497,22 @@ export default function CalendarClient({ initial, initialUpdates, initialYear, i
         }
       `}</style>
 
-      {adding && (
-        <AddEventModal
-          onClose={() => setAdding(false)}
-          onCreated={(e) => { setEvents((prev) => [...prev, e]); }}
+      {(adding || editingEvent) && (
+        <EventModal
+          event={editingEvent}
+          onClose={() => { setAdding(false); setEditingEvent(null); }}
+          onSaved={upsertEvent}
         />
+      )}
+
+      {eventError && (
+        <p style={{
+          fontSize: 12, color: "var(--color-rose)", margin: "0 0 16px",
+          padding: "10px 14px", borderRadius: 10,
+          background: "rgba(196,106,106,0.08)", border: "1px solid rgba(196,106,106,0.2)",
+        }}>
+          {eventError}
+        </p>
       )}
 
       <PageHeader
@@ -575,7 +675,35 @@ export default function CalendarClient({ initial, initialUpdates, initialYear, i
                               <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--color-tan)" }}>{fmt(e.ends_at)}</div>
                             )}
                           </div>
-                          {href ? <Link href={href} style={{ textDecoration: "none" }}>{inner}</Link> : inner}
+                          <div>
+                            {href ? <Link href={href} style={{ textDecoration: "none" }}>{inner}</Link> : inner}
+                            {canEdit(e) && (
+                              <div style={{ display: "flex", gap: 4, marginTop: 6, justifyContent: "flex-end" }}>
+                                <button
+                                  onClick={() => setEditingEvent(e)}
+                                  title="Edit event"
+                                  style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid var(--color-line)", background: "transparent", color: "var(--color-tan)", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}
+                                >
+                                  Edit
+                                </button>
+                                <ConfirmPopover
+                                  title="Delete this event?"
+                                  message={`"${e.title}" will be removed from everyone's calendar. This cannot be undone.`}
+                                  onConfirm={() => deleteEvent(e.id)}
+                                >
+                                  {(open) => (
+                                    <button
+                                      onClick={open}
+                                      title="Delete event"
+                                      style={{ padding: "4px 10px", borderRadius: 8, border: "1px solid var(--color-line)", background: "transparent", color: "var(--color-tan)", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}
+                                    >
+                                      Delete
+                                    </button>
+                                  )}
+                                </ConfirmPopover>
+                              </div>
+                            )}
+                          </div>
                         </div>
                       );
                     })}

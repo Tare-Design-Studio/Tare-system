@@ -44,6 +44,23 @@ export function NotificationBell() {
   const visibleItems = items.filter(r => !r.is_read);
   const unreadCount = visibleItems.length;
 
+  // Keep the PWA home-screen icon badge in step with the real unread count.
+  // The service worker never set it, so on iOS the OS applied its own "1" on
+  // the first push and nothing ever cleared it — the icon read "1" no matter
+  // how many notifications were actually unread, or whether any were.
+  // setAppBadge is unsupported on desktop Safari and older Android; the guard
+  // keeps this a no-op there rather than throwing.
+  useEffect(() => {
+    const nav = navigator as Navigator & {
+      setAppBadge?: (n?: number) => Promise<void>;
+      clearAppBadge?: () => Promise<void>;
+    };
+    if (!nav.setAppBadge) return;
+    // Errors are swallowed: a failed badge update must never break the bell.
+    if (unreadCount > 0) void nav.setAppBadge(unreadCount).catch(() => {});
+    else void nav.clearAppBadge?.().catch(() => {});
+  }, [unreadCount]);
+
   const fetchNotifications = useCallback(async () => {
     setLoading(true);
     const res = await fetch("/api/notifications?limit=30");
@@ -57,7 +74,10 @@ export function NotificationBell() {
   // Initial fetch
   useEffect(() => { fetchNotifications(); }, [fetchNotifications]);
 
-  // Realtime subscription — reacts to INSERT on notification_recipients
+  // Realtime subscription — reacts to INSERT and UPDATE on
+  // notification_recipients. UPDATE matters because a collapsed bridge thread
+  // is raised again by flipping is_read back to false (099), and cleared by
+  // flipping it true from another tab — neither is an INSERT.
   useEffect(() => {
     const sb = supabaseRef.current;
     // Generate a unique channel name to prevent conflicts if useEffect re-runs quickly
@@ -66,7 +86,7 @@ export function NotificationBell() {
       .channel(channelName)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "notification_recipients" },
+        { event: "*", schema: "public", table: "notification_recipients" },
         () => { fetchNotifications(); }
       )
       .subscribe();

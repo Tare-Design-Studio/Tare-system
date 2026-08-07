@@ -1,5 +1,156 @@
 # PROJECT_STATE.md
-(Updated: 2026-08-06 — team UI redesign + tasks in the updates feed; migration 096 APPLIED)
+(Updated: 2026-08-07 — task edit/delete/reassign + owner task view + editable calendar; migration 100 APPLIED)
+
+### Tasks: assigner edit/delete, owner-wide view, editable calendar events (2026-08-07)
+
+**Migration 100 APPLIED 2026-08-07** through `scripts/migrate.ts`, rehearsed in a rolled-back
+transaction first, ledger verified. `tsc` clean, `npm run build` passes. See SCHEMA.md 100 for the
+policy/trigger record.
+
+- **Assigner can now edit and delete.** "Assigned by me" rows gained inline edit (title, assignee,
+  due date) and a delete confirm. Previously the surface was write-once — a typo meant asking the
+  member to delete their own row. Only the assigner sees the controls
+  (`t.assigned_by === currentUserId`); an owner watching the whole firm cannot rewrite work somebody
+  else handed out.
+- **Reassignment resets the clock.** Enforced in the trigger, not the API — the new person must not
+  inherit the previous member's logged hours, which feed the performance algorithm.
+- **The owner's task page was not broken, it was empty.** Both live owners already hold
+  `tasks:assign` *and* `daily_tasks:view_all`, so RLS was never the blocker; `page.tsx` was filtering
+  the assign tab to `assigned_by = me`, and the owner had assigned nothing. Owners now see **every**
+  task in the tenant ("All tasks") and the whole review queue. This is a widened VIEW, not widened
+  rights — the rows were already readable via `owner_view_member_tasks` and reviewable via
+  `owner_review_tasks`.
+- **Reviewer is now visible and editable.** The assign table shows who each submission was addressed
+  to, falling back to "<assigner> (default)" / "Owner (default)" rather than a bare dash. A member
+  can change their chosen reviewer *while the task is still pending* — locked once a verdict exists,
+  since re-pointing a closed task would reattribute somebody's sign-off. Per the client: the owner
+  keeps seeing everything, including work addressed to someone else, so they know what is going on.
+- **Fixed in passing:** the non-owner review query on `page.tsx` handed every pending task to any
+  assigner, but `PATCH` then 403s on tasks addressed elsewhere (096). It now mirrors the API's
+  `GET ?scope=review` rules, so the page no longer renders buttons that cannot work.
+- **Calendar events are editable** by whoever may create them — `PATCH`/`DELETE /api/calendar/[id]`,
+  plus an edit/delete pair on each event card and a combined Add/Edit modal. **No migration needed:**
+  026 already admits `created_by` or a `calendar:create_for_others` holder.
+  - **Trigger-generated events are deliberately read-only** (`source_type IS NOT NULL` → 409).
+    `sync_reminder_to_calendar()` rewrites a reminder event whenever the source row moves, so an edit
+    would silently revert and a delete would orphan the reminder. Live data: 4 manual, 1 reminder.
+  - A failed save used to close the modal and drop the edit silently; it now shows the error and
+    keeps the form open.
+- **`.sr-only`** added to `globals.css` — it did not exist, and the new actions column needs an
+  accessible header.
+
+**Incident during this session:** a `git stash` to test a lint baseline died on signal 10, leaving a
+stale `.git/index.lock` and reverting four working-tree files plus emptying
+`app/api/calendar/route.ts`. All were recovered from the stash commit (including this file's Bridge
+section, which was uncommitted and briefly lost). **Everything in the working tree is uncommitted —
+commit before running any further stash/reset.**
+
+**Not done / known:**
+- [ ] **None of this has been seen in a browser.** Same blocker as the Bridge work: the routes are
+      behind a login and there are no test credentials. Claims rest on the migration rehearsal, live
+      SQL verification, `tsc` and `npm run build` — **not** on watching the UI work. Needs one
+      authenticated pass over: assigner edit/reassign, assigner delete, the owner's "All tasks" tab,
+      the member's reviewer dropdown, and calendar edit/delete.
+- [ ] Reassigning silently discards the previous member's logged time (by design, see SCHEMA.md) but
+      the UI does not warn before it happens. Worth a confirm step if it bites anyone.
+- [ ] The assign table now has 10 columns and scrolls horizontally on a phone. It was already
+      `overflow-x: auto`; no phone-specific layout was added for the new columns.
+
+(Previous: 2026-08-07 — Bridge rebuilt as a real chat; migrations 097 + 098 + 099 APPLIED)
+
+### Bridge — realtime, unread, notifications (2026-08-07)
+
+Client asked for Bridge to work "like Slack, but simple for this firm". Ran the `effortless` skill.
+**Migrations 098 and 099 APPLIED 2026-08-07** — see SCHEMA.md for the record and the live verification.
+The DB is now ahead of the deployed code, which is the safe direction. `tsc` clean, `npm run build`
+passes, no new eslint findings.
+
+**097 was replayed in the same run** — on disk but missing from `_migrations`, and its effect really
+was undone (`offices` RLS-enabled but unforced). Now forced; zero tables in `public` are
+enabled-but-unforced. Third instance of this ledger-drift class after 094/095.
+
+**The headline finding: messages never arrived.** `bridge_messages` was not in the realtime
+publication (071 lists 19 tables; this was not one), and `RealtimeRefresher` mapped `/bridge` to
+`projects` + `project_assignments` — the two tables whose changes do not matter there. A sent message
+was invisible to everyone else until they reloaded the page. There was also no notification path at
+all (041 only generates personal-reminder notifications). Bridge was a shared notepad, not a chat.
+
+- **Live messages** (098). `BridgeClient` holds its **own** subscription rather than joining
+  `RealtimeRefresher` — that component calls `router.refresh()`, which would re-run the page's server
+  components on every chat message and fight the optimistic append. The `/bridge` entry in
+  `ROUTE_TABLES` is deliberately left without `bridge_messages`, with a comment saying why.
+- **Unread + recency** (098). New `bridge_reads` table, `GET/POST /api/bridge/reads`. The project list
+  sorts unread first, then most-recent-message; alphabetical order buried the thread you were just in
+  at position 40 of 56. Search appears past 8 projects. Counts derive at read time.
+- **Notifications** (099). Assignees + owners, minus author; **one live notification per thread**,
+  revived when the thread moves again; cleared for that user alone when they open it. In-app bell
+  only — no web push until real volume is known. Full rationale in SCHEMA.md.
+  - `NotificationBell` now subscribes to `event: "*"` instead of `INSERT`. Clearing and reviving are
+    both UPDATEs, so the badge would otherwise have gone stale on both.
+- **Compose is one box.** The three type buttons (Text / Material Request / Clarification) forced a
+  decision before every message when ~99% are plain text. Material Request and Clarification moved
+  behind a `+`; the 020 trigger that drafts a `material_plan` row is untouched, just off the hot path.
+- **Optimistic send.** The message appears immediately and reconciles when the insert returns. A
+  failed send previously **vanished silently** (`if (res.ok)` with no `else`) — it now stays on screen
+  with a red border and "Not sent".
+- **Field-context floor** (the site engineer sets it): 44px targets throughout (type buttons were
+  ~22px, under the WCAG 2.5.8 minimum), 15–16px body text (was 13px), Enter sends / Shift+Enter
+  newlines (the old ⌘Enter-only binding meant nothing on a phone), phone-collapsible project list with
+  a total-unread badge. Also added day separators and "You" on own messages.
+- **Realtime subscription bug, found and fixed in-session.** First cut used a stable channel name and
+  depended on `activeProjectId`, so switching project re-attached `.on()` to an
+  already-subscribed cached-singleton channel: *"cannot add `postgres_changes` callbacks for
+  realtime:bridge_messages_live after `subscribe()`"*. Now subscribes once per mount under a random
+  channel name, reading changing values through a ref.
+- **`agent-browser` installed** as a devDependency (0.27.0) for this project. Smoke-tested.
+
+**Phone pass + notification badge fix (same day, later):**
+
+- **The phone layout was genuinely broken and is now measured, not guessed.** The shell pads
+  `.mobile-main` 120px for the fixed `MobileNav`, so the composer sat *under* the nav and the message
+  list never scrolled — it grew and pushed the input off-screen. Two causes, both fixed:
+  1. `min-height: 0` reached `.bridge-thread` but not the card inside it. A flex item defaults to
+     `min-height: auto` and refuses to shrink below its content, so the list could not scroll.
+  2. The chrome allowance counted the header but **not the nav**. Now composed from measured parts:
+     top inset + 107px header + 64px nav + bottom safe-area, with a `display-mode: standalone`
+     variant because the shell floors its top padding at 47px there.
+  Verified in a standalone harness at 390×844, 375×667 and 412×915: composer clears the nav (29px
+  gap) and the message list scrolls in all three. **The harness is not the app** — the real page is
+  behind a login, so this proves the CSS math, not the finished screen.
+- **Project picker is a native `<select>` on phones** (per request), sidebar retained on desktop. The
+  OS picker is scrollable, type-ahead and one-thumb, and costs no vertical space in a chat view.
+  Unread counts ride in the option label (`(3) Rehman Villa`) since a `<select>` cannot hold a badge.
+  Removed the now-orphaned `listOpen` state and `totalUnread` memo that only fed the old toggle.
+- **The "always 1" phone badge.** Not a bell bug — the bell renders a dot with no number. It was the
+  **PWA home-screen icon badge**: `sw.js` never called `setAppBadge`, so iOS applied its own "1" on
+  the first push and nothing ever updated or cleared it. Confirmed against production: 18 live push
+  subscriptions, real unread counts of 8 / 6 / 1 per user, all showing "1" on the icon.
+  - `sw.js` now sets the badge from `getNotifications().length` on push and recounts on
+    `notificationclick`; `NotificationBell` re-syncs it to the true unread count while the app is
+    open and calls `clearAppBadge()` at zero. All guarded — `setAppBadge` is unsupported on desktop
+    Safari and older Android, and a badge failure must never break notification delivery.
+  - **`CACHE_VERSION` bumped v7 → v8**, required or phones keep the old service worker.
+
+**Not done / known:**
+- [x] **098 + 099 applied 2026-08-07**, rehearsed in a rolled-back transaction first. The trigger's
+      recipient set, the per-thread collapse and the unread → read → **revived** cycle were each
+      confirmed against real production rows (rolled back). Post-apply: every object verified live and
+      no rehearsal data leaked.
+- [ ] **The signed-in page has still never been opened.** `agent-browser` is installed and reaches
+      `/bridge`, but the route 307s to `/login` and I have no test credentials — so the UI claims
+      (sidebar, optimistic send, live append, bell clearing) rest on build + source review, **not** on
+      watching them work. Needs one authenticated two-browser pass.
+- [ ] `clear_bridge_notification()` was not itself executed in the rehearsal — it keys on `auth.uid()`,
+      null on a direct connection, so the clear was simulated with the equivalent UPDATE.
+- [ ] **Bell rows are not clickable** — `NotificationBell` renders no link, so a bridge notification
+      cannot be tapped through to its thread. Pre-existing and affects every notification type, so it
+      was flagged rather than fixed. `notifications.url` exists and is unused.
+- [ ] Completed projects stay hidden from Bridge (shipped deliberately 2026-08-05); their threads are
+      unreachable, owner included.
+- [ ] `/bridge` still shows no unread count in the nav. The data now exists; it needs a fetch in the
+      layout.
+
+(Previous: 2026-08-06 — team UI redesign + tasks in the updates feed; migration 096 APPLIED)
 
 ### Migration 096 applied (2026-08-06)
 
@@ -683,7 +834,25 @@ Triggered by Transcripts.md (OWASP/IDOR/dependency/CI guidance). Findings + fixe
 ### PWA + Mobile (2026-05-16)
 
 ## Current Phase: Phase 10 — Project management UX & workflow refactor (in progress)
-(Updated: 2026-05-14)
+(Updated: 2026-08-06)
+
+### Team & Access — UX pass (2026-08-06)
+
+**`/settings/access-matrix`**
+- Removed the per-toggle `ConfirmPopover` on every capability checkbox and on the tag select. They guarded nothing — edits are staged in local state and only the Save button reaches the API. Granting 10 capabilities cost 21 confirmations; it now costs 11 clicks and one confirm.
+- Deleted the bottom "Capabilities" card (`CapabilityCards`, `groupCapabilities`, `actionLabel`, `CATEGORY_LABELS` in `page.tsx`). It rendered all ~100 capabilities as green ticks with `grantedSet={() => true}` — a screenful restating "the Owner is the Owner".
+- Added a search filter (`.capSearch`) over the ~100-capability grid + per-category `granted/total` counts.
+- Tag `<select>` is now **absent** for site engineers instead of disabled with a `title` tooltip.
+- Capability rows are `.capToggle` (min-height 28px, 16px checkbox) — a bare checkbox is ~13px, under the WCAG 2.5.8 24px floor.
+- `save()` drops each member from `edits` as its PATCH lands, so a mid-loop failure no longer re-posts already-applied changes; the error names the member.
+
+**`/team`**
+- Invite button shows a visible "Invite" label (collapses to a 40px icon ≤640px like its siblings). It was icon-only and needed a `title` to be understood.
+- Roster row: `role="button"`/`tabIndex` removed from the container — it wrapped the Tags and Manage menus, which is an invalid ARIA nesting and flattened the row to one label for AT. The member name is now a real `<button>` (`.rosterNameButton`).
+- **Grade is no longer derived from attendance alone.** `memberScore()` returned `consistencyScore` (days×4 + hours + check-ins×2) when a member had completed no tasks — an A for sitting in the office. It now returns `null`; roster/modal show `—` and the leaderboard excludes unscored members. `MemberDetail.score` is `number | null`.
+- `--aos-muted` in `team-access.module.css` darkened `#8A857B` → `#69645A`. The tan was 3.46:1 on card paper (AA needs 4.5:1) and carries data: role label, "3 active", presence, filter tabs. Now 5.55:1 on paper-light / 4.78:1 on `--bg-2`. **One line — revert to `var(--color-tan)` if the mock mandates the lighter tan.**
+
+**Known, not changed:** `CapRow` in `AccessMatrixEditor.tsx` is pre-existing dead code. `ProjectCategoryAccess` saves optimistically with no confirm while the capability grid requires Save — two models on one page. "My tasks today" (the owner's personal log) sits on the team-management page.
 
 ### PWA + Mobile (2026-05-16)
 

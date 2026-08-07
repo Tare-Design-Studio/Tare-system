@@ -27,6 +27,9 @@ const patchSchema = z.object({
   review_status: z.enum(["clean", "revision", "error"]).optional(),
   // Re-point a task at a different project (or unlink it). Null = personal chore.
   project_id: z.string().uuid().nullable().optional(),
+  // Move an assigned task to a different member (100). Assigner-only; the guard
+  // trigger resets the lifecycle so the new person does not inherit a clock.
+  assignee_id: z.string().uuid().optional(),
   // Who the member wants to review this task (096). Null = no one named, which
   // keeps 083's routing (assigner, falling back to the owners).
   review_requested_to: z.string().uuid().nullable().optional(),
@@ -51,6 +54,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (body.tag) update.tag = body.tag;
   if (body.drawing_role !== undefined) update.drawing_role = body.drawing_role;
   if (body.project_id !== undefined) update.project_id = body.project_id;
+  // Reassignment writes user_id. guard_member_task_review() (100) validates the
+  // target and clears the lifecycle; nothing here needs to replicate that.
+  if (body.assignee_id !== undefined) update.user_id = body.assignee_id;
   if (body.review_requested_to !== undefined) update.review_requested_to = body.review_requested_to;
   // Bare due_date edit (no action) — members dating their own task.
   if (!body.action && body.due_date !== undefined) update.due_date = body.due_date;
@@ -170,18 +176,23 @@ export async function PATCH(req: Request, { params }: Ctx) {
     .eq("id", id)
     .maybeSingle();
 
-  // An assigner may re-point the task they handed out at a different project —
-  // they chose the project when assigning, so they own that decision afterwards
-  // too. Narrow on purpose: project_id is the ONLY field this path may touch, so
-  // an assigner cannot rename, tick, or re-date someone else's task. Anything
-  // else in the same body falls back to the self-scoped write below and 404s.
-  const isAssignerProjectEdit =
+  // An assigner may correct the task they handed out — they authored it, so they
+  // own its wording, its dates and who it belongs to. Widened from project_id
+  // alone (pre-100) to the full set of fields that describe the assignment.
+  //
+  // Still an allowlist, not a free-for-all: `completed`, the lifecycle actions
+  // and the review verdict are absent on purpose. Ticking, accepting, starting
+  // and submitting are the assignee's acts — an assigner marking someone's work
+  // done would fabricate a completion — and review has its own gated path above.
+  const ASSIGNER_EDITABLE = ["title", "tag", "due_date", "project_id", "user_id"] as const;
+  const isAssignerEdit =
     !isReview &&
-    body.project_id !== undefined &&
-    Object.keys(update).length === 1;
+    !body.action &&
+    Object.keys(update).length > 0 &&
+    Object.keys(update).every((k) => (ASSIGNER_EDITABLE as readonly string[]).includes(k));
 
   let assignerOwnsTask = false;
-  if (isAssignerProjectEdit) {
+  if (isAssignerEdit) {
     const { data: target } = await supabase
       .from("member_tasks")
       .select("user_id, assigned_by")
@@ -194,6 +205,16 @@ export async function PATCH(req: Request, { params }: Ctx) {
       const { data: canAssign } = await supabase.rpc("has_capability", { p_capability: "tasks:assign" });
       assignerOwnsTask = canAssign === true;
     }
+  }
+
+  // Reassignment is an assigner-only act. Reaching here on the self-scoped path
+  // would mean a member trying to push their own task onto someone else, which
+  // the guard trigger rejects with a raw exception — a 400 reads better.
+  if (body.assignee_id !== undefined && !assignerOwnsTask) {
+    return NextResponse.json(
+      { error: "Only the person who assigned this task can reassign it" },
+      { status: 403 }
+    );
   }
 
   // Owner review targets any tenant task (RLS owner_review_tasks); member actions
@@ -235,12 +256,38 @@ export async function DELETE(_req: Request, { params }: Ctx) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { error } = await supabase
+  // Two ways to delete a task: it is yours (member_own_tasks), or you assigned it
+  // to someone else and are withdrawing it (assigner_delete_tasks, 100). Both are
+  // RLS policies; the filter below only decides which rows we aim at, and RLS
+  // remains the thing that authorises the write.
+  //
+  // Tried self-scoped first so a member deleting their own row keeps the exact
+  // behaviour it had before 100, with no extra round-trip.
+  const { data: mine, error } = await supabase
     .from("member_tasks")
     .delete()
     .eq("id", id)
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .select("id")
+    .maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (mine) return new NextResponse(null, { status: 204 });
+
+  // Not our own row — fall back to the assigner path. assigner_delete_tasks
+  // additionally requires tasks:assign, so a bare assigned_by match is not
+  // enough on its own and RLS will refuse if the capability was revoked.
+  const { data: assigned, error: assignErr } = await supabase
+    .from("member_tasks")
+    .delete()
+    .eq("id", id)
+    .eq("assigned_by", user.id)
+    .neq("user_id", user.id)
+    .select("id")
+    .maybeSingle();
+
+  if (assignErr) return NextResponse.json({ error: assignErr.message }, { status: 500 });
+  if (!assigned) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
   return new NextResponse(null, { status: 204 });
 }

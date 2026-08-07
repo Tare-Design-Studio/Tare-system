@@ -26,7 +26,7 @@ export async function GET(req: Request) {
 
   const { data, error } = await supabase
     .from("calendar_events")
-    .select("id, title, description, starts_at, ends_at, visibility, source_type, source_id, project_id, enquiry_id, customer_id, assigned_user_id")
+    .select("id, title, description, starts_at, ends_at, visibility, source_type, source_id, project_id, enquiry_id, customer_id, assigned_user_id, created_by")
     .gte("starts_at", startOf.toISOString())
     .lt("starts_at", endOf.toISOString())
     .order("starts_at", { ascending: true });
