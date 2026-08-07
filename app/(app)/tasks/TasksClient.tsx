@@ -810,8 +810,14 @@ export default function TasksClient({
               {isOwner ? "Nobody has any tasks yet." : "You have not assigned any tasks yet."}
             </div>
           ) : (
-            <div style={{ overflowX: "auto" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            // minWidth:0 is load-bearing. Card sets overflow:hidden but not a
+            // min-width, and a grid/flex child defaults to min-width:auto — it
+            // refuses to shrink below its content, so a 10-column table stretched
+            // the whole card past the viewport and the page scrolled sideways
+            // instead of this div. maxWidth:100% pins it to the card; the table
+            // then needs an explicit min-width or it just squashes.
+            <div style={{ overflowX: "auto", minWidth: 0, maxWidth: "100%", WebkitOverflowScrolling: "touch" }}>
+              <table style={{ width: "100%", minWidth: 1040, borderCollapse: "collapse", fontSize: 12 }}>
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--color-line)" }}>
                     {["Task", "Assignee", "Project", "Type", "Due", "Status", "Logged", "Reviewer", "Verdict", "Actions"].map((h) => (
@@ -820,6 +826,10 @@ export default function TasksClient({
                         padding: "8px 12px 12px",
                         fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase",
                         letterSpacing: 0.6, fontWeight: 500, whiteSpace: "nowrap",
+                        // Without a floor the title column collapses to ~99px and
+                        // wraps to four lines, dragging every other cell's row
+                        // height with it even though they are nowrap.
+                        ...(h === "Task" ? { minWidth: 220 } : null),
                       }}>
                         {/* The actions column is self-evident from its buttons; the
                             label is there for screen readers, not for the eye. */}
@@ -841,6 +851,9 @@ export default function TasksClient({
                     // watching the whole firm still cannot rewrite work somebody else
                     // handed out — they would get a 404 from the self-scoped path.
                     const canEditRow = t.assigned_by === currentUserId;
+                    // "Finished" means either flag: review closes a task by
+                    // setting status, the tick path sets `completed`.
+                    const isClosed = t.completed || t.status === "completed";
                     return (
                       <tr key={t.id} style={{ borderBottom: i < assigned.length - 1 ? "1px solid var(--color-line)" : "none" }}>
                         <td className="font-serif" style={{ padding: "14px 12px", fontSize: 16, color: "var(--color-ink)" }}>
@@ -859,7 +872,7 @@ export default function TasksClient({
                             t.title
                           )}
                         </td>
-                        <td style={{ padding: "14px 12px" }}>
+                        <td style={{ padding: "14px 12px", whiteSpace: "nowrap" }}>
                           {editing ? (
                             <select
                               value={rowDraft.assignee}
@@ -883,9 +896,12 @@ export default function TasksClient({
                         </td>
                         {/* The assigner picked the project, so they can change it
                             here. Locked once the work is closed — re-pointing a
-                            finished task would move history between projects. */}
+                            finished task would move history between projects.
+                            Tested on both flags: a task closed through review is
+                            status='completed', and the tick path sets `completed`.
+                            Either alone leaves a live dropdown on a finished row. */}
                         <td style={{ textAlign: "center", padding: "14px 8px" }}>
-                          {t.completed ? (
+                          {isClosed ? (
                             <span style={{ color: t.project_id ? "var(--color-forest)" : "var(--color-tan)" }}>
                               {t.project_id ? projectName[t.project_id] ?? "—" : "—"}
                             </span>
@@ -906,7 +922,7 @@ export default function TasksClient({
                           <Chip size="sm" tone={TAG_TONE[t.tag]} label={TAG_LABEL[t.tag]} />
                         </td>
                         <td className="mono" style={{
-                          textAlign: "center", padding: "14px 12px",
+                          textAlign: "center", padding: "14px 12px", whiteSpace: "nowrap",
                           color: overdue
                             ? "var(--color-rust)"
                             : due === "today" ? "var(--color-amber)" : "var(--color-tan)",
@@ -930,7 +946,7 @@ export default function TasksClient({
                         {/* Who the submission was addressed to (096). An unnamed task
                             falls back to the assigner, then the owners — say so rather
                             than printing a bare dash the owner has to decode. */}
-                        <td style={{ textAlign: "center", padding: "14px 8px", color: "var(--color-tan)" }}>
+                        <td style={{ textAlign: "center", padding: "14px 8px", color: "var(--color-tan)", whiteSpace: "nowrap" }}>
                           {t.review_requested_to
                             ? (memberName[t.review_requested_to] ??
                                (t.review_requested_to === currentUserId ? "You" : "—"))

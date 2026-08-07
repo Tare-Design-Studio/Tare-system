@@ -908,6 +908,16 @@
   min-width: 0;
 }
 
+/* Left column: members card, then broadcasts directly beneath at the same width.
+   min-width:0 matters — without it a wide child (the roster's inner scroller)
+   would refuse to shrink and push the grid past the viewport on phones. */
+.mainStack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
 /* Members list is capped and scrolls internally so the sidebar stays visible
    on studios with many members. */
 .memberScroll {

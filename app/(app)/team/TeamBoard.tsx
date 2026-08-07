@@ -168,6 +168,10 @@ export function TeamBoard({
       </div>
 
       <div className={styles.teamGrid}>
+        {/* Left column: members, then broadcasts directly beneath it at the same
+            width. Broadcasts used to live in the right-hand sideStack; it reads
+            as a team-wide surface, not a sidebar widget. */}
+        <div className={styles.mainStack}>
         <div className={styles.card}>
           {/* The provider renders the card title and owns the edit-mode toggle
               that reveals each row's MemberManageMenu. */}
@@ -326,12 +330,10 @@ export function TeamBoard({
           </p>
         </div>
 
-        <div className={styles.sideStack}>
-          {/* Broadcasts leads the sidebar. At ≤1100px teamGrid collapses to one
-              column and the stack follows DOM order, so this is also what sits
-              directly under the members card on a phone. */}
-          {children}
+        {children}
+        </div>
 
+        <div className={styles.sideStack}>
           {canSeePerformance && (
           <div className={styles.card}>
             <div className={styles.cardTitle}>

@@ -18,6 +18,11 @@ export function Card({ children, style, className, onClick }: CardProps) {
         boxShadow: "var(--shadow-card)",
         border: "1px solid var(--color-line)",
         overflow: "hidden",
+        // A grid/flex child defaults to min-width:auto and will not shrink below
+        // its content, so a wide child (a many-column table) pushed the card past
+        // the viewport and scrolled the page sideways on phones. Overridable via
+        // `style` for the rare card that must size to its content.
+        minWidth: 0,
         ...style,
       }}
     >
