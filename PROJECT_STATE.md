@@ -1,5 +1,171 @@
 # PROJECT_STATE.md
-(Updated: 2026-08-07 — attendance IST fix + auto check-out; migration 101 APPLIED)
+(Updated: 2026-08-13 — leaderboard fix, uncapped efficiency points, comp-off credits; migrations 102 + 103)
+
+### Edit-project modal: team list showed inconsistently (2026-08-13, NO migration)
+
+Client: assigned members and site engineers were not showing in the Edit Project popover, and newly
+added ones vanished before saving. Data was fine — verified 32 assignments all resolving to live
+users in the same tenant, so the join filter `.filter(a => a.users)` was never the cause.
+
+Two bugs in `app/(app)/projects/[id]/EditProjectModal.tsx`, both from `openModal` setting
+`usersLoaded=false` on every open to force a refetch:
+- **Refetch clobbered unsaved adds.** The `.then` did `setTeamEntries(entries)` unconditionally.
+  A member added but not yet saved has no `assignment_id` and exists only in local state, so the
+  refetch overwrote it. Now merges: server rows plus any pending add not already on the server.
+- **Existing members hid behind "Loading…".** `usersLoaded=false` swapped the whole team block for
+  a spinner on *every* reopen, so an assigned roster read as absent for the length of the fetch —
+  and as "No team members assigned" if the fetch failed. The spinner is now limited to a cold open
+  (`!usersLoaded && teamEntries.length === 0`), and the empty-state line waits for `usersLoaded`.
+- **Known, left as-is:** an unsaved *removal* is reverted by a refetch (the merge preserves pending
+  adds, not pending removals). Fails safe — it drops an unconfirmed removal rather than deleting an
+  assignment — and only triggers on reopen-after-remove-without-saving.
+- Merge and submit-diff logic covered by a 6-case throwaway harness (both reported symptoms, the
+  duplicate-after-save case, and the add/remove diffs); all pass.
+
+### Comp-off credits: earn +1 leave day for weekend/holiday work (2026-08-13)
+
+Client: team members should be able to raise their own leave count — "a plus button with reason or
+remarks" on the leave card for a Saturday/Sunday worked. Framed as "plus and minus": taking leave
+spends the balance, working a non-working day earns it back.
+
+- **Migration 103** — new `comp_off_credits` table + `v_leave_balance` recreated so entitlement is
+  `annual_leave_days + approved credits`. See SCHEMA.md for constraints and why it is a separate
+  table from `leave_requests`.
+- **Approval-gated by design.** The obvious build — plus button increments the balance — would have
+  been the first self-service path to grant your own entitlement, exactly what `guard_leave_decision`
+  (088) and the 086 self-review block exist to prevent. A claim lands `pending` and only becomes a
+  day after an approver with `leave:approve` decides it. Confirmed with a live probe that the owner
+  cannot approve their own claim despite holding the capability.
+- **Member UI** — `+` button beside "Request leave" in `app/(app)/team-member/LeaveCard.tsx`; date
+  (capped at today) + remarks. Balance strip gains an **Earned** tile; a "Days worked (comp off)"
+  list shows every claim with its status and a Withdraw action while pending.
+- **Owner UI** — pending claims join the existing queue in `app/(app)/team/LeaveApprovalCard.tsx`
+  (`/team`), shown as "Worked <date> · +1 day" with the member's remarks. One inbox, two sources.
+- **API** — `app/api/comp-off/route.ts` (GET mine / `?scope=all`, POST claim) and
+  `app/api/comp-off/[id]/route.ts` (approve / reject / withdraw), mirroring `/api/leave`.
+- Future dates are refused; duplicate dates return 409 off the UNIQUE constraint.
+
+### Leaderboard: attendance-only members no longer top the board (2026-08-13)
+
+`memberScore` in `app/(app)/team/page.tsx` returned bare `consistencyScore` when a member had no
+completed tasks, skipping the 0.85/0.15 delivery weighting. Because `consistencyScore` saturates at
+100 on ~9 days of attendance alone, **Manasa Suresh (0 tasks) ranked #1 at 100**, tying people with
+20+ completed tasks. Now scores as `delivery ?? 0`, so no completed work means a low score, not a
+perfect one. Verified against production: she moves #1 → #10 (score 15), and everyone above her has
+delivered work. Note `consistencyScore` still saturates for every active member — it carries almost
+no ranking signal today; worth revisiting if attendance should actually differentiate people.
+
+### Efficiency points uncapped (2026-08-13)
+
+Client: monthly points should not stop at 100. **Migration 102** removes `LEAST(100, …)` from the
+efficiency pillar of `v_kpi_scores`; only that pillar changed (see SCHEMA.md for why quality,
+delivery and client rating were left alone). **`overall_kpi_score` can now exceed 100** — it is an
+index, not a percentage. `PerformanceClient.tsx` is safe (threshold-based grades, no percentage
+bars); any *future* consumer rendering it as a bar must clamp. Verified 250 items → efficiency 500,
+overall 220. No backfill needed — it is a view over raw counts, so history re-derives.
+
+### Prior entry
+(Updated: 2026-08-13 — PM+SE supervisor view at /site/team + self-service project picker; NO migration)
+
+### Self-service project multiselect + active-only dropdown (2026-08-13, same session)
+
+Follow-on to the entry below. Client first asked to bulk-add the PM+SE to **all** active projects;
+mid-implementation they changed it to **let him choose**, and scoped multiselect to this view only.
+
+**Nothing was bulk-written.** The bulk insert was scoped (55 rows) but never run — he picks instead.
+Production still shows his original 3 assignments.
+
+- **"My projects" card** on `/site/team` → Manage. Checkbox list of active projects with search
+  (appears past 8 — the tenant runs 56 active), select-all/clear, and rows he is already on shown
+  disabled rather than hidden, so the list does not shift under him between saves. He is added as
+  `role_on_project='pm'`.
+- **"Put an engineer on projects"** card does the same for another engineer (`site_engineer` role).
+- **Multiselect is deliberately confined to `/site/team`.** `/team`'s `AssignToProjectPanel` was
+  briefly converted and then **reverted** — per the client, this feature is for the SE+PM view only.
+  Shared picker lives in `components/projects/ProjectMultiSelect.tsx`; the two site cards use it,
+  `/team` is untouched.
+- **No new API surface.** Both cards loop `POST /api/projects/[id]/assignments` (one project per
+  call), which re-checks `team:assign_to_project` per request. **Sequential, not `Promise.all`** —
+  50-odd parallel writes would strain the pool, and a partial failure must name the project rather
+  than collapse into one rejected promise. Per-project outcomes are reported.
+- **Self-assignment needs no new permission.** Verified: neither `013`'s INSERT policy nor the POST
+  route restricts *who* may be assigned; both gate on `team:assign_to_project` alone, which he holds.
+- **Rehearsed against production in a rolled-back transaction:** inserts succeed, the
+  `set_tenant_from_project` BEFORE INSERT trigger populates `tenant_id` (0 NULLs), and a repeat add
+  raises **23505** on `UNIQUE (project_id, user_id, role_on_project)` — which the route already turns
+  into "This user already has that role on this project". Confirmed afterwards that production still
+  holds exactly 3 rows for him; nothing leaked.
+
+**Dropdown is now active-first with a fallback** (`layout.tsx` + `site/page.tsx`, kept in sync — if
+they disagree the dashboard resolves a project the selector cannot show). Neither query filtered on
+`status` before, so finished work accumulated in the selector permanently.
+- **A plain active-only filter was tried first and rejected on evidence.** It emptied **Mohammed
+  Sidddiq's** dropdown outright — his single assignment is a completed project — leaving him a
+  dashboard with no project at all. The shipped rule is: **show active projects when there are any,
+  otherwise show everything assigned.** Verified live: Adarsha 3 → 1 (2 completed dropped),
+  Mohammed 1 → 1 (fallback holds).
+
+**Not done / known:**
+- [ ] **Still never opened in a browser** — same login/credentials blocker. The picker, the loop's
+      partial-failure path and the fallback rest on `tsc`, `eslint`, `npm run build`, the rolled-back
+      rehearsal and live SQL — **not** on watching them work.
+- [ ] The loop fires one request per project. Picking all 55 means 55 sequential requests; there is
+      no progress bar beyond the button label, and no batch endpoint.
+- [ ] Adding someone is one-way here — **there is no un-assign** on either card. Removal still lives
+      on the project page.
+- [ ] The fallback means a completed project can still appear for an engineer with no live work.
+      Intended, per the client's call.
+
+### Site engineer who is also a project manager gets a Team tab (2026-08-13)
+
+Client: the project manager who is *also* a site engineer must be able to track all the other site
+engineers — their tasks, updates, progress and check-ins — from his own dashboard.
+
+**No migration. He already held every capability; the screen simply did not exist.** Verified live
+before writing anything: **Adarsha Pejavar** is the person (`role='site_engineer'` **and** carries the
+`project_manager` tag — the only tagged non-team_member in the tenant). The tag had already granted
+him `member_tasks:view_all`, `daily_tasks:view_all`, `office_attendance:view_all`, `project:view_all`,
+`team:assign_to_project` (source `tag`) plus `site_check_in:view_all` and `tasks:assign` (source
+`manual`). Those grants were **dead** — `layout.tsx` routes every site engineer into
+`SiteEngineerChrome`, whose seven tabs are all single-project, so nothing in the app ever read them.
+This batch is the missing UI for rights that already existed, not a widening of access.
+
+- **New `/site/team`.** Roster of every *other* active site engineer in the tenant, grouped by live
+  state: **On site now** (open `site_check_ins` row) / **In the office** (`last_check_in_at` set) /
+  **Not checked in**. A headline band gives on-site count, total open tasks, and tasks awaiting
+  review. Each row expands to that engineer's projects, open tasks with due state, completed count
+  and last 8 site check-ins (in→out, duration, off-site flag). Tap-to-call on the phone number.
+- **Gate is `member_tasks:view_all`**, checked server-side; a site engineer without it is redirected
+  to `/site`. Verified against production: **1 of 5 site engineers passes** (Adarsha), the other four
+  fail every check. The Team tab is likewise conditional in the chrome, so the other four never see a
+  link to a page they cannot open.
+- **Actions ride on existing capabilities, re-checked per action.** Assign-task (`tasks:assign`) and
+  Add-to-project (`team:assign_to_project`) reuse `AssignTaskModal` and `AssignToProjectPanel` from
+  `/team` verbatim and post to the existing `/api/member-tasks` and
+  `/api/projects/[id]/assignments` routes. **No new API surface was added.**
+- **`site_check_ins` needed no RLS change** — 018's `site_checkin_select` already admits
+  `site_check_in:view_all`, which he holds.
+- **The updates feed reads through the service client**, for the same reason the project stream does
+  (2026-08-06 entry): `updates` RLS is per-viewer, so the caller's client returns a different,
+  mostly-empty feed. Scoped explicitly to his `tenant_id` **and** to the engineer ids already
+  resolved, so the elevated read cannot widen past the roster.
+- **`localDate()` is used for the attendance day**, not `toISOString()` — the 101 IST rule.
+
+**Not done / known:**
+- [ ] **Never opened in a browser.** Same standing blocker as every batch since 2026-08-05: the route
+      is behind a login and there are no test credentials. Claims rest on `tsc`, `eslint`,
+      `npm run build` and live SQL verification of the gate and roster — **not** on watching it work.
+- [ ] **The roster will look almost empty on first open, and that is correct.** The other four site
+      engineers currently have **0 member_tasks, 0 site check-ins in 30 days, and 0 updates** between
+      them; only Mohammed Sidddiq has even a project assignment (1). Adarsha himself has the only 2
+      site check-ins in the tenant. The screen fills as they use the app — do not read the empty
+      state as a query bug.
+- [ ] Scope is **all site engineers tenant-wide**, not just those on his projects (client's call).
+      If that ever needs narrowing, it is a filter on the roster query, not a capability change.
+- [ ] Office `attendance_logs` are read for **today only** — presence, not payroll. There is no
+      hours-per-week view for the engineers he supervises.
+
+(Previous: 2026-08-07 — attendance IST fix + auto check-out; migration 101 APPLIED)
 
 ### Attendance: IST day boundaries, auto check-out, geofence backfill (2026-08-07)
 
@@ -1419,3 +1585,34 @@ Pending (Phase 4 "done means" gates not yet verified against live DB):
 | Design mocks | `ArchitectOS copy/` (reference only) |
 | System spec | `design.md` (v2.1 — source of truth) |
 | Implementation plan | `hey-claude-read-the-jaunty-firefly.md` |
+
+## Session 2026-08-13 — Task visibility, attendance office capture
+
+**Done**
+- 104: Zahra granted `member_tasks:view_all` + `daily_tasks:view_all` (manual source). Both needed —
+  only `daily_tasks:view_all` is enforced by RLS (`owner_view_member_tasks`, 038); the other appears
+  in no policy, so granting it alone renders an empty tab.
+- `app/(app)/tasks/page.tsx` — firm-wide task view now capability-gated instead of
+  `role === "owner"`. Fixes a capability-gated hard-rule violation; owner unaffected.
+- `AccessMatrixEditor.tsx` — `ACTION_LABEL_OVERRIDES` spells out capabilities that rendered as a
+  bare "view all" under several group headers and were effectively unfindable.
+- 105: `attendance_logs.check_in/out_office_self_declared`. Check-in retries GPS once (6s→12s), then
+  falls back to an office picker; the claim is recorded flagged, accepted only when no fix was
+  obtained. Site engineers get the attendance card on `/site` (they already held
+  `office_attendance:write_own` — no surface had ever rendered it).
+- `PresenceCard` added to the owner desktop home.
+
+**Not done — needs owner decision**
+- `access_control:manage` for Zahra. Blocked by trigger `trg_cap_access_control` (004), which is a
+  deliberate invariant, not an oversight. Only routes are dropping the trigger tenant-wide or
+  promoting her to `owner` (which also grants finance). Neither is narrow.
+
+**Verified, no change needed**
+- 6:15 PM auto-checkout already exists (101): `close_stale_attendance()` on pg_cron
+  `close-stale-attendance` `*/15 * * * *`, active. Cutoff = `workday_end` 18:00 + 15m grace = 18:15
+  IST, confirmed against live tenant values.
+- `broadcast:create` already granted to Zahra via her admin tag — she can broadcast today.
+
+**Known data gap**
+- ~70% of historical `attendance_logs` rows have no office because no GPS was captured. Left blank
+  by decision; backfilling would write an assumption into attendance history as recorded fact.

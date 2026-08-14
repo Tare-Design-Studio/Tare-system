@@ -331,10 +331,12 @@ export default async function TeamPage() {
     return Math.max(0, Math.min(100, volume + onTime + 10 - penalty));
   }
 
+  // No completed work scores as delivery 0, not "delivery omitted" — falling back
+  // to bare consistency let a member with zero tasks reach 100 (attendance alone
+  // saturates consistencyScore) and outrank everyone who actually delivered.
   function memberScore(id: string): number {
     const consistency = consistencyScore(id);
-    const delivery = deliveryScore(id);
-    if (delivery === null) return consistency;
+    const delivery = deliveryScore(id) ?? 0;
     return Math.max(0, Math.min(100, Math.round(delivery * 0.85 + consistency * 0.15)));
   }
 

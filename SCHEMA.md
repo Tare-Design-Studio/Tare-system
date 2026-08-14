@@ -1,5 +1,51 @@
 # SCHEMA.md
-(Updated: 2026-08-07 — migration 101 APPLIED: attendance IST day boundaries, auto check-out, geofence backfill)
+(Updated: 2026-08-13 — no migration; note on tag capabilities held by site engineers)
+
+### Note: a tag on a `site_engineer` grants capabilities the SE chrome cannot reach (2026-08-13)
+
+**No migration.** Recorded because it is a standing trap, not a one-off.
+
+`team_member_tags` and the 065 sync triggers key on the **user**, not the role, so tagging a
+`site_engineer` really does write `source='tag'` capability rows and `has_capability()` really does
+return true for them. But `app/(app)/layout.tsx` branches on `role === 'site_engineer'` and renders
+`SiteEngineerChrome` — seven single-project tabs — instead of `TopBar`/`MobileNav`. The nav gating in
+`ALL_NAV_DEFS` also reads `role === 'team_member' && item.tags`, so a tagged site engineer matches no
+tag rule there either. **Net effect: the grants exist, RLS honours them, and no screen reads them.**
+
+Live as of 2026-08-13: **Adarsha Pejavar** (`site_engineer` + `project_manager` tag) held
+`member_tasks:view_all`, `daily_tasks:view_all`, `office_attendance:view_all`, `project:view_all`,
+`project:create/edit/change_stage`, `checkpoint:progress`, `customer:view`, `customer_payments:view`,
+`expenses:approve` and `team:assign_to_project` from the tag — every one of them unreachable. The
+`/site/team` page (same date) surfaces the four that matter for supervising engineers; **the rest are
+still granted and still unreachable.**
+
+**Before assuming a site engineer cannot do X because the UI does not offer it, check
+`user_capabilities` — the answer may be that they can, and only the screen is missing.** Equally,
+granting a tag to a site engineer is not a safe no-op: it is a real grant that a future screen would
+honour.
+
+### Note: `project_assignments` self-assignment is permitted by design (2026-08-13)
+
+**No migration.** Confirmed while building the `/site/team` project picker, and worth stating because
+it looks like an oversight and is not.
+
+`013`'s INSERT policy is `has_capability('team:assign_to_project') AND tenant_id = <caller tenant>`.
+It says nothing about `user_id`, and neither does `POST /api/projects/[id]/assignments` — so **a
+holder may assign anyone, themselves included.** That is what lets the supervising site engineer
+curate his own project list without a new capability or endpoint.
+
+Two existing mechanics the picker leans on, both verified live in a rolled-back transaction:
+- `trg_project_assignments_set_tenant` (BEFORE INSERT, `set_tenant_from_project()`) populates
+  `tenant_id` — the insert must **not** supply it.
+- `UNIQUE (project_id, user_id, role_on_project)` makes a repeat add raise **23505**, which the route
+  maps to "This user already has that role on this project". Note the role is part of the key: the
+  same person may hold **two different roles** on one project, and nothing prevents that.
+
+Contrast `member_tasks`, where self-action *is* restricted — `086`/`096` block self-review and
+`100`'s assigner branch forbids reassigning a task to yourself. Assignment carries no comparable
+sign-off authority, so it was never gated the same way.
+
+(Previous: 2026-08-07 — migration 101 APPLIED: attendance IST day boundaries, auto check-out, geofence backfill)
 
 ### Migration 101 — attendance IST correctness + auto check-out (applied 2026-08-07)
 
@@ -298,6 +344,46 @@ enforcement. New constraint `owner_broadcasts_has_content` allows an empty `body
 
 **`member_tasks.drawing_role`** — enum `drawing_role` (`design | detailing | technical | checked`),
 NULL for non-drawing work. View `v_drawing_role_monthly` gives the per-user monthly split.
+
+### Migration 103 — comp-off credits (applied 2026-08-13)
+
+**`comp_off_credits`** — a member who worked a weekend/holiday claims +1 leave day. The "+1" half
+of the leave balance; `leave_requests` remains the "−1" half.
+- **Separate table, not `leave_requests` with `kind='comp_off'`.** `leave_requests` models
+  *consumption* — every row subtracts via `used_days` and its date range means "I am away". A credit
+  is the opposite sign on a single worked date, and reusing that table would make a row's meaning
+  depend on its `kind` while the overlap check in `POST /api/leave` wrongly rejected a Saturday
+  falling inside approved leave.
+- **Approval-gated, never self-service.** Insert policy forces `status='pending'`; only
+  `leave:approve` can decide. `guard_comp_off_decision()` mirrors 086/088: you cannot approve your
+  own claim *even holding `leave:approve`* (verified against the owner account), a decided claim is
+  final, and `work_date`/`days` are immutable after filing.
+- `days` is CHECKed to exactly 1 — a free-form number would be self-granted entitlement.
+- `UNIQUE (user_id, work_date)` — the same worked day cannot be banked twice, including after a
+  rejection (re-claiming goes through the approver).
+- **`v_leave_balance` DROPped and recreated** — `entitled_days` widens numeric(5,1) → numeric(6,1),
+  which `CREATE OR REPLACE VIEW` cannot do. Entitlement is now
+  `tenants.annual_leave_days + approved credits for the current year`. Two trailing columns added:
+  `earned_days`, `pending_earned_days`. Credits aggregate in a CTE, not a second LEFT JOIN, which
+  would multiply rows and inflate both SUMs.
+- Verified: pending claim moves nothing; approval adds exactly +1 to `entitled_days`/`remaining_days`.
+
+### Migration 102 — uncapped efficiency points (applied 2026-08-13)
+
+**`v_kpi_scores` DROPped and recreated** to remove the `LEAST(100, …)` ceiling on the efficiency
+pillar. Efficiency is now `drawings_completed * efficiency_multiplier` with no upper bound, so
+monthly points accumulate without limit.
+- **Only efficiency changed.** `quality` counts down from a 100 baseline (no ceiling to remove),
+  `delivery` keeps its `deadline_met_pct` input (0–100 by 034's CHECK), and the client pillar keeps
+  `LEAST(100, rating * 20)` — rating is 1–5, so that bound never truncates.
+- **`overall_kpi_score` can now exceed 100.** It is a weighted average including the unbounded
+  efficiency pillar, so it is an index, not a percentage. Verified: 250 items → efficiency 500,
+  overall 220. Consumers rendering it as a bar/percentage must clamp at display time.
+  `app/(app)/performance/PerformanceClient.tsx` is safe — `scoreGrade()` is threshold-based (`>= 85`).
+- **`kpi_settings` weight-sum CHECK is untouched** and still meaningful: it governs the *mix* of
+  pillars, not the range of the result.
+- **No backfill.** `v_kpi_scores` is a VIEW over the `team_performance_monthly` raw counts, so
+  historical months re-derive under the new formula on read.
 
 ### Migration 090 — owner-editable KPI (applied 2026-08-02)
 
@@ -1232,3 +1318,46 @@ sets return `tasks:assign = false` with counts 62/54/13 matching `TAG_CAPABILITI
 verified in a rolled-back transaction that re-applying an `admin` tag to an untagged member does
 **not** re-grant it (the other 54 capabilities still apply) — so the hole is closed, not merely
 swept. (Updated: 2026-08-02)
+
+## 104 — Zahra: firm-wide task view (2026-08-13)
+
+Grants `member_tasks:view_all` + `daily_tasks:view_all` to Zahra Bathool
+(`1e01d00e-f41a-4b33-b280-3e1c40243701`), `source='manual'` so a future tag change cannot revoke
+them.
+
+Both are required, and the reason is a trap worth recording: **`member_tasks:view_all` appears in no
+RLS policy at all** — only in capability seed lists. The policy that actually admits other people's
+task rows is `owner_view_member_tasks` (038), which checks `daily_tasks:view_all`. Granting only the
+former yields a fully-rendered tab that returns zero rows.
+
+`app/(app)/tasks/page.tsx` previously gated the firm-wide view on `profile?.role === "owner"` — a
+hardcoded role check, contrary to the capability-gated hard rule. Now gated on
+`member_tasks:view_all`; the owner keeps access because the owner seed carries it.
+
+**Not granted:** `access_control:manage`. Trigger `trg_cap_access_control` (004) raises
+`access_control:manage cannot be granted to non-owners`, and it is excluded from
+`ALL_DELEGABLE_CAPABILITIES` and hard-locked in the matrix UI. Delegating it requires dropping the
+trigger tenant-wide or promoting the user to `owner`. (Updated: 2026-08-13)
+
+## 105 — Self-declared office when GPS is unavailable (2026-08-13)
+
+- `attendance_logs.check_in_office_self_declared boolean NOT NULL DEFAULT false`
+- `attendance_logs.check_out_office_self_declared boolean NOT NULL DEFAULT false`
+
+Both derived: `REVOKE UPDATE` from `authenticated`, matching `overtime_minutes` / `is_late` /
+`auto_checked_out`. `app/api/attendance/route.ts` stamps them with the service client after the
+member's own RLS-scoped write, so a member cannot pass a claim off as a geofence match.
+
+**Why:** 093 resolves the office by distance and the API only attempted that when `lat`/`lng` were
+present; a denied or timed-out fix left `check_in_office_id` NULL silently. Measured on production:
+~70% of recent rows had no office, and `null office_id` tracked `null check_in_lat` exactly — which
+is why the presence board showed a bare "At work" for most people and the Mysore/Bangalore split
+looked inconsistent. It was never a display bug.
+
+The client now retries geolocation once (6s, then 12s) before falling back to an office picker.
+A self-declared office is accepted **only** when no coordinates were obtained — if a fix exists and
+falls outside every fence, the row stays out-of-fence, otherwise anyone could claim to be at the
+studio from home. `within_geofence` stays NULL for self-declared rows; nothing was verified.
+
+Historical NULL-office rows are deliberately left blank — there is no evidence of which office
+those check-ins happened at. (Updated: 2026-08-13)

@@ -37,7 +37,22 @@ const C: React.CSSProperties = {
   border: "1px solid rgba(30,28,24,.04)",
 };
 
-type Phase = "idle" | "confirm_in" | "confirm_out" | "loading";
+type Phase = "idle" | "confirm_in" | "confirm_out" | "loading" | "pick_office";
+
+type Office = { id: string; name: string };
+
+// One geolocation attempt, resolved to coordinates or null. Never throws, so a
+// denied permission reads the same as a timeout at the call site.
+function getPosition(timeout: number): Promise<{ lat: number; lng: number } | null> {
+  if (!("geolocation" in navigator)) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => resolve(null),
+      { timeout, enableHighAccuracy: true }
+    );
+  });
+}
 
 export default function AttendanceCard({
   todayAttendance,
@@ -52,6 +67,27 @@ export default function AttendanceCard({
   const [phase, setPhase] = useState<Phase>("idle");
   const [error, setError] = useState<string | null>(null);
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Which action the office picker is completing, once GPS has failed.
+  const [pendingAction, setPendingAction] = useState<"check_in" | "check_out">("check_in");
+  const [offices, setOffices] = useState<Office[]>([]);
+
+  // Loaded up front: by the time GPS has failed twice the member has already
+  // waited ~18s, and fetching the list only then would add to that.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/offices")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => {
+        if (cancelled || !body?.offices) return;
+        setOffices(
+          (body.offices as (Office & { is_active: boolean })[])
+            .filter((o) => o.is_active)
+            .map((o) => ({ id: o.id, name: o.name }))
+        );
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const hasCheckedInToday = !!log?.check_in_at;
   const isOpen = !!log?.last_check_in_at; // currently in an active cycle
@@ -130,29 +166,48 @@ export default function AttendanceCard({
     resetTimer.current = setTimeout(() => setPhase("idle"), 4000);
   }
 
-  async function confirm(action: "check_in" | "check_out") {
+  async function confirm(
+    action: "check_in" | "check_out",
+    // Set only from the office picker, after GPS has already failed twice.
+    officeId?: string
+  ) {
     if (resetTimer.current) clearTimeout(resetTimer.current);
     setPhase("loading");
     setError(null);
 
     let lat: number | undefined;
     let lng: number | undefined;
-    if ("geolocation" in navigator) {
-      try {
-        const pos = await new Promise<GeolocationPosition>((res, rej) =>
-          navigator.geolocation.getCurrentPosition(res, rej, { timeout: 6000 })
-        );
-        lat = pos.coords.latitude;
-        lng = pos.coords.longitude;
-      } catch {
-        // GPS unavailable — proceed anyway, withinGeofence will be null
+
+    // Skip straight to the API when the member has already named their office —
+    // asking for a fix again would just stall the confirm they already gave.
+    if (!officeId) {
+      let pos = await getPosition(6000);
+      // Ask a second time before giving up. The first prompt is often dismissed
+      // by reflex, and on iOS a cold fix regularly exceeds the first timeout;
+      // a retry turns most would-be blanks into a real geofence match.
+      if (!pos) {
+        setError("Getting your location…");
+        pos = await getPosition(12000);
+      }
+      if (pos) {
+        lat = pos.lat;
+        lng = pos.lng;
+        setError(null);
+      } else {
+        // Still nothing. Rather than silently recording an office-less row —
+        // which is what left ~70% of history blank — ask which office they are
+        // at. Recorded as self-declared, never as a geofence match.
+        setError(null);
+        setPendingAction(action);
+        setPhase("pick_office");
+        return;
       }
     }
 
     const res = await fetch("/api/attendance", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, lat, lng }),
+      body: JSON.stringify({ action, lat, lng, office_id: officeId }),
     });
 
     if (!res.ok) {
@@ -173,6 +228,37 @@ export default function AttendanceCard({
   }
 
   const wide = layout === "wide";
+
+  // Shown only when GPS failed twice. Picking is normally forbidden (093: people
+  // pick the office they wish they were at), so this appears solely on the path
+  // where the alternative is recording no office at all.
+  const officePicker = phase === "pick_office" && (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ fontSize: 11, color: "var(--color-tan)", marginBottom: 8 }}>
+        Couldn&rsquo;t get your location. Which office are you at?
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {offices.map((o) => (
+          <button
+            key={o.id}
+            onClick={() => confirm(pendingAction, o.id)}
+            style={{ width: "100%", padding: "9px 12px", borderRadius: 10, background: "rgba(30,28,24,.06)", color: "var(--color-ink)", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, textAlign: "left" }}
+          >
+            {o.name}
+          </button>
+        ))}
+        {offices.length === 0 && (
+          <div style={{ fontSize: 11, color: "var(--color-tan)" }}>No offices configured.</div>
+        )}
+        <button
+          onClick={() => { setPhase("idle"); setError(null); }}
+          style={{ width: "100%", padding: "8px", borderRadius: 10, background: "transparent", color: "var(--color-tan)", border: "none", cursor: "pointer", fontSize: 11 }}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
 
   // Position on a 6am–midnight track, which is the span an office day falls in.
   const pctOfDay = (iso: string | null): number | null => {
@@ -237,7 +323,8 @@ export default function AttendanceCard({
             </div>
           )}
           {error && <div style={{ fontSize: 11, color: "var(--color-rust)", marginBottom: 8 }}>{error}</div>}
-          {phase === "loading" ? (
+          {officePicker}
+          {phase === "pick_office" ? null : phase === "loading" ? (
             <div style={{ fontSize: 12, color: "var(--color-tan)" }}>Logging…</div>
           ) : !isOpen ? (
             <button
@@ -318,9 +405,11 @@ export default function AttendanceCard({
         <div style={{ fontSize: 11, color: "var(--color-rust)", marginBottom: 10 }}>{error}</div>
       )}
 
+      {officePicker}
+
       {/* Action buttons — two-click pattern. Members can run multiple cycles a day;
           worked time accumulates across each check-in → check-out span. */}
-      {phase === "loading" ? (
+      {phase === "pick_office" ? null : phase === "loading" ? (
         <div style={{ fontSize: 12, color: "var(--color-tan)" }}>Logging…</div>
       ) : !isOpen ? (
         phase === "confirm_in" ? (

@@ -79,15 +79,31 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // Site engineers get their own chrome on every page they can reach — the
   // owner TopBar / MobileNav never render for them.
   let engineerProjects: ChromeProject[] = [];
+  // A site engineer who is also a project manager supervises the other
+  // engineers. The project_manager tag already grants member_tasks:view_all,
+  // so this reads an existing grant rather than introducing a new one.
+  let canSuperviseTeam = false;
   if (isSiteEngineer) {
-    const { data: assignments } = await supabase
-      .from("project_assignments")
-      .select("projects!inner(id, name, current_stage)")
-      .eq("user_id", user.id)
-      .is("projects.deleted_at", null);
-    engineerProjects = (assignments ?? [])
+    const [assignmentsRes, superviseRes] = await Promise.all([
+      // Every assignment; the active ones are preferred below. A finished
+      // project in the selector is dead weight that grows permanently as work
+      // completes, but an engineer whose only assignments are finished still
+      // needs something to look at rather than an empty dashboard.
+      supabase
+        .from("project_assignments")
+        .select("projects!inner(id, name, current_stage, status)")
+        .eq("user_id", user.id)
+        .is("projects.deleted_at", null),
+      supabase.rpc("has_capability", { p_capability: "member_tasks:view_all" }),
+    ]);
+    const assigned = (assignmentsRes.data ?? [])
       .map(a => a.projects as unknown as ChromeProject)
       .filter(Boolean);
+    // Prefer live work; fall back to everything assigned rather than handing
+    // someone whose projects have all finished an empty selector.
+    const active = assigned.filter(p => p.status === "active");
+    engineerProjects = active.length > 0 ? active : assigned;
+    canSuperviseTeam = superviseRes.data === true;
   }
 
   const mobileNavItems: MobileNavItem[] = ALL_NAV_DEFS
@@ -110,7 +126,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       {isSiteEngineer ? (
         <>
           <Suspense fallback={null}>
-            <SiteEngineerChrome fullName={profile?.full_name ?? ""} projects={engineerProjects} />
+            <SiteEngineerChrome
+              fullName={profile?.full_name ?? ""}
+              projects={engineerProjects}
+              canSuperviseTeam={canSuperviseTeam}
+            />
           </Suspense>
           <div className="desktop-only" style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 28px 64px" }}>
             <main>{children}</main>

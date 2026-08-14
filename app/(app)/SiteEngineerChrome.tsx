@@ -8,12 +8,13 @@ export type ChromeProject = {
   id: string;
   name: string;
   current_stage: string | null;
+  status?: string | null;
 };
 
 // Tab ids that live as state inside /site. Everything else routes.
 const PANEL_TABS = ["today", "updates", "materials", "progress", "expenses"] as const;
 
-type IconName = "dashboard" | "info" | "feed" | "list" | "trending" | "credit" | "bridge";
+type IconName = "dashboard" | "info" | "feed" | "list" | "trending" | "credit" | "bridge" | "team";
 
 const ICON_PATHS: Record<IconName, string> = {
   dashboard: "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z",
@@ -23,6 +24,7 @@ const ICON_PATHS: Record<IconName, string> = {
   trending: "M23 6l-9.5 9.5-5-5L1 18 M23 6v6 M23 6h-6",
   credit: "M21 4H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM3 8h18v2H3V8zm0 8v-4h18v4H3z",
   bridge: "M2 12h20 M4 12V9a8 8 0 0 1 16 0v3 M7 12v6 M12 12v6 M17 12v6 M2 18h20",
+  team: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75",
 };
 
 function Icon({ name, size = 24, stroke = 1.5, color = "currentColor" }: {
@@ -46,12 +48,21 @@ const TABS: { id: string; label: string; icon: IconName }[] = [
   { id: "bridge",    label: "Bridge",    icon: "bridge" },
 ];
 
+// Shown only to a site engineer who also supervises — i.e. holds
+// member_tasks:view_all (the project_manager tag confers it). Appended rather
+// than inserted so the field tabs keep their learned positions.
+const TEAM_TAB: { id: string; label: string; icon: IconName } = {
+  id: "team", label: "Team", icon: "team",
+};
+
 interface SiteEngineerChromeProps {
   fullName: string;
   projects: ChromeProject[];
+  /** Site engineer who also manages other engineers — adds the Team tab. */
+  canSuperviseTeam?: boolean;
 }
 
-export function SiteEngineerChrome({ fullName, projects }: SiteEngineerChromeProps) {
+export function SiteEngineerChrome({ fullName, projects, canSuperviseTeam = false }: SiteEngineerChromeProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -67,8 +78,11 @@ export function SiteEngineerChrome({ fullName, projects }: SiteEngineerChromePro
   const onSite = pathname === "/site";
   const activeTab = pathname.startsWith("/projects/") ? "details"
     : pathname.startsWith("/bridge") ? "bridge"
+    : pathname === "/site/team" ? "team"
     : onSite ? (searchParams.get("tab") ?? "today")
     : "";
+
+  const tabs = canSuperviseTeam ? [...TABS, TEAM_TAB] : TABS;
 
   function go(tabId: string) {
     if (tabId === "details") {
@@ -77,6 +91,10 @@ export function SiteEngineerChrome({ fullName, projects }: SiteEngineerChromePro
     }
     if (tabId === "bridge") {
       router.push("/bridge");
+      return;
+    }
+    if (tabId === "team") {
+      router.push("/site/team");
       return;
     }
     // Panel tab — always lands on /site with the tab (and project) in the URL.
@@ -164,7 +182,7 @@ export function SiteEngineerChrome({ fullName, projects }: SiteEngineerChromePro
           </div>
 
           <div style={{ display: "flex", gap: 4, paddingBottom: 1 }}>
-            {TABS.map(t => (
+            {tabs.map(t => (
               <button key={t.id} onClick={() => go(t.id)} style={{
                 padding: "10px 18px", borderRadius: "10px 10px 0 0", fontSize: 13, fontWeight: 500,
                 border: "none", cursor: "pointer",
@@ -221,7 +239,7 @@ export function SiteEngineerChrome({ fullName, projects }: SiteEngineerChromePro
         overflowX: "auto", scrollbarWidth: "none",
       }}>
         <div style={{ display: "flex", alignItems: "center", minHeight: 68 }}>
-        {TABS.map(t => (
+        {tabs.map(t => (
           <button key={t.id} onClick={() => go(t.id)} style={{
             flex: "1 0 auto", minWidth: 60, display: "flex", flexDirection: "column",
             alignItems: "center", justifyContent: "center", gap: 4,

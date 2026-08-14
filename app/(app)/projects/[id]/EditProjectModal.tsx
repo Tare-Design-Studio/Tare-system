@@ -200,8 +200,18 @@ export default function EditProjectModal({
             name: a.users!.full_name,
             assignment_id: a.id,
           }));
-        setTeamEntries(entries);
+        // The saved roster is the baseline for the add/remove diff on submit, so
+        // it always tracks the server.
         setOriginalTeamEntries(entries);
+        // The editable list must not be clobbered by a refetch: rows the user
+        // added this session have no assignment_id yet and exist only here.
+        // Merge instead — server rows, plus any pending add not yet saved.
+        setTeamEntries(prev => {
+          const pendingAdds = prev.filter(
+            p => !p.assignment_id && !entries.some(e => e.user_id === p.user_id)
+          );
+          return [...entries, ...pendingAdds];
+        });
         setAllUsers(userData.users ?? []);
         setUsersLoaded(true);
       }).catch(() => setUsersLoaded(true));
@@ -531,7 +541,10 @@ export default function EditProjectModal({
               {/* Team Assignment */}
               <div style={{ padding: "16px", borderRadius: 14, background: "var(--bg-2)", border: "1px solid var(--line-2)", display: "flex", flexDirection: "column", gap: 12 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: "0.08em" }}>Team</div>
-                {!usersLoaded ? (
+                {/* Only a cold open shows the spinner. Reopening refetches with a
+                    roster already in state, and blanking it behind "Loading…"
+                    made assigned members look absent for the length of a fetch. */}
+                {!usersLoaded && teamEntries.length === 0 ? (
                   <div style={{ fontSize: 12, color: "var(--color-tan)" }}>Loading…</div>
                 ) : (
                   <>
@@ -560,7 +573,7 @@ export default function EditProjectModal({
                         ))}
                       </div>
                     )}
-                    {teamEntries.length === 0 && (
+                    {teamEntries.length === 0 && usersLoaded && (
                       <div style={{ fontSize: 12, color: "var(--color-tan)", fontStyle: "italic" }}>No team members assigned.</div>
                     )}
                   </>

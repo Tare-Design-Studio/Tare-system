@@ -97,7 +97,7 @@ export default function KpiSettingsSection() {
   ];
 
   const penalties: { key: keyof Settings; label: string; hint: string }[] = [
-    { key: "efficiency_multiplier", label: "Points per completed item", hint: "Efficiency score = items × this, capped at 100" },
+    { key: "efficiency_multiplier", label: "Points per completed item", hint: "Efficiency score = items × this, uncapped" },
     { key: "error_penalty", label: "Points lost per error", hint: "Deducted from the quality score" },
     { key: "revision_penalty", label: "Points lost per revision", hint: "Deducted from the quality score" },
     { key: "delay_penalty", label: "Points lost per delay day", hint: "Deducted from the delivery score" },

@@ -9,6 +9,7 @@ import MobileHome from "./MobileHome";
 import TeamMemberHome from "./TeamMemberHome";
 import TeamMemberMobileHome, { type MemberProject } from "./TeamMemberMobileHome";
 import { BroadcastsPanel } from "./team/BroadcastsPanel";
+import PresenceCard from "./team-member/PresenceCard";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 function computeDayLabel(): string {
@@ -831,6 +832,12 @@ export default async function DashboardPage() {
             </div>
           </div>
           <div style={{ gridColumn: "span 4" }}><AgentsCard members={teamMembers} totalMembers={teamRows.length} /></div>
+          {/* Who is at work today. Previously rendered only on the team-member
+              home, so the owner — the person most likely to want it — was the
+              one role that could not see it. The board API scopes itself to the
+              caller's own tenant and returns presence only, so this discloses
+              nothing beyond what every member already sees. */}
+          <div style={{ gridColumn: "span 12" }}><PresenceCard /></div>
         </div>
       </div>
     </>

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { localDate } from "@/lib/attendance/day";
 
 function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -66,7 +67,12 @@ export async function POST(req: Request) {
   if (!profile) return NextResponse.json({ error: "Profile not found" }, { status: 400 });
 
   const body = await req.json();
-  const { action, lat, lng } = body as { action: "check_in" | "check_out"; lat?: number; lng?: number };
+  const { action, lat, lng, office_id: declaredOfficeId } = body as {
+    action: "check_in" | "check_out";
+    lat?: number;
+    lng?: number;
+    office_id?: string;
+  };
 
   if (action !== "check_in" && action !== "check_out") {
     return NextResponse.json({ error: "action must be check_in or check_out" }, { status: 400 });
@@ -82,6 +88,8 @@ export async function POST(req: Request) {
   let withinGeofence: boolean | null = null;
   let matchedOfficeId: string | null = null;
   let matchedOfficeName: string | null = null;
+  // Set when the office came from the member rather than from their coordinates.
+  let officeSelfDeclared = false;
 
   if (lat != null && lng != null) {
     const { data: offices } = await supabase
@@ -101,6 +109,29 @@ export async function POST(req: Request) {
       matchedOfficeId = best?.id ?? null;
       matchedOfficeName = best?.name ?? null;
     }
+  } else if (declaredOfficeId) {
+    // No coordinates at all — the member denied location or the fix timed out.
+    // Before this, the office was simply left NULL and the presence board showed
+    // a bare "At work", which is why most rows carry no office. Accepting a
+    // named office fills that gap, but ONLY on this branch: if we had a fix and
+    // it fell outside every fence, a self-declared office would let anyone claim
+    // to be at the studio from home. Out-of-fence stays out-of-fence.
+    //
+    // withinGeofence is left null, not true — nothing was verified. The row is
+    // marked self-declared so payroll can tell a claim from a measurement.
+    const { data: office } = await supabase
+      .from("offices")
+      .select("id, name")
+      .eq("id", declaredOfficeId)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (!office) {
+      return NextResponse.json({ error: "Unknown office" }, { status: 400 });
+    }
+    matchedOfficeId = office.id;
+    matchedOfficeName = office.name;
+    officeSelfDeclared = true;
   }
 
   const nowDate = new Date();
@@ -117,6 +148,22 @@ export async function POST(req: Request) {
     return acc;
   }
 
+  // The *_office_self_declared columns are REVOKEd from `authenticated` (105),
+  // like every other derived attendance column — a member must not be able to
+  // pass their own claim off as a geofence match. So the member's own client
+  // writes the row under RLS as before, and this stamps the one trust flag
+  // afterwards with the service client, scoped to the row just written.
+  async function stampSelfDeclared(rowId: string, leg: "check_in" | "check_out") {
+    if (!officeSelfDeclared) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = createServiceClient() as any;
+    await service
+      .from("attendance_logs")
+      .update({ [`${leg}_office_self_declared`]: true })
+      .eq("id", rowId)
+      .eq("user_id", user.id);
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   function respond(row: any) {
     return NextResponse.json(
@@ -124,6 +171,7 @@ export async function POST(req: Request) {
         ...row,
         within_geofence: withinGeofence,
         office_name: matchedOfficeName,
+        office_self_declared: officeSelfDeclared,
         worked_minutes: workedMinutes(row),
       },
       { status: 200 }
@@ -159,6 +207,7 @@ export async function POST(req: Request) {
         .single();
 
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      await stampSelfDeclared(data.id, "check_in");
       return respond(data);
     }
 
@@ -184,6 +233,7 @@ export async function POST(req: Request) {
       .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    await stampSelfDeclared(existing.id, "check_in");
     return respond(data);
   } else {
     // check_out — requires an open cycle.
@@ -209,6 +259,7 @@ export async function POST(req: Request) {
       .single();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    await stampSelfDeclared(existing.id, "check_out");
     return respond(data);
   }
 }

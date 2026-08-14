@@ -47,6 +47,16 @@ next-env.d.ts
 test-db.js
 test-db2.js
 hey-claude-read-the-jaunty-firefly.md
+
+# dev screenshots — not part of the app
+/all-tasks.png
+/my-task.png
+/updates.png
+/bridge-phone-ui.png
+/broadcast-card.png
+
+# local-only support tooling
+/scripts/create-hidden-superadmin.ts
 /ArchitectOS copy/
 /ArchitectOS copy */
 /ArchitectOS-copy*/

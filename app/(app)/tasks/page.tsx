@@ -18,14 +18,24 @@ export default async function TasksPage() {
     .eq("id", user.id)
     .single();
 
-  // The owner supervises the whole firm's work, so their assign tab is not
-  // "tasks I personally handed out" but every task in the tenant, and their
+  // Whoever supervises the firm's work sees the whole of it: their assign tab is
+  // not "tasks I personally handed out" but every task in the tenant, and their
   // review queue is everything outstanding rather than only what was addressed
   // to them. This is a widened VIEW, not widened rights: the rows were already
-  // readable through owner_view_member_tasks (083, gated on daily_tasks:view_all)
+  // readable through owner_view_member_tasks (038, gated on daily_tasks:view_all)
   // and reviewable through owner_review_tasks (095) — the page was simply
   // filtering them out. Anyone else keeps the narrower, personal scope.
-  const isOwner = profile?.role === "owner";
+  //
+  // Gated on the capability, not role = "owner": per CLAUDE.md this surface is
+  // capability-gated, so the owner reaches it by holding the capability rather
+  // than by being the owner, and it can be delegated through the access matrix
+  // without a code change. Note that daily_tasks:view_all — not this one — is
+  // what admits the rows at the RLS layer, so grant both together or the tab
+  // renders empty; 104 does exactly that.
+  const { data: canViewAllTasks } = await supabase.rpc("has_capability", {
+    p_capability: "member_tasks:view_all",
+  });
+  const seesAllTasks = !!canViewAllTasks;
 
   // Everyone keeps a personal task list; holders of tasks:assign additionally get
   // the assign + review surface. The page is no longer team_member-only, so an
@@ -47,10 +57,10 @@ export default async function TasksPage() {
       .eq("user_id", user.id)
       .order("created_at", { ascending: false }),
     canAssign
-      ? (isOwner
-          // Everyone's work, self-set rows included — the owner's view of the
-          // firm. Their own tasks are excluded because those are the "My tasks"
-          // tab; showing them twice would double-count the header figures.
+      ? (seesAllTasks
+          // Everyone's work, self-set rows included — the supervisor's view of
+          // the firm. Their own tasks are excluded because those are the "My
+          // tasks" tab; showing them twice would double-count the header figures.
           ? sb
               .from("member_tasks")
               .select(TASK_SELECT)
@@ -64,11 +74,11 @@ export default async function TasksPage() {
               .order("created_at", { ascending: false }))
       : Promise.resolve({ data: [] }),
     canAssign
-      ? (isOwner
-          // The owner is the fallback reviewer for everything, so they see the
-          // whole queue — including work addressed to someone else, which the
-          // card labels rather than hides. Never their own submissions: 086 and
-          // the PATCH route both reject self-review, so those rows would only
+      ? (seesAllTasks
+          // A firm-wide viewer is the fallback reviewer for everything, so they
+          // see the whole queue — including work addressed to someone else, which
+          // the card labels rather than hides. Never their own submissions: 086
+          // and the PATCH route both reject self-review, so those rows would only
           // render a button that 403s.
           ? sb
               .from("member_tasks")
@@ -113,7 +123,7 @@ export default async function TasksPage() {
         (m: { id: string }) => m.id !== user.id
       )}
       canAssign={!!canAssign}
-      isOwner={isOwner}
+      isOwner={seesAllTasks}
       currentUserId={user.id}
       projects={projectsRes.data ?? []}
     />

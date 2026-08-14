@@ -84,8 +84,19 @@ function initials(name: string): string {
   return name.split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("");
 }
 
+// A few capabilities read as a bare "view all" once the prefix is stripped,
+// which is unfindable when several groups each show one. Spell those out.
+const ACTION_LABEL_OVERRIDES: Record<string, string> = {
+  "member_tasks:view_all": "See all team members' tasks",
+  "daily_tasks:view_all": "See all daily tasks (required alongside the above)",
+  "tasks:assign": "Assign tasks to others",
+};
+
 function actionLabel(capability: string): string {
-  return (capability.split(":")[1] ?? capability).replace(/_/g, " ");
+  return (
+    ACTION_LABEL_OVERRIDES[capability] ??
+    (capability.split(":")[1] ?? capability).replace(/_/g, " ")
+  );
 }
 
 const GROUPED = (() => {

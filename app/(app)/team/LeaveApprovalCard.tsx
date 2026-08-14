@@ -17,23 +17,55 @@ type LeaveRow = {
   users: { full_name: string } | null;
 };
 
+type CreditRow = {
+  id: string;
+  user_id: string;
+  work_date: string;
+  days: number;
+  reason: string;
+  users: { full_name: string } | null;
+};
+
 function fmtDate(d: string) {
   return new Date(d + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 }
 
 export default function LeaveApprovalCard() {
   const [rows, setRows] = useState<LeaveRow[]>([]);
+  const [credits, setCredits] = useState<CreditRow[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
     try {
-      const res = await fetch("/api/leave?scope=all&status=pending");
-      if (!res.ok) return;
-      const data = await res.json();
-      setRows(data.requests ?? []);
+      const [leaveRes, creditRes] = await Promise.all([
+        fetch("/api/leave?scope=all&status=pending"),
+        fetch("/api/comp-off?scope=all&status=pending"),
+      ]);
+      if (leaveRes.ok) setRows((await leaveRes.json()).requests ?? []);
+      if (creditRes.ok) setCredits((await creditRes.json()).credits ?? []);
     } catch {
       // Non-fatal — the card stays empty rather than breaking the team page.
+    }
+  }
+
+  // Comp-off claims decide through their own endpoint but share this queue —
+  // to the owner it is one inbox of things awaiting a yes/no.
+  async function decideCredit(id: string, action: "approve" | "reject") {
+    setBusy(id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/comp-off/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error ?? "Could not save");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not save");
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -60,15 +92,57 @@ export default function LeaveApprovalCard() {
     }
   }
 
-  if (!rows.length) return null;
+  if (!rows.length && !credits.length) return null;
 
   return (
     <div style={{ marginTop: 18 }}>
       <div style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 10 }}>
-        Leave awaiting approval ({rows.length})
+        Leave awaiting approval ({rows.length + credits.length})
       </div>
 
       {error && <div style={{ fontSize: 12, color: "#B4553F", marginBottom: 8 }}>{error}</div>}
+
+      {credits.map(c => (
+        <div
+          key={c.id}
+          style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "10px 0", borderBottom: "1px solid rgba(30,28,24,.05)" }}
+        >
+          <div style={{ minWidth: 0, flex: "1 1 200px" }}>
+            <div style={{ fontSize: 13, fontWeight: 500 }}>{c.users?.full_name ?? "Team member"}</div>
+            <div style={{ fontSize: 11, color: "var(--color-forest, #2F6B4F)" }}>
+              Worked {fmtDate(c.work_date)} · +{c.days} day
+            </div>
+            <div style={{ fontSize: 11, color: "var(--color-tan)", fontStyle: "italic", marginTop: 2 }}>{c.reason}</div>
+          </div>
+
+          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+            <button
+              type="button"
+              disabled={busy === c.id}
+              onClick={() => decideCredit(c.id, "approve")}
+              style={{
+                padding: "6px 13px", borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                background: "var(--color-ink)", color: "#FBF8F2", border: "1px solid var(--color-ink)",
+                opacity: busy === c.id ? 0.5 : 1,
+              }}
+            >
+              Approve
+            </button>
+            <button
+              type="button"
+              disabled={busy === c.id}
+              onClick={() => decideCredit(c.id, "reject")}
+              style={{
+                padding: "6px 13px", borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: "pointer",
+                background: "transparent", color: "var(--color-tan)", border: "1px solid var(--color-line)",
+                opacity: busy === c.id ? 0.5 : 1,
+              }}
+            >
+              Decline
+            </button>
+          </div>
+        </div>
+      ))}
 
       {rows.map(r => (
         <div

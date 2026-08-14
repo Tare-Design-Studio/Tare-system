@@ -21,6 +21,18 @@ type Balance = {
   pending_days: number;
   pending_count: number;
   remaining_days: number;
+  earned_days: number;
+  pending_earned_days: number;
+};
+
+// Comp-off claim (103): a worked weekend/holiday, +1 day once approved.
+type CreditRow = {
+  id: string;
+  work_date: string;
+  days: number;
+  reason: string;
+  status: "pending" | "approved" | "rejected" | "cancelled";
+  decision_note: string | null;
 };
 
 const KINDS = [
@@ -82,8 +94,10 @@ function daysBetween(start: string, end: string): number {
 
 export default function LeaveCard() {
   const [rows, setRows] = useState<LeaveRow[]>([]);
+  const [credits, setCredits] = useState<CreditRow[]>([]);
   const [balance, setBalance] = useState<Balance | null>(null);
   const [open, setOpen] = useState(false);
+  const [creditOpen, setCreditOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -93,19 +107,68 @@ export default function LeaveCard() {
   const [halfDay, setHalfDay] = useState(false);
   const [reason, setReason] = useState("");
 
+  const [workDate, setWorkDate] = useState("");
+  const [workReason, setWorkReason] = useState("");
+
   const spanDays = start && end ? daysBetween(start, end) : 0;
   const days = halfDay && spanDays === 1 ? 0.5 : spanDays;
 
+  const today = new Date().toISOString().slice(0, 10);
+
   async function load() {
     try {
-      const res = await fetch("/api/leave");
-      if (!res.ok) return;
-      const data = await res.json();
-      setRows(data.requests ?? []);
-      setBalance(data.balance ?? null);
+      const [leaveRes, creditRes] = await Promise.all([
+        fetch("/api/leave"),
+        fetch("/api/comp-off"),
+      ]);
+      if (leaveRes.ok) {
+        const data = await leaveRes.json();
+        setRows(data.requests ?? []);
+        setBalance(data.balance ?? null);
+      }
+      if (creditRes.ok) {
+        const data = await creditRes.json();
+        setCredits(data.credits ?? []);
+      }
     } catch {
       // Non-fatal: the card simply shows nothing rather than breaking the page.
     }
+  }
+
+  async function submitCredit() {
+    if (!workDate || !workReason.trim()) {
+      setMsg({ ok: false, text: "Pick the date you worked and add a remark" });
+      return;
+    }
+    setSaving(true);
+    setMsg(null);
+    try {
+      const res = await fetch("/api/comp-off", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ work_date: workDate, reason: workReason.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not submit");
+
+      setMsg({ ok: true, text: "Sent for approval — +1 day once approved" });
+      setWorkDate(""); setWorkReason("");
+      setCreditOpen(false);
+      load();
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : "Could not submit" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function withdrawCredit(id: string) {
+    await fetch(`/api/comp-off/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "cancel" }),
+    });
+    load();
   }
 
   // Fetch-on-mount: the setState happens in the awaited callback, not
@@ -160,26 +223,91 @@ export default function LeaveCard() {
     <div style={C}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
         <h3 className="font-serif" style={{ fontSize: 20, margin: 0 }}>Leave</h3>
-        <button
-          type="button"
-          onClick={() => { setOpen(v => !v); setMsg(null); }}
-          style={{
-            padding: "7px 14px", borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: "pointer",
-            background: open ? "transparent" : "var(--color-ink)",
-            color: open ? "var(--color-tan)" : "#FBF8F2",
-            border: `1px solid ${open ? "var(--color-line)" : "var(--color-ink)"}`,
-          }}
-        >
-          {open ? "Cancel" : "Request leave"}
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {/* Earn a day back for a weekend/holiday worked. Sits next to
+              "Request leave" so the -1 and +1 halves read as one control. */}
+          <button
+            type="button"
+            title="Worked a weekend or holiday? Claim +1 leave day"
+            aria-label="Claim a worked weekend or holiday"
+            onClick={() => { setCreditOpen(v => !v); setOpen(false); setMsg(null); }}
+            style={{
+              width: 30, height: 30, borderRadius: 999, fontSize: 16, lineHeight: 1,
+              fontWeight: 600, cursor: "pointer", flexShrink: 0,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              background: creditOpen ? "var(--color-ink)" : "transparent",
+              color: creditOpen ? "#FBF8F2" : "var(--color-tan)",
+              border: `1px solid ${creditOpen ? "var(--color-ink)" : "var(--color-line)"}`,
+            }}
+          >
+            {creditOpen ? "×" : "+"}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setOpen(v => !v); setCreditOpen(false); setMsg(null); }}
+            style={{
+              padding: "7px 14px", borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: "pointer",
+              background: open ? "transparent" : "var(--color-ink)",
+              color: open ? "var(--color-tan)" : "#FBF8F2",
+              border: `1px solid ${open ? "var(--color-line)" : "var(--color-ink)"}`,
+            }}
+          >
+            {open ? "Cancel" : "Request leave"}
+          </button>
+        </div>
       </div>
 
+      {creditOpen && (
+        <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ fontSize: 12, color: "var(--color-tan)" }}>
+            Worked a Saturday, Sunday or holiday? Claim it here — your leave balance
+            goes up by 1 day once the owner approves.
+          </div>
+          <div>
+            <label style={labelStyle}>Date worked</label>
+            <input
+              style={inputStyle}
+              type="date"
+              max={today}
+              value={workDate}
+              onChange={e => setWorkDate(e.target.value)}
+              disabled={saving}
+            />
+          </div>
+          <div>
+            <label style={labelStyle}>Remarks</label>
+            <textarea
+              style={{ ...inputStyle, minHeight: 56, resize: "vertical" }}
+              value={workReason}
+              onChange={e => setWorkReason(e.target.value)}
+              placeholder="What you worked on that day"
+              disabled={saving}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={submitCredit}
+            disabled={saving}
+            style={{
+              padding: "10px 16px", borderRadius: 10, fontSize: 13, fontWeight: 600,
+              background: "var(--color-ink)", color: "#FBF8F2", border: "none",
+              cursor: saving ? "default" : "pointer", opacity: saving ? 0.6 : 1,
+            }}
+          >
+            {saving ? "Submitting…" : "Claim +1 day"}
+          </button>
+        </div>
+      )}
+
       {balance && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginTop: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginTop: 16 }}>
           {[
             { label: "Remaining", value: balance.remaining_days },
             { label: "Pending", value: balance.pending_days, count: balance.pending_count },
             { label: "Taken", value: balance.used_days },
+            // Approved comp-off already sits inside Remaining; shown separately
+            // so the days they earned back are visible rather than implied.
+            { label: "Earned", value: balance.earned_days ?? 0 },
           ].map(s => (
             <div key={s.label}>
               <div style={{ fontSize: 22, fontWeight: 600, lineHeight: 1.1 }}>{s.value}</div>
@@ -274,6 +402,37 @@ export default function LeaveCard() {
               >
                 Withdraw
               </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {credits.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <div style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 8 }}>
+            Days worked (comp off)
+          </div>
+          {credits.slice(0, 6).map(c => (
+            <div key={c.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: "1px solid rgba(30,28,24,.05)" }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: STATUS_TONE[c.status], flexShrink: 0 }} />
+              <span style={{ fontSize: 12, minWidth: 0 }}>
+                {fmtDate(c.work_date)}
+                <span style={{ color: "var(--color-tan)" }}>
+                  {" · "}{c.status === "approved" ? "+1 day" : c.status}
+                </span>
+                {c.decision_note && (
+                  <span style={{ color: "var(--color-tan)", fontStyle: "italic" }}> — {c.decision_note}</span>
+                )}
+              </span>
+              {c.status === "pending" && (
+                <button
+                  type="button"
+                  onClick={() => withdrawCredit(c.id)}
+                  style={{ marginLeft: "auto", background: "none", border: "none", padding: 0, fontSize: 11, color: "var(--color-tan)", textDecoration: "underline", cursor: "pointer" }}
+                >
+                  Withdraw
+                </button>
+              )}
             </div>
           ))}
         </div>
