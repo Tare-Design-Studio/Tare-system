@@ -5,6 +5,7 @@ import { TopBar } from "./TopBar";
 import { MobileNav, type MobileNavItem } from "./MobileNav";
 import { SiteEngineerChrome, type ChromeProject } from "./SiteEngineerChrome";
 import { RealtimeRefresher } from "@/components/realtime/RealtimeRefresher";
+import { ChatBadgeProvider } from "@/components/chat/ChatBadgeProvider";
 
 type NavItemDef = {
   href: string;
@@ -121,6 +122,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     .map(({ href, label }) => ({ href, label }));
 
   return (
+    <ChatBadgeProvider userId={user.id}>
     <div style={{ minHeight: "100vh" }}>
       <RealtimeRefresher />
       {isSiteEngineer ? (
@@ -157,6 +159,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </>
       )}
     </div>
+    </ChatBadgeProvider>
   );
 }
 

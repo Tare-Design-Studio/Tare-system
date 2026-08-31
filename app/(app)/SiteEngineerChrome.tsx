@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { ChatBadge } from "@/components/chat/ChatBadgeProvider";
 import { Chip, Avatar } from "@/components/atoms";
 import { signOut } from "@/app/(auth)/actions";
 
@@ -191,7 +192,10 @@ export function SiteEngineerChrome({ fullName, projects, canSuperviseTeam = fals
                 borderBottom: activeTab === t.id ? "2px solid var(--color-forest)" : "2px solid transparent",
                 transition: "all .15s",
               }}>
-                {t.label}
+                <span style={{ position: "relative", display: "inline-block" }}>
+                  {t.label}
+                  {t.id === "bridge" && <ChatBadge size={15} />}
+                </span>
               </button>
             ))}
           </div>
@@ -246,7 +250,10 @@ export function SiteEngineerChrome({ fullName, projects, canSuperviseTeam = fals
             color: activeTab === t.id ? "var(--color-forest)" : "var(--color-tan)",
             border: "none", background: "none", padding: "0 6px", cursor: "pointer",
           }}>
-            <Icon name={t.icon} size={22} stroke={activeTab === t.id ? 2 : 1.7} />
+            <span style={{ position: "relative", display: "inline-flex" }}>
+              <Icon name={t.icon} size={22} stroke={activeTab === t.id ? 2 : 1.7} />
+              {t.id === "bridge" && <ChatBadge />}
+            </span>
             <span style={{ fontSize: 10, fontWeight: 500, letterSpacing: .1, whiteSpace: "nowrap" }}>{t.label}</span>
           </button>
         ))}

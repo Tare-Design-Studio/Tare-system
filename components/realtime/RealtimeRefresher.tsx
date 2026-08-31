@@ -70,11 +70,11 @@ const ROUTE_TABLES: Array<{ prefix: string; tables: ContentTable[] }> = [
   },
   { prefix: "/updates", tables: ["updates"] },
   { prefix: "/site", tables: ["enquiry_reminders", "project_assignments"] },
-  // bridge_messages is deliberately absent: BridgeClient holds its own
-  // subscription and appends the new message to the thread. router.refresh()
-  // here would re-run the page's server components on every chat message and
-  // fight that append.
-  { prefix: "/bridge", tables: ["projects", "project_assignments"] },
+  // Bridge renders entirely from client state now: the conversation list comes
+  // from ChatBadgeProvider and the thread from BridgeClient's own subscription.
+  // Any router.refresh() here would re-run the page's server components on
+  // every chat message and fight both.
+  { prefix: "/bridge", tables: [] },
   { prefix: "/broadcasts", tables: ["owner_broadcasts", "owner_broadcast_recipients"] },
   // Overview ("/") — the dashboard pulls from many content tables.
   {

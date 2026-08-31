@@ -289,32 +289,41 @@ export type Database = {
       }
       bridge_messages: {
         Row: {
+          attachment_id: string | null
           author_id: string
           body: string | null
+          conversation_id: string | null
           created_at: string
           id: string
           message_type: string
-          project_id: string
+          project_id: string | null
+          reply_to_id: string | null
           structured_payload: Json | null
           tenant_id: string
         }
         Insert: {
+          attachment_id: string | null
           author_id: string
           body?: string | null
+          conversation_id?: string | null
           created_at?: string
           id?: string
           message_type?: string
-          project_id: string
+          project_id: string | null
+          reply_to_id: string | null
           structured_payload?: Json | null
           tenant_id: string
         }
         Update: {
+          attachment_id?: string | null
           author_id?: string
           body?: string | null
+          conversation_id?: string | null
           created_at?: string
           id?: string
           message_type?: string
-          project_id?: string
+          project_id?: string | null
+          reply_to_id?: string | null
           structured_payload?: Json | null
           tenant_id?: string
         }
@@ -349,48 +358,98 @@ export type Database = {
           },
         ]
       }
-      bridge_reads: {
+      chat_attachments: {
         Row: {
+          bucket: string
+          byte_size: number
+          created_at: string
+          id: string
+          mime_type: string
+          scan_status: string
+          storage_path: string
+          tenant_id: string
+          uploaded_by: string
+          webp_path: string | null
+        }
+        Insert: {
+          bucket?: string
+          byte_size: number
+          created_at?: string
+          id?: string
+          mime_type: string
+          scan_status?: string
+          storage_path: string
+          tenant_id: string
+          uploaded_by: string
+          webp_path?: string | null
+        }
+        Update: {
+          bucket?: string
+          byte_size?: number
+          created_at?: string
+          id?: string
+          mime_type?: string
+          scan_status?: string
+          storage_path?: string
+          tenant_id?: string
+          uploaded_by?: string
+          webp_path?: string | null
+        }
+        Relationships: []
+      }
+      chat_conversations: {
+        Row: {
+          created_at: string
+          dm_hi: string | null
+          dm_lo: string | null
+          id: string
+          kind: string
+          last_message_at: string | null
+          project_id: string | null
+          tenant_id: string
+        }
+        Insert: {
+          created_at?: string
+          dm_hi?: string | null
+          dm_lo?: string | null
+          id?: string
+          kind: string
+          last_message_at?: string | null
+          project_id?: string | null
+          tenant_id: string
+        }
+        Update: {
+          created_at?: string
+          dm_hi?: string | null
+          dm_lo?: string | null
+          id?: string
+          kind?: string
+          last_message_at?: string | null
+          project_id?: string | null
+          tenant_id?: string
+        }
+        Relationships: []
+      }
+      chat_reads: {
+        Row: {
+          conversation_id: string
           last_read_at: string
-          project_id: string
           tenant_id: string
           user_id: string
         }
         Insert: {
+          conversation_id: string
           last_read_at?: string
-          project_id: string
           tenant_id: string
           user_id: string
         }
         Update: {
+          conversation_id?: string
           last_read_at?: string
-          project_id?: string
           tenant_id?: string
           user_id?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "bridge_reads_project_id_fkey"
-            columns: ["project_id"]
-            isOneToOne: false
-            referencedRelation: "projects"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "bridge_reads_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "bridge_reads_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       calendar_events: {
         Row: {
@@ -4730,9 +4789,30 @@ export type Database = {
         }
         Returns: boolean
       }
+      chat_unread_counts: {
+        Args: never
+        Returns: {
+          conversation_id: string
+          kind: string
+          last_message_at: string | null
+          peer_id: string | null
+          preview: string | null
+          project_id: string | null
+          title: string | null
+          unread: number
+        }[]
+      }
       clear_bridge_notification: {
         Args: { p_project_id: string }
         Returns: undefined
+      }
+      clear_chat_notification: {
+        Args: { p_conversation_id: string }
+        Returns: undefined
+      }
+      open_dm: {
+        Args: { p_peer: string }
+        Returns: string
       }
       compact_old_notifications: { Args: never; Returns: undefined }
       current_user_tenant_id: { Args: never; Returns: string }

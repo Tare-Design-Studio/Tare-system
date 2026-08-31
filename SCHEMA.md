@@ -323,6 +323,95 @@ project must not delete the completed-task history that 084's KPI is derived fro
   the member acting on their own row) and never inspects `review_status`.
 
 
+### Migrations 107–111 — Bridge becomes a chat: DMs, per-conversation reads, attachments (applied 2026-08-31)
+
+**New table `chat_conversations`** — one row per thread, project and DM alike.
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid | PK |
+| tenant_id | uuid | NOT NULL → tenants |
+| kind | text | CHECK `project` / `dm` |
+| project_id | uuid | → projects; NOT NULL when kind='project', NULL for a DM |
+| dm_lo / dm_hi | uuid | → users; NOT NULL for a DM, **CHECK `dm_lo < dm_hi`** |
+| last_message_at | timestamptz | maintained by `touch_chat_conversation()` AFTER INSERT |
+
+**`dm_lo < dm_hi` is the DM identity rule.** Ordering the pair is what makes "A to B" and
+"B to A" the same row, so the partial UNIQUE index `chat_conv_dm_uniq (dm_lo, dm_hi)` can enforce
+it and two people opening each other simultaneously cannot create duplicate threads. Never insert
+a DM without ordering the pair — use `open_dm(peer)`.
+
+Partial unique indexes: `chat_conv_project_uniq (project_id) WHERE kind='project'`,
+`chat_conv_dm_uniq (dm_lo, dm_hi) WHERE kind='dm'`. Plus `chat_conv_recent (tenant_id,
+last_message_at DESC NULLS LAST)` and `chat_conv_dm_lo` / `chat_conv_dm_hi`.
+
+**New table `chat_reads`** — PK `(user_id, conversation_id)`, plus `tenant_id`, `last_read_at`.
+**Replaced `bridge_reads`, which was DROPPED in 107** (its PK was `(user_id, project_id)` and could
+not key a DM). Backfilled first; the drop is the last statement in the file so a failed backfill
+aborts with the old table intact. Backup of the 4 pre-existing rows: `backups/bridge_reads_20260831.json`.
+
+**New table `chat_attachments`** — chat images. `tenant_id`, `uploaded_by`, `bucket`,
+`storage_path`, `webp_path`, `mime_type`, `byte_size`, `scan_status` (CHECK pending/clean/
+infected/error). **Deliberately not `media_assets`:** that table's `project_id` is NOT NULL (a DM
+has no project) and `prunePrivateMedia()` keeps only the 15 newest per kind per project, which
+would silently delete conversation history. Same bucket and same sharp/webp pipeline; no Drive
+push, no pruning.
+
+**`bridge_messages` +3 columns:** `conversation_id` (→ chat_conversations, CASCADE),
+`reply_to_id` (→ bridge_messages, **ON DELETE SET NULL** so a deleted quote degrades the reply
+rather than deleting it), `attachment_id` (→ chat_attachments, SET NULL).
+Index `bridge_messages_conversation (conversation_id, created_at)`.
+
+**`bridge_messages.project_id` is now NULLABLE (110).** 020 created it NOT NULL; a DM has no
+project. Replaced by CHECK `bridge_messages_has_thread`: `project_id IS NOT NULL OR
+conversation_id IS NOT NULL`.
+
+**Triggers on `bridge_messages` — all are now DM-aware (109). Anything added here must handle
+`project_id IS NULL`:**
+- `trg_bridge_set_tenant` now calls **`set_bridge_message_tenant()`**, not the shared
+  `set_tenant_from_project()`. The shared helper raises `project % not found` on a NULL
+  project_id, which made every DM insert fail. The new function resolves tenant from the project
+  when present, else from the conversation. The shared helper is untouched — other tables use it.
+- `notify_bridge_message()` (099) **returns early when `project_id IS NULL`.** Its recipient query
+  is "owners of the tenant OR anyone assigned to NEW.project_id"; with a NULL project the owner
+  branch still matched, so sending a DM raised a bell notification carrying the message preview
+  for every owner in the tenant. Disclosure, fixed in 109.
+- `bridge_material_request_to_plan()` (020) gains `AND NEW.project_id IS NOT NULL`. Column list,
+  `planned_quantity`, the `'unit'` default and `RETURN NULL` are unchanged from 020.
+- `notify_dm_message()` (108, hardened in 111) — DM-only notifier, one collapsed notification per
+  thread, recipient is the peer alone.
+
+**RLS.** All three new tables have both ENABLE and FORCE. A DM is visible to its two participants
+**and to nobody else — owners included. There is deliberately no admin backdoor.**
+`bridge_select` / `bridge_insert` were rewritten in 107 to add a DM branch; the project branch is
+byte-identical to 021.
+
+**`chat_conv_insert` validates the PEER, not just the caller (111).** The original policy checked
+only `auth.uid() IN (dm_lo, dm_hi)`, and since 107 also grants INSERT on the table directly to
+`authenticated`, `open_dm()`'s tenant check was bypassable via PostgREST: a client could name any
+user id — including one in another tenant — as the peer, then post, at which point
+`notify_dm_message()` wrote a notification_recipients row for them. **The notifications tables
+carry no tenant predicate of their own (006/032), so the preview would surface in the victim's
+bell.** Confirmed against the live DB that the direct INSERT bypassed `open_dm()`; the
+cross-tenant half is unreachable on this database (single tenant) but structural. The policy now
+requires the peer to be a live, same-tenant user, and `notify_dm_message()` re-checks the peer's
+tenant before writing a recipient row.
+
+**Known, pre-existing, NOT fixed here:** `notifications` / `notification_recipients` SELECT
+policies key only on `user_id = auth.uid()` with **no tenant predicate at all** (006, 032). Any
+code path that writes a recipient row from a client-influenced user id is a cross-tenant channel.
+Chat no longer is one, but the underlying policies still have no tenant boundary — worth fixing
+separately, as it touches every notification path.
+
+**Functions (108):**
+| Function | Notes |
+|---|---|
+| `chat_unread_counts()` | **SECURITY INVOKER — load-bearing.** Returns one row per visible thread with unread count, title, peer, preview. A DEFINER version would hand every caller counts for other people's DMs. Counts in-DB against `(conversation_id, created_at)`; replaced a JS scan of up to 2000 message rows. |
+| `open_dm(p_peer)` | SECURITY INVOKER. Owns the lo/hi ordering; validates the peer is live and same-tenant; ON CONFLICT handles the simultaneous-open race. |
+| `clear_chat_notification(p_conversation_id)` | SECURITY DEFINER, keys on `auth.uid()`, takes no user id. Clears both `chat_dm` and `bridge_message` entries. |
+
+**Realtime:** `chat_conversations` added to the `supabase_realtime` publication (`bridge_messages`
+was already there from 098).
+
 ### Migration 094 — site engineers get tenant-wide bridge access (applied 2026-08-04)
 
 Data only — **no structural change**. Grants `bridge:read` + `bridge:write` at

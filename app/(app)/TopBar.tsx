@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { Avatar } from "@/components/atoms";
 import { signOut } from "@/app/(auth)/actions";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { ChatBadge } from "@/components/chat/ChatBadgeProvider";
 
 // Converts a VAPID public key from base64url to a Uint8Array for the browser API
 function urlBase64ToUint8Array(base64String: string): ArrayBuffer {
@@ -222,7 +223,10 @@ export function TopBar({ fullName, role, memberTags = [], capabilities = [] }: T
                 textDecoration: "none", transition: "all .15s", flexShrink: 0,
               }}
             >
-              {item.icon}
+              <span style={{ position: "relative", display: "inline-flex" }}>
+                {item.icon}
+                {item.href === "/bridge" && <ChatBadge size={15} />}
+              </span>
               <span style={{ display: "inline" }}>{item.label}</span>
             </Link>
           );

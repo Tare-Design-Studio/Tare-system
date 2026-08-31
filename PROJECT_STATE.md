@@ -1,5 +1,61 @@
 # PROJECT_STATE.md
-(Updated: 2026-08-31 — client portal content: updates box, webp gallery, site visits; migration 106)
+(Updated: 2026-08-31 — Bridge chat: DMs, unread nav badge, attachments; migrations 107–111)
+
+### Bridge becomes a chat — DMs, unread badge, attachments (2026-08-31, migrations 107–111)
+
+Client asked for "a mini Slack/WhatsApp style chat within the app", an unread number on the Bridge
+icon in both navbars, and explicitly: it must not slow the rest of the app down with fetching.
+
+**What shipped.** Project threads keep working unchanged. Added 1:1 DMs between any two active
+users in the tenant (no capability gate — the decision was that anyone in the studio can message
+anyone), reply-to quoting, image attachments, and typing/seen indicators in DMs. Notifications stay
+**in-app bell only**; no web push, per 099's reasoning that a push per message gets the app muted.
+
+**The badge is the performance-critical piece.** `ChatBadgeProvider` sits in the app layout, fetches
+`chat_unread_counts()` **once per session**, and thereafter mutates the number locally: +1 on a
+realtime INSERT the user did not author, 0 on opening a thread. One resync on tab-refocus after
+>60s hidden, since realtime does not replay events missed while the socket slept.
+**Per navigation: zero network.** The same payload feeds the Bridge sidebar, so list and badge
+share the one request.
+
+This also **replaced** `GET /api/bridge/reads`, which pulled up to 2000 message rows into Node and
+counted them in JavaScript — affordable on one page, not as an app-wide badge. That route is
+deleted; `/bridge` in `RealtimeRefresher` is now an empty table set, since a `router.refresh()`
+there would re-run the page's server components on every incoming message.
+
+**Two pre-existing triggers broke on DMs — found by the verification probe, not the type checker:**
+- `trg_bridge_set_tenant` used the shared `set_tenant_from_project()`, which raises on a NULL
+  `project_id`. Every DM insert failed. Now uses its own `set_bridge_message_tenant()`.
+- **`notify_bridge_message()` (099) fired on DMs too.** Its recipient rule is "owners of the tenant
+  OR anyone assigned to the project"; with `project_id` NULL the owner branch still matched, so a
+  private DM raised a bell notification **carrying the message preview** for every owner in the
+  tenant. Fixed in 109.
+
+**Security review found a third issue, confirmed live:** 107 granted INSERT on
+`chat_conversations` directly to `authenticated`, so `open_dm()`'s same-tenant peer check was
+bypassable via PostgREST — a client could name any user id as the peer. 111 moves the peer
+validation into the `chat_conv_insert` policy itself and re-checks the peer's tenant inside
+`notify_dm_message()`. The cross-tenant half was not reachable on this database (single tenant),
+but the hole was structural.
+
+**Known, pre-existing, NOT fixed:** `notifications` / `notification_recipients` SELECT policies
+have **no tenant predicate at all** (006/032) — they key only on `user_id = auth.uid()`. Chat is no
+longer a way to exploit that, but any future code writing a recipient row from a client-influenced
+user id would be. Fixing it touches every notification path, so it was left out of this change.
+
+**Verified:** `npm run build` green. A 17-assertion transactional probe against the live DB (rolled
+back), running as real users under RLS via `request.jwt.claims`, covers: reversed-argument DM
+identity, a third party seeing zero messages / zero conversation rows / zero unread counts for a DM
+they are not in, an outsider unable to forge a DM between two other people, unread counts per user,
+own messages not counting as unread, read state being private, and the DM notification reaching
+exactly one recipient (the peer, not the author). Plus 3 assertions that the 111 hardening refuses
+a fabricated or inactive peer while leaving legitimate DMs working. Bridge held only 2 messages in
+production before this change, so there was almost nothing to migrate.
+
+**Not done:** virus scanning of chat attachments is stubbed the same way `media_assets` is —
+`scan_status` defaults to `pending` and nothing flips it; the signing route refuses `infected` but
+nothing ever sets that. Same posture as the existing image pipeline, not a regression, but it is
+not protection either.
 
 ### Client portal content — updates, images, site visits (2026-08-31, migration 106)
 

@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
+import { ChatBadge } from "@/components/chat/ChatBadgeProvider";
 
 export type MobileNavItem = {
   href: string;
@@ -75,6 +76,7 @@ export function MobileNav({ navItems }: MobileNavProps) {
               }}
             >
               <div style={{
+                position: "relative",
                 width: 36, height: 36, borderRadius: 10,
                 background: active ? "rgba(45,106,79,.1)" : "transparent",
                 display: "flex", alignItems: "center", justifyContent: "center",
@@ -83,6 +85,7 @@ export function MobileNav({ navItems }: MobileNavProps) {
                 <svg width={20} height={20} viewBox="0 0 24 24" fill="currentColor">
                   <path d={iconPath} />
                 </svg>
+                {item.href === "/bridge" && <ChatBadge />}
               </div>
               <span style={{ fontSize: 10, fontWeight: active ? 600 : 500, letterSpacing: 0.1, whiteSpace: "nowrap" }}>{item.label}</span>
             </Link>
