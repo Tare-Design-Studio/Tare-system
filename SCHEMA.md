@@ -323,6 +323,41 @@ project must not delete the completed-task history that 084's KPI is derived fro
   the member acting on their own row) and never inspects `review_status`.
 
 
+### Migrations 112–113 — notification tenant boundary, chat scan states (applied 2026-08-31)
+
+**112 — `notifications` / `notification_recipients` gain a tenant predicate.** 032's
+`notifications_select` checked only that a recipient row named `auth.uid()`; 006's recipients
+policies checked only `user_id = auth.uid()`. Neither mentioned a tenant, so the only thing keeping
+notifications inside a tenant was that every writer happened to pick recipients from the right one
+— a property of the callers, not the schema. 111 is what happens when one writer stops having it.
+
+**The obvious pair of policies is mutually recursive** — notifications joining to recipients while
+recipients join back to notifications raises `infinite recursion detected in policy for relation
+"notifications"`. Confirmed: the first draft of 112 hit exactly that. Broken with
+**`notification_tenant(uuid)`**, a STABLE SECURITY DEFINER helper returning one notification's
+`tenant_id`. The recipients policies call it; the notifications policy keeps its EXISTS.
+**Any future policy on either table must not join back to the other.**
+
+`idx_notif_recipients_notification (notification_id)` added — `notifications_select` probes
+recipients in that direction on every row and 006 indexed only `(user_id, is_read)`.
+
+**FORCE deliberately not restated:** 081/097 already set it on both tables. Every writer
+(`emit_notification`, `notify_bridge_message`, `notify_dm_message`, `clear_bridge_notification`,
+`clear_chat_notification`, `compact_old_notifications`) is SECURITY DEFINER owned by a role with
+`rolbypassrls`, which is what lets them insert with **no INSERT policy present on either table**.
+
+**113 — `chat_attachments.scan_status` gains `quarantined`.** CHECK is now
+`pending / clean / infected / quarantined / error`, plus a partial index on `scan_status <> 'clean'`.
+
+**There is still no virus scanner in this stack, on either table.** Verified: nothing in any
+migration or route ever writes `scan_status`, so every `media_assets` row has sat at `pending`
+since 020 and its GENERATED `is_clean` column has always been false — the customer portal's
+`is_clean = true` filter passes nothing on its own and works only because those queries also carry
+`visible_to_customer`. Chat's signing route refuses `infected` and `quarantined` (a reachable
+operator hold) rather than requiring `clean`, which would block every image ever uploaded. The real
+control on a chat image is the private bucket, the 30-minute signed URL, and participant-only RLS.
+**Tighten the route to require `clean` the day a scanner exists.**
+
 ### Migrations 107–111 — Bridge becomes a chat: DMs, per-conversation reads, attachments (applied 2026-08-31)
 
 **New table `chat_conversations`** — one row per thread, project and DM alike.

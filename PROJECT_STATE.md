@@ -1,5 +1,29 @@
 # PROJECT_STATE.md
-(Updated: 2026-08-31 — Bridge chat: DMs, unread nav badge, attachments; migrations 107–111)
+(Updated: 2026-08-31 — Bridge chat + notification tenant boundary; migrations 107–113)
+
+### Notification tenant boundary + chat scan states (2026-08-31, migrations 112–113)
+
+The two items flagged as "known, not fixed" in the chat entry below, closed.
+
+**112.** `notifications` and `notification_recipients` had **no tenant predicate in any policy** —
+032 checked that a recipient row named you, 006 checked `user_id = auth.uid()`, and neither
+mentioned a tenant. Tenant isolation was a property of the writers, not the schema. Now asserted in
+the policies, so a writer that gets recipients wrong produces an unreadable row instead of a leak.
+
+The natural fix is mutually recursive and Postgres rejects it at query time — caught by the probe
+before it reached the database. A SECURITY DEFINER `notification_tenant(uuid)` helper breaks the
+cycle. Anything added to these policies later must not join the two tables back to each other.
+
+**113.** Chat's attachment gate refused only `infected`, a value nothing in this codebase produces
+— a check that read as protection and gave none. Added `quarantined` as a reachable operator hold
+and the route now refuses both. **This did not add a scanner**; there is none, on chat *or*
+`media_assets`, whose `is_clean` column has been false for every row since 020. Requiring `clean`
+would block every image, so the honest posture is documented instead: private bucket, 30-minute
+signed URL, participant-only RLS.
+
+**Verified:** 6 assertions that the new policies keep existing notifications readable, mark-read
+working and a peer's rows private; 8 that both migrations are live and chat is unregressed; the
+original 8-assertion DM isolation probe re-run clean. `npm run build` green.
 
 ### Bridge becomes a chat — DMs, unread badge, attachments (2026-08-31, migrations 107–111)
 

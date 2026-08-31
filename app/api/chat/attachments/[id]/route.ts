@@ -31,9 +31,14 @@ export async function GET(_req: Request, { params }: Ctx) {
     bucket: string; storage_path: string; webp_path: string | null; scan_status: string;
   };
 
-  // Mirrors media_assets: nothing infected is ever served, whatever the row
-  // says elsewhere.
-  if (a.scan_status === "infected") {
+  // No scanner runs in this stack today, so every row sits at 'pending' (113).
+  // This refuses the two states that mean "do not serve this" — 'infected' for
+  // a future scanner, 'quarantined' for an operator pulling a specific file by
+  // hand. It deliberately does NOT require 'clean': that would block every
+  // image ever uploaded. The real control on a chat image is that it lives in a
+  // private bucket behind a 30-minute signed URL, readable only by the
+  // conversation's participants.
+  if (a.scan_status === "infected" || a.scan_status === "quarantined") {
     return NextResponse.json({ error: "Unavailable" }, { status: 403 });
   }
 
