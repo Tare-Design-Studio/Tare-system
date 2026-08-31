@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import sharp from "sharp";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { pushMediaAssetToDrive, prunePrivateMedia } from "@/lib/drive/sync";
@@ -61,12 +62,35 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     .upload(storage_path, bytes, { contentType: file.type, upsert: false });
   if (uploadErr) return NextResponse.json({ error: uploadErr.message }, { status: 500 });
 
+  // Compressed derivative for the customer portal. The original stays as the
+  // archive copy that goes to Drive; this is what a client's phone downloads.
+  // Deliberately best-effort: a conversion failure leaves webp_path NULL and
+  // the portal falls back to the original, so a bad EXIF header or an exotic
+  // colour profile degrades quality instead of failing the upload.
+  let webp_path: string | null = null;
+  try {
+    const webpBytes = await sharp(bytes)
+      .rotate() // honour EXIF orientation before stripping it
+      .resize({ width: 1600, withoutEnlargement: true })
+      .webp({ quality: 78 })
+      .toBuffer();
+
+    const candidate = `${project_id}/webp/${crypto.randomUUID()}.webp`;
+    const { error: webpErr } = await service.storage
+      .from("media-private")
+      .upload(candidate, webpBytes, { contentType: "image/webp", upsert: false });
+    if (!webpErr) webp_path = candidate;
+  } catch {
+    // Intentionally swallowed — see above.
+  }
+
   const { data, error } = await service
     .from("media_assets")
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .insert({
       project_id,
       storage_path,
+      webp_path,
       bucket: "media-private",
       kind,
       uploaded_by: user.id,
@@ -75,7 +99,9 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     .single();
 
   if (error) {
-    await service.storage.from("media-private").remove([storage_path]);
+    await service.storage
+      .from("media-private")
+      .remove(webp_path ? [storage_path, webp_path] : [storage_path]);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 

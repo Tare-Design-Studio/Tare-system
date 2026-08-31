@@ -499,7 +499,7 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
 
         {/* Footer */}
         <div style={{ borderTop: '1px solid var(--line)', paddingTop: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'var(--muted)', fontSize: 11 }}>
-          <span>Powered by <a href="https://ascension-ten.vercel.app/" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--ink)', fontWeight: 700, textDecoration: 'none' }}>ascension</a></span>
+          <span />
           <span className="mono">/c/{hash}</span>
         </div>
 

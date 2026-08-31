@@ -30,6 +30,21 @@ export default async function CustomerDetailPage({ params }: Params) {
     .is("deleted_at", null)
     .order("created_at", { ascending: false });
 
+  // Only capability holders get the portal-content surface; the routes re-check.
+  const { data: canManagePortal } = await supabase.rpc("has_capability", {
+    p_capability: "images:select_for_customer",
+  });
+
+  // Staff list for attributing a manually logged visit.
+  const { data: members } = canManagePortal
+    ? await supabase
+        .from("users")
+        .select("id, full_name")
+        .is("deleted_at", null)
+        .eq("is_active", true)
+        .order("full_name")
+    : { data: [] };
+
   const primaryProject = projects?.[0] ?? null;
   const projectId = primaryProject?.id ?? null;
 
@@ -50,13 +65,15 @@ export default async function CustomerDetailPage({ params }: Params) {
     : [{ data: [] }, { data: [] }];
 
   return (
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    /* eslint-disable @typescript-eslint/no-explicit-any */
     <CustomerDetail
       customer={data as any}
       project={primaryProject}
       projects={(projects ?? []) as any}
       paymentSchedule={(scheduleRes.data ?? []) as any[]}
       paymentRecords={(recordsRes.data ?? []) as any[]}
+      canManagePortal={canManagePortal === true}
+      members={(members ?? []) as { id: string; full_name: string }[]}
     />
   );
 }

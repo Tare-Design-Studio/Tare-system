@@ -1,5 +1,63 @@
 # SCHEMA.md
-(Updated: 2026-08-13 — no migration; note on tag capabilities held by site engineers)
+(Updated: 2026-08-31 — migration 106: client portal content — customer_updates, webp derivatives, client-visible site visits)
+
+### Migration 106 — client portal content (applied 2026-08-31)
+
+Gives the customer portal (`/c/customer/[hash]`) an updates box, a photo gallery and a site-visit
+list, plus the admin surface that curates all three.
+
+**New table `customer_updates`** — studio-authored messages written *for* a client.
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid | PK |
+| tenant_id | uuid | via `set_tenant_from_customer()` trigger (new; `set_tenant_from_user()` reads `NEW.user_id`, which this table does not have) |
+| customer_id | uuid | NOT NULL → customers ON DELETE CASCADE |
+| project_id | uuid | optional tag → projects ON DELETE SET NULL |
+| author_id | uuid | NOT NULL → users |
+| body | text | CHECK 1–2000 chars after trim |
+| is_visible | boolean | DEFAULT true — reversible unpublish, distinct from `deleted_at` |
+| created_at / edited_at / deleted_at | timestamptz | soft delete |
+
+RLS ENABLE **and** FORCE. SELECT = same tenant + not deleted; INSERT/UPDATE gated on
+`images:select_for_customer`. The UPDATE policy carries a `WITH CHECK` so a soft delete does not
+trip the SELECT policy (the 058/064 trap). Explicit grants to `authenticated` + `service_role`;
+**anon gets nothing** — the portal reads through the SECURITY DEFINER RPC only.
+
+**`media_assets` +3:** `webp_path text` (compressed derivative; NULL = serve the original),
+`customer_caption text`, `customer_sort int` (NULL sorts last).
+
+**`site_check_ins` +3:** `visible_to_customer boolean NOT NULL DEFAULT false`, `customer_note text`,
+`source text NOT NULL DEFAULT 'check_in' CHECK (source IN ('check_in','manual'))`.
+Owner-logged visits are rows in this same table with `source='manual'`.
+
+> **Trap (hit during build):** `idx_site_checkin_open_session` is
+> `UNIQUE (user_id, project_id) WHERE checked_out_at IS NULL`. A manual visit **must** be inserted
+> with `checked_out_at` set, or it collides with that person's live check-in on the same project and
+> with any second manual visit. `app/api/customers/[id]/visits/route.ts` sets it equal to
+> `checked_in_at`; `duration_minutes` stays NULL because the visit was never measured.
+
+New policies: `customer_visit_curate` (UPDATE) and `customer_visit_manual_insert` (INSERT, forces
+`source='manual'`), both on `images:select_for_customer`. The 101 geofence-override policy is
+untouched. `REVOKE UPDATE (visible_to_customer, customer_note, source) … FROM authenticated` — only
+the API's service client, which re-checks the capability, writes these.
+
+**`get_customer_portal_summary()` replaced** (same signature, same rate limiting/abuse logging).
+Adds `updates`, `images` (flat across all the customer's projects, `visible_to_customer AND is_clean
+AND kind IN ('site_image','drawing')`) and `visits`. **Visits expose `visitor_name` + date only** —
+no duration, check-out time, GPS or geofence status.
+
+**No new capability.** `images:select_for_customer` already existed, is already held by owner+admin,
+and already backed the `media_assets` UPDATE policy (056).
+
+Apply: `DATABASE_URL=... npx tsx scripts/migrate.ts`
+
+### Correction: migrations 067, 068 and 070 ARE applied (verified 2026-08-31)
+
+Sections further down this file say "NOT YET APPLIED" for 067 (project scope), 068 (attendance
+sessions) and 070 (site check-in → check-out). **All three are in `_migrations` on the live DB** —
+verified by querying it directly on 2026-08-31. The columns they add (`projects.scope`,
+`attendance_logs.accumulated_minutes` / `last_check_in_at`, `site_check_ins.checked_out_at` /
+`duration_minutes`) all exist. Those status lines are stale; trust `_migrations`, not the prose.
 
 ### Note: a tag on a `site_engineer` grants capabilities the SE chrome cannot reach (2026-08-13)
 

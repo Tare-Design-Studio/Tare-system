@@ -140,7 +140,7 @@ export async function prunePrivateMedia(
 
   const { data: rows } = await service
     .from("media_assets")
-    .select("id, storage_path, bucket, drive_sync_status")
+    .select("id, storage_path, bucket, webp_path, drive_sync_status")
     .eq("project_id", projectId)
     .eq("kind", kind)
     .order("created_at", { ascending: false });
@@ -154,11 +154,15 @@ export async function prunePrivateMedia(
     .filter((r) => r.drive_sync_status === "synced");
   if (stale.length === 0) return;
 
-  // Group storage paths by bucket for batched removal.
+  // Group storage paths by bucket for batched removal. The webp derivative
+  // lives in the same bucket and is not in Drive, so it must be removed here or
+  // it outlives the row that named it.
   const byBucket = new Map<string, string[]>();
   for (const r of stale) {
     const list = byBucket.get(r.bucket) ?? [];
     list.push(r.storage_path);
+    const webp = (r as { webp_path?: string | null }).webp_path;
+    if (webp) list.push(webp);
     byBucket.set(r.bucket, list);
   }
   for (const [bucket, paths] of byBucket) {

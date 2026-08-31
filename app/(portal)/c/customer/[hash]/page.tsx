@@ -2,6 +2,7 @@ import StageFeedback from "./StageFeedback";
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Customer Portal — ArchitectOS" };
@@ -35,9 +36,41 @@ type ProjectSummary = {
   checkpoints: Checkpoint[];
   payments: Payment[];
 };
+type ClientUpdate = {
+  id: string;
+  body: string;
+  project_name: string | null;
+  created_at: string;
+};
+type PortalImage = {
+  id: string;
+  storage_path: string;
+  webp_path: string | null;
+  bucket: string;
+  kind: string;
+  caption: string | null;
+  taken_at: string | null;
+};
+type SignedImage = {
+  id: string;
+  url: string | null;
+  kind: string;
+  caption: string | null;
+  taken_at: string | null;
+};
+type Visit = {
+  id: string;
+  visitor_name: string | null;
+  project_name: string | null;
+  visited_on: string;
+  note: string | null;
+};
 type Summary = {
   customer_name: string;
   projects: ProjectSummary[];
+  updates: ClientUpdate[];
+  images: PortalImage[];
+  visits: Visit[];
 };
 
 function fmtDate(iso: string | null): string {
@@ -76,6 +109,37 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
 
   if (error || !data) notFound();
   const summary = data;
+
+  // media-private is not a public bucket and the portal caller is anon, which
+  // cannot mint signed URLs — so signing runs through the service client. The
+  // hash in the URL is the only thing that got us here, and the RPC already
+  // resolved it to this customer, so only their own curated images are signed.
+  const rawImages: PortalImage[] = Array.isArray(summary.images) ? summary.images : [];
+  let images: SignedImage[] = [];
+  if (rawImages.length > 0) {
+    const service = createServiceClient();
+    images = await Promise.all(
+      rawImages.map(async (img) => {
+        // Prefer the compressed derivative; fall back to the original for
+        // anything uploaded before webp conversion existed.
+        const path = img.webp_path ?? img.storage_path;
+        const { data: signed } = await service.storage
+          .from(img.bucket)
+          .createSignedUrl(path, 3600);
+        return {
+          id: img.id,
+          url: signed?.signedUrl ?? null,
+          kind: img.kind,
+          caption: img.caption,
+          taken_at: img.taken_at,
+        };
+      })
+    );
+    images = images.filter((i) => i.url !== null);
+  }
+
+  const updates: ClientUpdate[] = Array.isArray(summary.updates) ? summary.updates : [];
+  const visits: Visit[] = Array.isArray(summary.visits) ? summary.visits : [];
 
   const totalBilled = summary.projects.reduce(
     (s, p) => s + p.payments.reduce((ss, x) => ss + Number(x.amount_due), 0),
@@ -117,6 +181,7 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
         @media (max-width: 640px) {
           .summary-grid { grid-template-columns: 1fr 1fr !important }
           .summary-grid > div:last-child { grid-column: span 2 }
+          .gallery-grid { grid-template-columns: 1fr 1fr !important }
         }
       `}</style>
 
@@ -157,6 +222,98 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
           </div>
         )}
 
+        {/* Updates from the studio — the box the client reads first. */}
+        {updates.length > 0 && (
+          <div style={{ ...CARD, padding: 24, marginBottom: 20 }}>
+            <div className="serif" style={{ fontSize: 28, letterSpacing: -.5, marginBottom: 16 }}>Updates</div>
+            <div>
+              {updates.map((u, i) => (
+                <div
+                  key={u.id}
+                  style={{
+                    padding: "14px 0",
+                    borderBottom: i < updates.length - 1 ? "1px solid var(--line)" : "none",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline", marginBottom: 6 }}>
+                    <span className="mono" style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: .6 }}>
+                      {fmtDate(u.created_at)}
+                    </span>
+                    {u.project_name && (
+                      <span style={{ fontSize: 11, color: "var(--accent)", background: "rgba(45,106,79,.1)", padding: "3px 8px", borderRadius: 99 }}>
+                        {u.project_name}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 14, lineHeight: 1.55, color: "var(--ink-2)", whiteSpace: "pre-wrap" }}>
+                    {u.body}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Photos & drawings — one flat gallery across every project. */}
+        {images.length > 0 && (
+          <div style={{ ...CARD, padding: 24, marginBottom: 20 }}>
+            <div className="serif" style={{ fontSize: 28, letterSpacing: -.5, marginBottom: 16 }}>Photos &amp; Drawings</div>
+            <div className="gallery-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+              {images.map(img => (
+                <figure key={img.id} style={{ margin: 0 }}>
+                  <img
+                    src={img.url ?? ""}
+                    alt={img.caption ?? (img.kind === "drawing" ? "Drawing" : "Site photo")}
+                    loading="lazy"
+                    style={{
+                      width: "100%", aspectRatio: "4 / 3", objectFit: "cover",
+                      borderRadius: 12, border: "1px solid var(--line)", display: "block",
+                      background: "var(--bg-2)",
+                    }}
+                  />
+                  {(img.caption || img.taken_at) && (
+                    <figcaption style={{ fontSize: 11, color: "var(--muted)", marginTop: 6, lineHeight: 1.4 }}>
+                      {img.caption ?? (img.kind === "drawing" ? "Drawing" : "Site photo")}
+                      {img.taken_at && <> · {fmtDate(img.taken_at)}</>}
+                    </figcaption>
+                  )}
+                </figure>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Site visits — who came, and when. Nothing else. */}
+        {visits.length > 0 && (
+          <div style={{ ...CARD, padding: 24, marginBottom: 20 }}>
+            <div className="serif" style={{ fontSize: 28, letterSpacing: -.5, marginBottom: 16 }}>Site Visits</div>
+            <div>
+              {visits.map((v, i) => (
+                <div
+                  key={v.id}
+                  style={{
+                    display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline",
+                    padding: "12px 0",
+                    borderBottom: i < visits.length - 1 ? "1px solid var(--line)" : "none",
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{v.visitor_name ?? "Site visit"}</div>
+                    {(v.note || v.project_name) && (
+                      <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 3 }}>
+                        {[v.project_name, v.note].filter(Boolean).join(" · ")}
+                      </div>
+                    )}
+                  </div>
+                  <span className="mono" style={{ fontSize: 12, color: "var(--muted)", flexShrink: 0 }}>
+                    {fmtDate(v.visited_on)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Projects */}
         {summary.projects.map(p => (
           <ProjectCard key={p.id} project={p} portalHash={hash} />
@@ -170,7 +327,7 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
 
         {/* Footer */}
         <div style={{ borderTop: "1px solid var(--line)", paddingTop: 24, display: "flex", alignItems: "center", justifyContent: "space-between", color: "var(--muted)", fontSize: 11 }}>
-          <span>Powered by <a href="https://ascension-ten.vercel.app/" target="_blank" rel="noopener noreferrer" style={{ color: "var(--ink)", fontWeight: 700, textDecoration: "none" }}>ascension</a></span>
+          <span />
           <span className="mono">/c/customer/{hash}</span>
         </div>
 

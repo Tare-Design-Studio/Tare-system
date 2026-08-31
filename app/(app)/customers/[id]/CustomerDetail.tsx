@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import PaymentsCard from "@/components/payments/PaymentsCard";
+import PortalContentCard from "./PortalContentCard";
 import { ConfirmPopover, Icon } from "@/components/atoms";
 
 // ISO timestamp → value for <input type="datetime-local"> (local time, minute precision).
@@ -93,12 +94,15 @@ const miniBtn: React.CSSProperties = {
 
 export default function CustomerDetail({
   customer: initial, project, projects = [], paymentSchedule = [], paymentRecords = [],
+  canManagePortal = false, members = [],
 }: {
   customer: Customer;
   project: Project;
   projects?: { id: string; name: string; status: string; current_stage: string }[];
   paymentSchedule?: AnyRow[];
   paymentRecords?: AnyRow[];
+  canManagePortal?: boolean;
+  members?: { id: string; full_name: string }[];
 }) {
   const [customer, setCustomer] = useState<Customer>(initial);
   const [portalHash, setPortalHash] = useState<string | null>(initial.customer_portal_hash);
@@ -473,6 +477,17 @@ export default function CustomerDetail({
             projectId={project.id}
             schedule={paymentSchedule}
             records={paymentRecords}
+          />
+        </div>
+      )}
+
+      {/* Client portal content — capability-gated; the API routes re-check. */}
+      {canManagePortal && (
+        <div style={{ marginBottom: 18 }}>
+          <PortalContentCard
+            customerId={customer.id}
+            projects={projects.map(p => ({ id: p.id, name: p.name }))}
+            members={members}
           />
         </div>
       )}

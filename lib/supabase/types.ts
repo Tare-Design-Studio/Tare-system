@@ -661,6 +661,45 @@ export type Database = {
           },
         ]
       }
+      customer_updates: {
+        Row: {
+          id: string
+          tenant_id: string
+          customer_id: string
+          project_id: string | null
+          author_id: string
+          body: string
+          is_visible: boolean
+          created_at: string
+          edited_at: string | null
+          deleted_at: string | null
+        }
+        Insert: {
+          id?: string
+          tenant_id?: string
+          customer_id: string
+          project_id?: string | null
+          author_id: string
+          body: string
+          is_visible?: boolean
+          created_at?: string
+          edited_at?: string | null
+          deleted_at?: string | null
+        }
+        Update: {
+          id?: string
+          tenant_id?: string
+          customer_id?: string
+          project_id?: string | null
+          author_id?: string
+          body?: string
+          is_visible?: boolean
+          created_at?: string
+          edited_at?: string | null
+          deleted_at?: string | null
+        }
+        Relationships: []
+      }
       customers: {
         Row: {
           address: string | null
@@ -1501,6 +1540,9 @@ export type Database = {
           tenant_id: string
           uploaded_by: string
           visible_to_customer: boolean
+          webp_path: string | null
+          customer_caption: string | null
+          customer_sort: number | null
         }
         Insert: {
           bucket?: string
@@ -1523,6 +1565,9 @@ export type Database = {
           tenant_id: string
           uploaded_by: string
           visible_to_customer?: boolean
+          webp_path?: string | null
+          customer_caption?: string | null
+          customer_sort?: number | null
         }
         Update: {
           bucket?: string
@@ -1545,6 +1590,9 @@ export type Database = {
           tenant_id?: string
           uploaded_by?: string
           visible_to_customer?: boolean
+          webp_path?: string | null
+          customer_caption?: string | null
+          customer_sort?: number | null
         }
         Relationships: [
           {
@@ -2953,6 +3001,9 @@ export type Database = {
           tenant_id: string
           user_id: string
           within_geofence: boolean
+          visible_to_customer: boolean
+          customer_note: string | null
+          source: string
         }
         Insert: {
           approved_at?: string | null
@@ -2970,6 +3021,9 @@ export type Database = {
           tenant_id: string
           user_id: string
           within_geofence: boolean
+          visible_to_customer?: boolean
+          customer_note?: string | null
+          source?: string
         }
         Update: {
           approved_at?: string | null
@@ -2987,6 +3041,9 @@ export type Database = {
           tenant_id?: string
           user_id?: string
           within_geofence?: boolean
+          visible_to_customer?: boolean
+          customer_note?: string | null
+          source?: string
         }
         Relationships: [
           {

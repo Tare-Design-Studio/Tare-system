@@ -1,5 +1,49 @@
 # PROJECT_STATE.md
-(Updated: 2026-08-13 — leaderboard fix, uncapped efficiency points, comp-off credits; migrations 102 + 103)
+(Updated: 2026-08-31 — client portal content: updates box, webp gallery, site visits; migration 106)
+
+### Client portal content — updates, images, site visits (2026-08-31, migration 106)
+
+The customer portal showed milestones and payments only. It now also carries what a client actually
+asks about between milestones. Three new sections on `/c/customer/[hash]`, each rendering nothing at
+all when empty, plus a **Client Portal Content** card on the customer detail page that curates them.
+
+- **Updates box** — new `customer_updates` table, written *for* the client. Deliberately not a
+  `visible_to_customer` flag on the internal `updates` feed: those rows are team shorthand and were
+  never composed for a client to read.
+- **Images** — one flat gallery across every project the customer owns. Uploads now also produce a
+  **webp derivative** (`sharp`, 1600px cap, q78 — measured ~87% smaller than the source JPEG on a
+  3000px test image); the original still goes to Drive as the archive. Conversion is best-effort:
+  on failure `webp_path` stays NULL and the portal serves the original, so a bad EXIF header
+  degrades quality rather than failing the upload. `prunePrivateMedia` now deletes the derivative
+  alongside the original.
+- **Site visits** — both real `site_check_ins` (the existing check-in/check-out API was already
+  built and is unchanged) and owner-logged manual visits, in the same table tagged by `source`.
+  The client sees **name + date only**.
+- **"Powered by ascension" removed** from both client-facing portals (`/c/customer/[hash]` and
+  `/c/[hash]`). Staff-facing login/accept pages keep their footers.
+
+Everything defaults to hidden — `visible_to_customer` starts false, `customer_updates` starts empty —
+so no existing client saw anything new on deploy. Gated on the pre-existing
+`images:select_for_customer`; no new capability was invented.
+
+New routes: `/api/customers/[id]/updates` (GET/POST), `.../updates/[updateId]` (PATCH/DELETE),
+`.../portal-images` (GET/PATCH), `.../visits` (GET/POST/PATCH). Each re-checks the capability
+server-side and verifies the asset/visit belongs to *this* customer — without that check the
+capability would let a holder publish any image in the tenant onto any client's portal.
+
+**Verified:** `npm run build` green; a 10-assertion transactional test against the live DB (rolled
+back) confirmed visible/hidden filtering on all three sections, that infected images stay out, that
+visits expose no duration/GPS, and that two manual visits for the same person+project coexist.
+
+**Known, pre-existing, NOT fixed here:** `/c/[hash]` (the per-project portal) signs its images with
+the **anon** client, which cannot mint signed URLs for the private `media-private` bucket — verified
+directly: anon returns "Object not found" where the service client succeeds. Its images have
+therefore never rendered. The new customer-portal gallery uses the service client and works. Fixing
+the older portal is a separate change.
+
+**Issue found while building:** `idx_site_checkin_open_session` is UNIQUE (user_id, project_id)
+WHERE `checked_out_at IS NULL`, so a manual visit left open collides with that person's live
+check-in. Manual visits are now written closed. See SCHEMA.md §106.
 
 ### Edit-project modal: team list showed inconsistently (2026-08-13, NO migration)
 
