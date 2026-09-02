@@ -20,7 +20,7 @@ export default async function TablePresetsPage() {
       .order("created_at", { ascending: false }),
     supabase
       .from("payment_milestone_presets")
-      .select("id, name, is_system, created_at, payment_milestone_preset_items(id, milestone_name, percentage, sequence_order, notes)")
+      .select("id, name, is_system, scope, created_at, payment_milestone_preset_items(id, milestone_name, percentage, sequence_order, notes, wing, part)")
       .is("deleted_at", null)
       .order("name"),
     supabase
@@ -34,7 +34,16 @@ export default async function TablePresetsPage() {
     <TablePresetsClient
       initialPresets={presetsRes.data ?? []}
       initialPipelineTemplates={pipelineRes.data ?? []}
-      initialPaymentPresets={(paymentRes.data ?? []).map((p) => ({ ...p, is_system: p.is_system ?? false }))}
+      initialPaymentPresets={(paymentRes.data ?? []).map((p) => ({
+        ...p,
+        is_system: p.is_system ?? false,
+        scope: p.scope === "design_only" ? "design_only" as const : "design_and_execution" as const,
+        payment_milestone_preset_items: p.payment_milestone_preset_items.map((it) => ({
+          ...it,
+          wing: it.wing === "execution" ? "execution" as const : "design" as const,
+          part: it.part === "b" ? "b" as const : "a" as const,
+        })),
+      }))}
       initialMaterialPresets={(materialRes.data ?? []).map((p) => ({ ...p, is_system: p.is_system ?? false }))}
     />
   );

@@ -363,6 +363,7 @@ export type Database = {
           bucket: string
           byte_size: number
           created_at: string
+          file_name: string | null
           id: string
           mime_type: string
           scan_status: string
@@ -375,6 +376,7 @@ export type Database = {
           bucket?: string
           byte_size: number
           created_at?: string
+          file_name?: string | null
           id?: string
           mime_type: string
           scan_status?: string
@@ -387,6 +389,7 @@ export type Database = {
           bucket?: string
           byte_size?: number
           created_at?: string
+          file_name?: string | null
           id?: string
           mime_type?: string
           scan_status?: string
@@ -2004,6 +2007,8 @@ export type Database = {
           preset_id: string
           sequence_order: number
           tenant_id: string
+          wing: string
+          part: string
         }
         Insert: {
           id?: string
@@ -2013,6 +2018,8 @@ export type Database = {
           preset_id: string
           sequence_order: number
           tenant_id: string
+          wing?: string
+          part?: string
         }
         Update: {
           id?: string
@@ -2022,6 +2029,8 @@ export type Database = {
           preset_id?: string
           sequence_order?: number
           tenant_id?: string
+          wing?: string
+          part?: string
         }
         Relationships: [
           {
@@ -2050,6 +2059,7 @@ export type Database = {
           name: string
           tenant_id: string
           updated_at: string
+          scope: string
         }
         Insert: {
           created_at?: string
@@ -2060,6 +2070,7 @@ export type Database = {
           name: string
           tenant_id: string
           updated_at?: string
+          scope?: string
         }
         Update: {
           created_at?: string
@@ -2070,6 +2081,7 @@ export type Database = {
           name?: string
           tenant_id?: string
           updated_at?: string
+          scope?: string
         }
         Relationships: [
           {
@@ -2188,6 +2200,8 @@ export type Database = {
           tenant_id: string
           triggered_at: string | null
           updated_at: string
+          wing: string
+          part: string
         }
         Insert: {
           amount_due: number
@@ -2203,6 +2217,8 @@ export type Database = {
           tenant_id: string
           triggered_at?: string | null
           updated_at?: string
+          wing?: string
+          part?: string
         }
         Update: {
           amount_due?: number
@@ -2218,6 +2234,8 @@ export type Database = {
           tenant_id?: string
           triggered_at?: string | null
           updated_at?: string
+          wing?: string
+          part?: string
         }
         Relationships: [
           {
@@ -2792,6 +2810,8 @@ export type Database = {
           updated_at: string
           updated_by: string | null
           whatsapp_group_url: string | null
+          design_budget: number | null
+          execution_budget: number | null
         }
         Insert: {
           actual_end_date?: string | null
@@ -2830,6 +2850,8 @@ export type Database = {
           updated_at?: string
           updated_by?: string | null
           whatsapp_group_url?: string | null
+          design_budget?: number | null
+          execution_budget?: number | null
         }
         Update: {
           actual_end_date?: string | null
@@ -2868,6 +2890,8 @@ export type Database = {
           updated_at?: string
           updated_by?: string | null
           whatsapp_group_url?: string | null
+          design_budget?: number | null
+          execution_budget?: number | null
         }
         Relationships: [
           {
@@ -4768,6 +4792,35 @@ export type Database = {
           p_template_id: string
         }
         Returns: undefined
+      }
+      reorder_payment_milestone: {
+        Args: {
+          p_project_id: string
+          p_schedule_id: string
+          p_wing: string
+          p_part: string
+          p_target_index: number
+        }
+        Returns: undefined
+      }
+      resequence_payment_schedule: {
+        Args: {
+          p_project_id: string
+        }
+        Returns: undefined
+      }
+      insert_payment_milestone_at: {
+        Args: {
+          p_project_id: string
+          p_wing: string
+          p_part: string
+          p_after_order: number
+          p_milestone_name: string
+          p_amount_due: number
+          p_due_date: string
+          p_notes?: string | null
+        }
+        Returns: string
       }
       apply_table_preset: {
         Args: {

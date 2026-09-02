@@ -1,5 +1,46 @@
 # PROJECT_STATE.md
-(Updated: 2026-08-31 — Bridge chat + notification tenant boundary; migrations 107–113)
+(Updated: 2026-09-02 — payment wings + reorderable milestones; migrations 114–115)
+
+### Payment wings, Part A/B, and reorderable milestones (2026-09-02, migrations 114–115)
+
+Payments were a single flat milestone list scaled off one `budget_total`, regardless of whether a
+project was design-only or design+execution. Now every milestone sits in a **wing** (Design /
+Execution) and, within it, under a **Part A / Part B** heading.
+
+**Design-only projects never render the execution wing.** Existing execution rows are kept — a scope
+flip hides them, it does not delete them, and they stay editable so a flip back loses nothing. A DB
+trigger refuses *new* execution rows on a design-only project, so the API check is not the only
+guard.
+
+**Wing budgets are amounts, not percentages.** `projects.design_budget` / `execution_budget` are
+entered directly in the New/Edit project modals; a milestone's preset percentage applies to **its own
+wing's** amount. A blank wing budget falls back to `budget_total`, so every pre-existing project
+computes exactly as it did before. The modals warn when the two wings do not sum to the total —
+a warning, not a block, since the owner enters them one at a time.
+
+**Presets are tagged `design_only` or `design_and_execution`.** A design-only preset cannot hold
+execution milestones (DB trigger). Applying a full preset to a design-only project **takes only its
+design half** rather than failing, so one preset works on both kinds of project. The preset editor
+groups items by wing and part, shows a per-wing percentage total (each wing should reach 100% of its
+own budget), and lets an item be re-filed, reordered, or inserted between two others.
+
+**Reordering and insert-between are server-side.** Three SECURITY DEFINER RPCs
+(`reorder_payment_milestone`, `insert_payment_milestone_at`, `resequence_payment_schedule`) renumber
+the list inside a single statement. This is not incidental: `payment_schedule` has a DEFERRABLE
+unique constraint on `(project_id, sequence_order)`, which tolerates transient collisions *within one
+statement* but not a client renumbering row-by-row over HTTP. Milestone rows gained ↑ / ↓ / "+ Below"
+controls; cross-wing moves are done from the Edit modal's Wing/Part selectors.
+
+**New route:** `POST /api/projects/[id]/payments/reorder`. `POST /api/projects/[id]/payments` accepts
+`wing`, `part`, and an optional `after_order` for insert-between.
+
+**A real bug the probe caught:** 114's reorder compared the target index against project-wide
+`sequence_order`, so a move landed one slot off in every group after the first. Fixed in 115 by
+ranking within the group first.
+
+**Verified:** 16-assertion DB probe + 9-assertion route-logic probe, both transactional against the
+live database and rolled back, both green. `npm run build` green. A pre-existing type error in
+`app/api/chat/attachments/[id]/route.ts` (unrelated, reproduces without these changes) was left alone.
 
 ### Notification tenant boundary + chat scan states (2026-08-31, migrations 112–113)
 

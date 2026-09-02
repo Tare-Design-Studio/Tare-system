@@ -9,7 +9,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from("payment_milestone_presets")
-    .select("id, name, is_system, created_at, payment_milestone_preset_items(id, milestone_name, percentage, sequence_order, notes)")
+    .select("id, name, is_system, scope, created_at, payment_milestone_preset_items(id, milestone_name, percentage, sequence_order, notes, wing, part)")
     .is("deleted_at", null)
     .order("name");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -26,11 +26,21 @@ export async function POST(req: NextRequest) {
   if (!canCreate) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const body = await req.json() as { name?: string; items?: any[] };
+  const body = await req.json() as { name?: string; scope?: string; items?: any[] };
   const name = (body.name ?? "").trim();
+  const scope = body.scope === "design_only" ? "design_only" : "design_and_execution";
   const items = Array.isArray(body.items) ? body.items : [];
   if (!name) return NextResponse.json({ error: "Name required" }, { status: 400 });
   if (items.length === 0) return NextResponse.json({ error: "At least one milestone item required" }, { status: 400 });
+
+  // A design-only preset cannot carry execution milestones. The DB trigger from
+  // migration 114 enforces it; this reports it as a 400 rather than a 500.
+  if (scope === "design_only" && items.some((it) => it?.wing === "execution")) {
+    return NextResponse.json(
+      { error: "A design-only preset cannot contain execution milestones" },
+      { status: 400 },
+    );
+  }
 
   const { data: profile } = await supabase.from("users").select("tenant_id").eq("id", user.id).single();
   if (!profile?.tenant_id) return NextResponse.json({ error: "User profile not found" }, { status: 500 });
@@ -40,8 +50,8 @@ export async function POST(req: NextRequest) {
 
   const { data: preset, error: pErr } = await db
     .from("payment_milestone_presets")
-    .insert({ name, created_by: user.id, tenant_id: profile.tenant_id })
-    .select("id, name, is_system, created_at")
+    .insert({ name, scope, created_by: user.id, tenant_id: profile.tenant_id })
+    .select("id, name, is_system, scope, created_at")
     .single();
   if (pErr) return NextResponse.json({ error: pErr.message }, { status: 500 });
 
@@ -52,12 +62,14 @@ export async function POST(req: NextRequest) {
     percentage: Number(it.percentage),
     sequence_order: it.sequence_order ?? idx + 1,
     notes: it.notes ?? null,
+    wing: it.wing === "execution" ? "execution" : "design",
+    part: it.part === "b" ? "b" : "a",
   }));
 
   const { data: itemRows, error: iErr } = await db
     .from("payment_milestone_preset_items")
     .insert(rows)
-    .select("id, milestone_name, percentage, sequence_order, notes");
+    .select("id, milestone_name, percentage, sequence_order, notes, wing, part");
   if (iErr) return NextResponse.json({ error: iErr.message }, { status: 500 });
 
   return NextResponse.json({ ...preset, payment_milestone_preset_items: itemRows }, { status: 201 });

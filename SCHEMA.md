@@ -1,5 +1,64 @@
 # SCHEMA.md
-(Updated: 2026-08-31 — migration 106: client portal content — customer_updates, webp derivatives, client-visible site visits)
+(Updated: 2026-09-02 — migrations 114/115: payment wings, Part A/B, wing budgets, reorder RPCs)
+
+### Migrations 114 + 115 — payment wings, Part A/B, wing budgets, reorder (applied 2026-09-02)
+
+Payments were one flat list scaled off a single `budget_total`. They are now split by **wing**
+(design / execution, matching `projects.scope` from 067) and, inside each wing, by **part** (a / b).
+
+**`payment_schedule`** gains `wing text NOT NULL DEFAULT 'design' CHECK IN ('design','execution')`
+and `part text NOT NULL DEFAULT 'a' CHECK IN ('a','b')`. Existing rows land in design/Part A.
+Index `idx_payment_schedule_wing (project_id, wing, part, sequence_order) WHERE deleted_at IS NULL`.
+`sequence_order` stays **project-wide** — the UNIQUE (project_id, sequence_order) DEFERRABLE
+constraint from 027 is unchanged; wing/part group the display, they do not partition the ordering.
+
+**`projects`** gains `design_budget` + `execution_budget numeric(14,2) NULL CHECK (>= 0)`. These are
+**amounts, not percentages**. A milestone's preset percentage applies to **its own wing's** budget;
+a NULL wing budget falls back to `budget_total`, so pre-114 projects compute exactly as before.
+**Deliberately NOT constrained to sum to `budget_total`** — the owner enters them one at a time, and
+a hard constraint would make the first of the two edits impossible. The UI warns on mismatch.
+
+**`payment_milestone_presets`** gains `scope text NOT NULL DEFAULT 'design_and_execution'
+CHECK IN ('design_only','design_and_execution')`; `payment_milestone_preset_items` gains the same
+`wing`/`part` columns. A **design_only preset cannot hold execution items** —
+`check_preset_item_scope()` trigger. Applying a full preset to a design-only project **drops** its
+execution half rather than failing, so one preset stays usable on both kinds of project.
+
+**Scope boundary.** `check_payment_wing_scope()` (BEFORE INSERT OR UPDATE on `payment_schedule`)
+refuses a **new** execution milestone on a `design_only` project. It deliberately lets an
+*already-stored* execution row through on UPDATE (`TG_OP = 'UPDATE' AND OLD.wing = 'execution'`):
+flipping a project to design_only **hides** its execution rows, it does not delete or freeze them,
+so nothing is lost if the scope flips back.
+
+**Three SECURITY DEFINER RPCs** do all reordering, each gated on
+`has_capability('customer_payments:create_schedule')`:
+- `reorder_payment_milestone(project, schedule, wing, part, target_index)` — moves one milestone to
+  a 0-based index **within its (wing, part) group**, re-filing it across wings if asked.
+- `insert_payment_milestone_at(project, wing, part, after_order, name, amount, due_date, notes)` —
+  opens a slot, inserts, then resequences. Returns the new id.
+- `resequence_payment_schedule(project)` — renumbers the active list into canonical
+  design/a → design/b → execution/a → execution/b order.
+
+**Why RPCs and not client-side renumbering:** the unique constraint is DEFERRABLE INITIALLY
+DEFERRED, so a whole-list renumber is safe *inside one statement*. A client doing it row-by-row over
+HTTP would collide on the very first conflicting write. Each RPC renumbers in a single UPDATE.
+
+**`v_payment_status` was DROPped and recreated** (not CREATE OR REPLACE — that cannot insert columns
+mid-list: `cannot change name of view column "notes" to "wing"`). The DROP discards grants, so 114
+re-grants SELECT to **both** `authenticated` and `service_role`.
+
+**Bug fixed in 115:** 114's `reorder_payment_milestone` compared the moved row's `target_index`
+against the other rows' raw `sequence_order`. `sequence_order` is project-wide while `target_index`
+counts only within the destination group, so a move landed one slot off for every group after the
+first. 115 ranks the other rows within their own group before comparing. **Invariant: any ordering
+comparison against `target_index` must first reduce `sequence_order` to a within-group index.**
+
+**Verified:** a 16-assertion transactional probe (rolled back) against the live DB — wing/part
+defaults, design-only refusing execution rows on insert and on reorder, insert-between landing in
+the right slot with contiguous ordering, cross-wing moves, preset scope guard both ways, the view
+exposing wing/part, and execution rows surviving (and staying editable after) a flip to design_only.
+Plus a 9-assertion probe of the route logic: per-wing budget math, insert/reorder via the RPCs, the
+design-only preset filter, and reorder refused without the capability. `npm run build` green.
 
 ### Migration 106 — client portal content (applied 2026-08-31)
 

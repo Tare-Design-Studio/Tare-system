@@ -28,10 +28,10 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }
 
-  // Fetch project budget
+  // Fetch project budget + wing budgets + scope
   const { data: project, error: projErr } = await supabase
     .from('projects')
-    .select('id, budget_total')
+    .select('id, budget_total, design_budget, execution_budget, scope')
     .eq('id', projectId)
     .is('deleted_at', null)
     .single()
@@ -48,7 +48,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: items, error: itemsErr } = await (supabase as any)
     .from('payment_milestone_preset_items')
-    .select('milestone_name, percentage, sequence_order, notes')
+    .select('milestone_name, percentage, sequence_order, notes, wing, part')
     .eq('preset_id', parsed.data.preset_id)
     .order('sequence_order')
 
@@ -56,7 +56,28 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: 'Preset not found or has no milestones' }, { status: 404 })
   }
 
+  // A design-only project takes only the design half of the preset; its
+  // execution milestones are dropped rather than rejected, so a full preset
+  // stays usable on a design-only project.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const applicable = project.scope === 'design_only'
+    ? items.filter((it: any) => it.wing !== 'execution')
+    : items
+
+  if (applicable.length === 0) {
+    return NextResponse.json(
+      { error: 'This preset has no design milestones to apply to a design-only project' },
+      { status: 400 },
+    )
+  }
+
+  // Each wing's percentages are of ITS OWN budget; wings fall back to
+  // budget_total when the owner has not split it yet (migration 114).
   const budget = Number(project.budget_total)
+  const wingBudget = (wing: string) => {
+    const raw = wing === 'execution' ? project.execution_budget : project.design_budget
+    return raw == null ? budget : Number(raw)
+  }
 
   const { data: existingOrders, error: ordersErr } = await supabase
     .from('payment_schedule')
@@ -72,13 +93,15 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
   // Create payment_schedule rows
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rows = items.map((item: any) => ({
+  const rows = applicable.map((item: any, idx: number) => ({
     project_id: projectId,
     milestone_name: item.milestone_name,
-    amount_due: Math.round((item.percentage / 100) * budget * 100) / 100,
+    amount_due: Math.round((item.percentage / 100) * wingBudget(item.wing) * 100) / 100,
     due_date: new Date().toISOString().split('T')[0], // default to today; user can edit later
-    sequence_order: orderOffset + item.sequence_order,
+    sequence_order: orderOffset + idx + 1,
     notes: item.notes,
+    wing: item.wing ?? 'design',
+    part: item.part ?? 'a',
   }))
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -90,6 +113,9 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   if (insertErr) {
     return NextResponse.json({ error: insertErr.message }, { status: 500 })
   }
+
+  // Canonical wing/part ordering after the append.
+  await supabase.rpc('resequence_payment_schedule', { p_project_id: projectId })
 
   // Track the source preset on the project (column added by migration 046)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

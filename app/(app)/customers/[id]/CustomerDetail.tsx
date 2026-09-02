@@ -98,7 +98,7 @@ export default function CustomerDetail({
 }: {
   customer: Customer;
   project: Project;
-  projects?: { id: string; name: string; status: string; current_stage: string }[];
+  projects?: { id: string; name: string; status: string; current_stage: string; scope?: string }[];
   paymentSchedule?: AnyRow[];
   paymentRecords?: AnyRow[];
   canManagePortal?: boolean;
@@ -477,6 +477,8 @@ export default function CustomerDetail({
             projectId={project.id}
             schedule={paymentSchedule}
             records={paymentRecords}
+            scope={projects.find(p => p.id === project.id)?.scope === "design_only"
+              ? "design_only" : "design_and_execution"}
           />
         </div>
       )}

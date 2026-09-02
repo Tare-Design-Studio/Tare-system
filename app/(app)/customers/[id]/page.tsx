@@ -25,7 +25,7 @@ export default async function CustomerDetailPage({ params }: Params) {
   // Fetch ALL linked projects (not just one)
   const { data: projects } = await supabase
     .from("projects")
-    .select("id, name, status, current_stage")
+    .select("id, name, status, current_stage, scope")
     .eq("customer_id", id)
     .is("deleted_at", null)
     .order("created_at", { ascending: false });

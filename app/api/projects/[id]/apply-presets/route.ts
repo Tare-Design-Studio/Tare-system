@@ -32,7 +32,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
   const { data: project, error: projErr } = await supabase
     .from('projects')
-    .select('id, budget_total, start_date')
+    .select('id, budget_total, start_date, design_budget, execution_budget, scope')
     .eq('id', projectId)
     .is('deleted_at', null)
     .single()
@@ -74,11 +74,24 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: items } = await (supabase as any)
       .from('payment_milestone_preset_items')
-      .select('milestone_name, percentage, sequence_order, notes')
+      .select('milestone_name, percentage, sequence_order, notes, wing, part')
       .eq('preset_id', payment_preset_id)
       .order('sequence_order')
 
-    if (items && items.length > 0) {
+    // A design-only project takes only the design half of a full preset.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const applicable = project.scope === 'design_only'
+      ? (items ?? []).filter((it: any) => it.wing !== 'execution')
+      : (items ?? [])
+
+    // Percentages are of the milestone's OWN wing budget, falling back to
+    // budget_total when that wing has no explicit amount yet (migration 114).
+    const wingBudget = (wing: string) => {
+      const raw = wing === 'execution' ? project.execution_budget : project.design_budget
+      return raw == null ? budget : Number(raw)
+    }
+
+    if (applicable.length > 0) {
       const { data: existingOrders } = await supabase
         .from('payment_schedule')
         .select('sequence_order')
@@ -86,13 +99,15 @@ export async function POST(req: NextRequest, { params }: Ctx) {
       const orderOffset = Math.max(0, ...((existingOrders ?? []).map(r => r.sequence_order)))
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rows = items.map((item: any) => ({
+      const rows = applicable.map((item: any, idx: number) => ({
         project_id: projectId,
         milestone_name: item.milestone_name,
-        amount_due: Math.round((item.percentage / 100) * budget * 100) / 100,
+        amount_due: Math.round((item.percentage / 100) * wingBudget(item.wing) * 100) / 100,
         due_date: new Date().toISOString().split('T')[0],
-        sequence_order: orderOffset + item.sequence_order,
+        sequence_order: orderOffset + idx + 1,
         notes: item.notes,
+        wing: item.wing ?? 'design',
+        part: item.part ?? 'a',
       }))
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -100,6 +115,8 @@ export async function POST(req: NextRequest, { params }: Ctx) {
         .from('payment_schedule')
         .insert(rows)
       if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 })
+
+      await supabase.rpc('resequence_payment_schedule', { p_project_id: projectId })
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (supabase as any)

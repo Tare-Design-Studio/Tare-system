@@ -21,6 +21,8 @@ const CreateProjectSchema = z.object({
     .optional()
     .default("active"),
   budget_total: z.number().positive().optional(),
+  design_budget: z.number().nonnegative().nullable().optional(),
+  execution_budget: z.number().nonnegative().nullable().optional(),
   estimated_work_hours: z.number().int().positive().optional(),
   estimated_duration_days: z.number().int().positive().optional(),
   start_date: z.string().date().optional(),

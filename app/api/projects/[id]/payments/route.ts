@@ -2,12 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 
+const WingSchema = z.enum(["design", "execution"]);
+const PartSchema = z.enum(["a", "b"]);
+
 const CreateScheduleSchema = z.object({
   milestone_name: z.string().min(1).max(200),
   amount_due: z.number().positive(),
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   sequence_order: z.number().int().min(1),
   notes: z.string().max(1000).optional(),
+  wing: WingSchema.default("design"),
+  part: PartSchema.default("a"),
+  // Insert AFTER this sequence_order (0 = first in the group). When given, the
+  // row is placed via the insert_payment_milestone_at RPC, which opens the slot
+  // and resequences in one transaction. Omit to append.
+  after_order: z.number().int().min(0).optional(),
 });
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -59,6 +68,49 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
+  const { wing, part, after_order, ...milestone } = parsed.data;
+
+  // A design-only project has no execution wing. The DB enforces this too
+  // (trigger, migration 114); this returns a usable message instead of a 500.
+  const { data: project } = await supabase
+    .from("projects")
+    .select("scope")
+    .eq("id", project_id)
+    .is("deleted_at", null)
+    .single();
+
+  if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
+  if (wing === "execution" && project.scope === "design_only") {
+    return NextResponse.json(
+      { error: "This project is design-only. Change its scope to add execution milestones." },
+      { status: 400 },
+    );
+  }
+
+  // Insert at a specific position inside the wing/part group.
+  if (after_order !== undefined) {
+    const { data: newId, error: rpcErr } = await supabase.rpc("insert_payment_milestone_at", {
+      p_project_id: project_id,
+      p_wing: wing,
+      p_part: part,
+      p_after_order: after_order,
+      p_milestone_name: milestone.milestone_name,
+      p_amount_due: milestone.amount_due,
+      p_due_date: milestone.due_date,
+      p_notes: milestone.notes ?? null,
+    });
+    if (rpcErr) return NextResponse.json({ error: rpcErr.message }, { status: 500 });
+
+    const { data: created, error: readErr } = await supabase
+      .from("payment_schedule")
+      .select()
+      .eq("id", newId as string)
+      .single();
+    if (readErr) return NextResponse.json({ error: readErr.message }, { status: 500 });
+    return NextResponse.json(created, { status: 201 });
+  }
+
+  // Append: take the next free order across the whole project.
   const { data: existingOrders, error: ordersError } = await supabase
     .from("payment_schedule")
     .select("sequence_order")
@@ -69,17 +121,21 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
   const occupiedOrders = new Set((existingOrders ?? []).map((row) => row.sequence_order));
   const maxOrder = Math.max(0, ...(existingOrders ?? []).map((row) => row.sequence_order));
-  const sequence_order = occupiedOrders.has(parsed.data.sequence_order)
+  const sequence_order = occupiedOrders.has(milestone.sequence_order)
     ? maxOrder + 1
-    : parsed.data.sequence_order;
+    : milestone.sequence_order;
 
   const { data, error } = await supabase
     .from("payment_schedule")
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .insert({ project_id, ...parsed.data, sequence_order } as any)
+    .insert({ project_id, ...milestone, sequence_order, wing, part } as any)
     .select()
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Keep the list in canonical wing/part order after an append.
+  await supabase.rpc("resequence_payment_schedule", { p_project_id: project_id });
+
   return NextResponse.json(data, { status: 201 });
 }

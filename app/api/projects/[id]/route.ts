@@ -21,6 +21,8 @@ const UpdateProjectSchema = z.object({
     .optional(),
   on_hold_reason: z.string().optional(),
   budget_total: z.number().positive().nullable().optional(),
+  design_budget: z.number().nonnegative().nullable().optional(),
+  execution_budget: z.number().nonnegative().nullable().optional(),
   estimated_work_hours: z.number().int().positive().nullable().optional(),
   estimated_duration_days: z.number().int().positive().nullable().optional(),
   start_date: z.string().date().nullable().optional(),

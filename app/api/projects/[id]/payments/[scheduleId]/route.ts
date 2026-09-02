@@ -8,6 +8,8 @@ const EditScheduleSchema = z.object({
   due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   sequence_order: z.number().int().min(1).optional(),
   notes: z.string().max(1000).optional().nullable(),
+  wing: z.enum(["design", "execution"]).optional(),
+  part: z.enum(["a", "b"]).optional(),
 });
 
 type Ctx = { params: Promise<{ id: string; scheduleId: string }> };
@@ -25,6 +27,22 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
+  // Moving a milestone into the execution wing needs the project to have one.
+  if (parsed.data.wing === "execution") {
+    const { data: project } = await supabase
+      .from("projects")
+      .select("scope")
+      .eq("id", project_id)
+      .is("deleted_at", null)
+      .single();
+    if (project?.scope === "design_only") {
+      return NextResponse.json(
+        { error: "This project is design-only. Change its scope to use the execution wing." },
+        { status: 400 },
+      );
+    }
+  }
+
   // RLS enforces: only unpaid + non-deleted rows can be updated
   const { data, error } = await supabase
     .from("payment_schedule")
@@ -38,6 +56,11 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: "Not found or already paid" }, { status: 409 });
+
+  // A wing/part change re-groups the row; renumber so the list stays canonical.
+  if (parsed.data.wing || parsed.data.part) {
+    await supabase.rpc("resequence_payment_schedule", { p_project_id: project_id });
+  }
 
   return NextResponse.json(data);
 }

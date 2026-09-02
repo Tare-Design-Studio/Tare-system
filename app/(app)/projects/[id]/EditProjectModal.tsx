@@ -62,7 +62,8 @@ type Project = {
   id: string; name: string; project_type: string | null; status: string;
   current_stage: string;
   scope: string;
-  budget_total: number | null; estimated_work_hours: number | null;
+  budget_total: number | null; design_budget: number | null; execution_budget: number | null;
+  estimated_work_hours: number | null;
   estimated_duration_days: number | null; start_date: string | null;
   expected_end_date: string | null; site_location: string | null;
   drive_folder_url: string | null; whatsapp_group_url: string | null;
@@ -74,6 +75,8 @@ type Milestone = {
   schedule_id: string;
   project_id: string;
   milestone_name: string;
+  wing: "design" | "execution";
+  part: "a" | "b";
   amount_due: number;
   amount_received: number;
   variance: number;
@@ -246,6 +249,8 @@ export default function EditProjectModal({
     current_stage: project.current_stage,
     scope: (project.scope === "design_only" ? "design_only" : "design_and_execution") as "design_only" | "design_and_execution",
     budget_total: project.budget_total ? String(project.budget_total) : "",
+    design_budget: project.design_budget != null ? String(project.design_budget) : "",
+    execution_budget: project.execution_budget != null ? String(project.execution_budget) : "",
     estimated_work_hours: project.estimated_work_hours ? String(project.estimated_work_hours) : "",
     estimated_duration_days: project.estimated_duration_days ? String(project.estimated_duration_days) : "",
     start_date: project.start_date ?? "",
@@ -297,6 +302,10 @@ export default function EditProjectModal({
     if (form.estimated_work_hours) payload.estimated_work_hours = Number(form.estimated_work_hours);
     if (form.estimated_duration_days) payload.estimated_duration_days = Number(form.estimated_duration_days);
     if (form.budget_total) payload.budget_total = Number(form.budget_total);
+    // Sent unconditionally so clearing a wing budget resets it to NULL (fall
+    // back to budget_total) rather than silently keeping the old amount.
+    payload.design_budget = form.design_budget ? Number(form.design_budget) : null;
+    payload.execution_budget = form.execution_budget ? Number(form.execution_budget) : null;
     if (form.site_location) payload.site_location = form.site_location.trim();
     if (form.drive_folder_url) payload.drive_folder_url = form.drive_folder_url.trim();
     if (form.whatsapp_group_url) payload.whatsapp_group_url = form.whatsapp_group_url.trim();
@@ -440,6 +449,7 @@ export default function EditProjectModal({
                   projectId={project.id}
                   schedule={milestones}
                   records={paymentRecords}
+                  scope={project.scope === "design_only" ? "design_only" : "design_and_execution"}
                 />
               </div>
             )}
@@ -511,6 +521,33 @@ export default function EditProjectModal({
                   <input style={inputStyle} type="number" min="1" value={form.estimated_duration_days} onChange={e => set("estimated_duration_days", e.target.value)} placeholder="180" />
                 </div>
               </div>
+
+              {/* Wing budgets — each wing's milestone percentages apply to its
+                  own amount. Left blank, a wing falls back to the total. */}
+              <div className="stack-mobile" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                <div>
+                  <label style={labelStyle}>Design Budget (₹)</label>
+                  <input style={inputStyle} type="number" min="0" value={form.design_budget} onChange={e => set("design_budget", e.target.value)} placeholder="Defaults to total" />
+                </div>
+                {form.scope !== "design_only" && (
+                  <div>
+                    <label style={labelStyle}>Execution Budget (₹)</label>
+                    <input style={inputStyle} type="number" min="0" value={form.execution_budget} onChange={e => set("execution_budget", e.target.value)} placeholder="Defaults to total" />
+                  </div>
+                )}
+              </div>
+
+              {/* A warning, not a block — the owner enters these one at a time. */}
+              {form.budget_total && (form.design_budget || form.execution_budget) &&
+                Math.abs(
+                  (Number(form.design_budget) || 0) + (Number(form.execution_budget) || 0)
+                  - Number(form.budget_total),
+                ) > 0.01 && (
+                <div style={{ fontSize: 12, color: "var(--color-rust)", marginTop: -6 }}>
+                  Design + Execution ({((Number(form.design_budget) || 0) + (Number(form.execution_budget) || 0)).toLocaleString("en-IN")})
+                  does not match the total budget ({Number(form.budget_total).toLocaleString("en-IN")}).
+                </div>
+              )}
 
               <div>
                 <label style={labelStyle}>Site Location</label>

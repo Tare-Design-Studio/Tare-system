@@ -15,7 +15,7 @@ export default async function PaymentPresetsPage() {
 
   const { data: presets } = await supabase
     .from("payment_milestone_presets")
-    .select("id, name, is_system, created_at, payment_milestone_preset_items(id, milestone_name, percentage, sequence_order, notes)")
+    .select("id, name, is_system, scope, created_at, payment_milestone_preset_items(id, milestone_name, percentage, sequence_order, notes, wing, part)")
     .is("deleted_at", null)
     .order("name");
 

@@ -47,6 +47,8 @@ type Project = {
   status: string;
   on_hold_reason: string | null;
   budget_total: number | null;
+  design_budget: number | null;
+  execution_budget: number | null;
   estimated_work_hours: number | null;
   estimated_duration_days: number | null;
   start_date: string | null;
@@ -129,7 +131,7 @@ export default async function ProjectDetailPage({ params }: Ctx) {
     .from("projects")
     .select(
       `id, tenant_id, name, slug, project_type, current_stage, scope, status, on_hold_reason,
-       budget_total, estimated_work_hours, estimated_duration_days,
+       budget_total, design_budget, execution_budget, estimated_work_hours, estimated_duration_days,
        start_date, expected_end_date, actual_start_date, actual_end_date,
        site_location, drive_folder_url, whatsapp_group_url, site_lat, site_lng,
        site_geofence_radius_m,

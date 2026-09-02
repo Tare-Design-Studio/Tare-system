@@ -63,6 +63,7 @@ interface PaymentPreset {
   id: string;
   name: string;
   is_system: boolean;
+  scope: "design_only" | "design_and_execution";
   created_at: string;
   payment_milestone_preset_items: {
     id?: string;
@@ -70,6 +71,8 @@ interface PaymentPreset {
     percentage: number;
     sequence_order: number;
     notes?: string | null;
+    wing: "design" | "execution";
+    part: "a" | "b";
   }[];
 }
 
