@@ -11,7 +11,7 @@ import { createClient } from "@/lib/supabase/server";
 // rule to keep in step, and the copy in SQL is the one that cannot be bypassed.
 
 const SELECT = `
-  id, message_type, body, structured_payload, created_at, author_id,
+  id, message_type, body, structured_payload, created_at, edited_at, author_id,
   reply_to_id, attachment_id,
   users:author_id (id, full_name, role),
   reply_to:reply_to_id (id, body, message_type, users:author_id (full_name)),
@@ -135,4 +135,46 @@ export async function POST(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ data }, { status: 201 });
+}
+
+// PATCH — edit the text of your own message.
+//
+// The whole authorization model is inside edit_chat_message() (118): author
+// only, tenant re-checked, attachment-only messages refused. It is SECURITY
+// DEFINER because RLS has no UPDATE policy on bridge_messages and deliberately
+// still does not — the RPC is the only write path, so this route just relays
+// its errors rather than re-deciding anything.
+const PatchSchema = z.object({
+  message_id: z.string().uuid(),
+  body: z.string().min(1).max(2000),
+});
+
+export async function PATCH(req: NextRequest) {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const parsed = PatchSchema.safeParse(await req.json().catch(() => null));
+  if (!parsed.success) {
+    return NextResponse.json({ error: "message_id and body required" }, { status: 400 });
+  }
+
+  const { data, error } = await supabase.rpc("edit_chat_message", {
+    p_message_id: parsed.data.message_id,
+    p_body: parsed.data.body,
+  });
+
+  if (error) {
+    // The function raises for "not your message" and for the body rules. Both
+    // are the caller's fault, not a server fault, so neither is a 500.
+    const denied = /not your message|message not found/i.test(error.message);
+    return NextResponse.json(
+      { error: denied ? "You can only edit your own messages" : error.message },
+      { status: denied ? 403 : 400 },
+    );
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  return NextResponse.json({ message: row });
 }

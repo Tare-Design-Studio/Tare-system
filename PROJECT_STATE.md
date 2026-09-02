@@ -1,5 +1,40 @@
 # PROJECT_STATE.md
-(Updated: 2026-09-02 — Usha approval diagnosis, chat dock with PDF/DWG, milestone + button; migrations 116–117)
+(Updated: 2026-09-02 — chat on mobile, message editing, per-project milestone editing; migrations 118–119)
+
+### Chat on phones, message editing, per-project milestones (2026-09-02, migrations 118–119)
+
+**Chat now works on phones.** ChatDock was mounted behind `.desktop-only`, so the whole feature was
+absent on mobile and phone users were sent to `/bridge`. It is now mounted once for both
+breakpoints and sizes itself from CSS: a 400px right-hand drawer on desktop, a **full-screen sheet**
+below 767px. Mounted once rather than twice behind `.mobile-only`/`.desktop-only` — two copies would
+open two realtime subscriptions. The launcher is raised clear of the fixed `MobileNav`
+(96px + safe-area inset) and the composer pads for the home indicator.
+
+**Enter sends** — this already worked (Enter sends, Shift+Enter newlines) and is unchanged; the same
+binding now also applies in the edit box.
+
+**Messages are editable by their author, and marked as edited.** Inline edit in the bubble, Escape
+cancels, Enter saves. An edited message shows `· edited` next to its timestamp, with the edit time on
+hover. No edit history is kept and the marker does not claim otherwise.
+
+Editing goes through a SECURITY DEFINER RPC rather than an UPDATE policy, so the writable surface is
+exactly `body` — see SCHEMA.md for why, and for the pre-existing **grant discrepancy** that work
+uncovered (`authenticated` held UPDATE/DELETE/TRUNCATE on `bridge_messages` and `chat_attachments`
+from Supabase's defaults; not exploitable, since RLS has no such policy, but revoked in 119).
+
+Attachment-only messages cannot be edited: there is no text, and letting one gain a caption reads as
+the file having changed. Edits raise **no new notification** and do not bump the thread — every
+notification trigger is AFTER INSERT — but they **are** written to `audit_log`.
+
+**Per-project milestone editing.** `PaymentsCard` was already embedded in the Edit Project modal with
+full add/edit/reorder, but was hidden behind `milestones.length > 0` — so a project with no schedule
+had no way to start one from the modal, which is precisely when it is needed. Now always rendered.
+When a project was created from a preset, the section names it and states plainly that edits apply
+to **this project only** and leave the saved preset untouched (`projects.source_payment_preset_id`
+is now selected and threaded through for that line).
+
+**Verified:** 10-assertion authorization probe + 9-assertion route probe, both transactional against
+the live DB and rolled back, both green. `npm run build` green, eslint clean on changed files.
 
 ### Task approval: Usha, and why capabilities were the wrong lever (2026-09-02, migration 116)
 

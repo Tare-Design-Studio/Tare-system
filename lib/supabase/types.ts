@@ -300,6 +300,7 @@ export type Database = {
           reply_to_id: string | null
           structured_payload: Json | null
           tenant_id: string
+          edited_at: string | null
         }
         Insert: {
           attachment_id: string | null
@@ -313,6 +314,7 @@ export type Database = {
           reply_to_id: string | null
           structured_payload?: Json | null
           tenant_id: string
+          edited_at?: string | null
         }
         Update: {
           attachment_id?: string | null
@@ -326,6 +328,7 @@ export type Database = {
           reply_to_id?: string | null
           structured_payload?: Json | null
           tenant_id?: string
+          edited_at?: string | null
         }
         Relationships: [
           {
@@ -4821,6 +4824,17 @@ export type Database = {
           p_notes?: string | null
         }
         Returns: string
+      }
+      edit_chat_message: {
+        Args: {
+          p_message_id: string
+          p_body: string
+        }
+        Returns: {
+          id: string
+          body: string
+          edited_at: string
+        }[]
       }
       apply_table_preset: {
         Args: {

@@ -845,11 +845,12 @@ export default async function DashboardPage() {
           ChatBadgeProvider in the app layout, so mounting it costs no extra
           request; project threads stay on /bridge.
 
-          Desktop only: the launcher is fixed to the bottom-right, where mobile
-          already has its own nav bar. Mobile keeps /bridge. */}
-      <div className="desktop-only">
-        <ChatDock userId={user.id} />
-      </div>
+          Mounted once for both breakpoints: the launcher and panel size
+          themselves from .chat-dock-launcher / .chat-dock-panel in globals.css
+          — a right-hand drawer on desktop, a full-screen sheet on mobile with
+          the launcher raised clear of MobileNav. Rendering it twice behind
+          .mobile-only / .desktop-only would mount two live subscriptions. */}
+      <ChatDock userId={user.id} />
     </>
   );
 }

@@ -1,5 +1,51 @@
 # SCHEMA.md
-(Updated: 2026-09-02 — migrations 114/115: payment wings, Part A/B, wing budgets, reorder RPCs)
+(Updated: 2026-09-02 — migrations 118/119: chat message editing, surplus grant revoke)
+
+### Migrations 118 + 119 — chat message editing (applied 2026-09-02)
+
+**`bridge_messages.edited_at timestamptz NULL`.** NULL means never edited, and that is what the UI
+reads to show the "edited" marker — so it stays NULL across the whole existing history rather than
+being backfilled.
+
+**`edit_chat_message(p_message_id, p_body)`** — SECURITY DEFINER, granted to `authenticated`.
+Author-only with no time limit. It re-checks the tenant (SECURITY DEFINER has bypassed the SELECT
+policy that would normally make a cross-tenant id unreachable), trims and length-checks the body,
+and refuses a message whose `body` is NULL — an attachment-only message has no text to edit, and
+letting one gain a caption reads as the file itself having changed. `edited_at` is stamped only when
+the text actually differs, so re-saving identical text does not mark an untouched message.
+
+**Only `body` is writable.** `message_type`, `attachment_id`, `conversation_id`, `project_id` and
+`author_id` are deliberately not editable: an edit must not turn an image message into a text one,
+swap which file it points at, move it to another thread, or re-attribute it.
+
+**Why an RPC and not an UPDATE policy.** `bridge_messages` has SELECT and INSERT policies only, so
+RLS denies UPDATE and DELETE to everyone — verified live, including the author's own direct UPDATE.
+All notification triggers (`bridge_message_notify`, `..._notify_dm`, `..._touch_conversation`) are
+**AFTER INSERT**, so an edit correctly raises no new bell and does not bump the thread.
+`trg_audit_bridge_messages` is INSERT OR UPDATE OR DELETE, so edits **are** captured in `audit_log`
+(action `'update'`, lower-case — the trigger lower-cases `TG_OP`).
+
+**119 — a grant discrepancy found while building this, worth knowing about.** `authenticated`
+actually held **UPDATE, DELETE and TRUNCATE** on `bridge_messages` and `chat_attachments`. Nothing
+in this repo grants them: they are Supabase's **default blanket grants** to the role, applied when
+the table was created. `999_zz`'s `GRANT SELECT, INSERT ... TO authenticated` reads like the complete
+privilege set but only ever adds — it never revokes what is already there.
+
+Not exploitable, because RLS has no UPDATE/DELETE policy on either table. But the protection was
+coming from the *absence of a policy* rather than from the grants, which means adding any permissive
+UPDATE policy later — for a feature wanting one narrow column — would silently make every column
+writable. 119 revokes the surplus so grants and policies agree. `service_role` keeps everything: it
+bypasses RLS by design and the server routes use it.
+
+**Invariant: `999_zz` grants are additive only. A table's real privileges are what
+`information_schema.role_table_grants` says, not what that file lists — check the live grants before
+assuming a table is read-only to clients.**
+
+**Verified:** a 10-assertion probe (author edits, peer refused and body unchanged after refusal,
+empty/whitespace refused, attachment-only refused, over-length refused, identical re-save not
+re-stamped, no direct UPDATE grant remaining) plus a 9-assertion probe of the route path (edited_at
+exposed in the select, no new notification, message_type/attachment/author/conversation all
+unchanged, audit row written). Both transactional against the live DB and rolled back.
 
 ### Migrations 114 + 115 — payment wings, Part A/B, wing budgets, reorder (applied 2026-09-02)
 

@@ -62,6 +62,7 @@ type Project = {
   id: string; name: string; project_type: string | null; status: string;
   current_stage: string;
   scope: string;
+  source_payment_preset_id: string | null;
   budget_total: number | null; design_budget: number | null; execution_budget: number | null;
   estimated_work_hours: number | null;
   estimated_duration_days: number | null; start_date: string | null;
@@ -174,6 +175,12 @@ export default function EditProjectModal({
   const [usersLoaded, setUsersLoaded] = useState(false);
   const [addUserId, setAddUserId] = useState("");
   const [addRole, setAddRole] = useState("team_member");
+
+  // Named only once the preset list has loaded; until then the line is simply
+  // absent rather than showing a raw uuid.
+  const appliedPreset = project.source_payment_preset_id
+    ? paymentPresets.find(p => p.id === project.source_payment_preset_id) ?? null
+    : null;
 
   useEffect(() => {
     if (!open) return;
@@ -442,17 +449,25 @@ export default function EditProjectModal({
               </button>
             </div>
 
-            {milestones.length > 0 && (
-              <div style={{ marginBottom: 18 }}>
-                <label style={labelStyle}>Payment Milestones</label>
-                <PaymentsCard
-                  projectId={project.id}
-                  schedule={milestones}
-                  records={paymentRecords}
-                  scope={project.scope === "design_only" ? "design_only" : "design_and_execution"}
-                />
-              </div>
-            )}
+            {/* Always rendered, including with zero milestones — that is
+                exactly when the owner needs the card's own "+ Add" controls,
+                and hiding it there left a project with no way to start a
+                schedule from this modal. */}
+            <div style={{ marginBottom: 18 }}>
+              <label style={labelStyle}>Payment Milestones</label>
+              {appliedPreset && (
+                <div style={{ fontSize: 12, color: "var(--color-tan)", marginTop: -2, marginBottom: 8 }}>
+                  From preset <strong style={{ color: "var(--color-ink)" }}>{appliedPreset.name}</strong>.
+                  Edits here change this project only — the saved preset is untouched.
+                </div>
+              )}
+              <PaymentsCard
+                projectId={project.id}
+                schedule={milestones}
+                records={paymentRecords}
+                scope={project.scope === "design_only" ? "design_only" : "design_and_execution"}
+              />
+            </div>
 
             <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
               <div>

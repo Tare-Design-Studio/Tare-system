@@ -34,6 +34,7 @@ type Message = {
   message_type: string;
   body: string | null;
   created_at: string;
+  edited_at: string | null;
   author_id: string;
   attachment_id: string | null;
   users: { id: string; full_name: string; role: string } | null;
@@ -141,6 +142,10 @@ export default function ChatDock({ userId }: { userId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [peers, setPeers] = useState<Peer[] | null>(null);
   const [picking, setPicking] = useState(false);
+  // The message being edited, and the working copy of its text. Held here
+  // rather than per-bubble so opening a second edit closes the first.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
 
   const fileRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -182,6 +187,8 @@ export default function ChatDock({ userId }: { userId: string }) {
   const openThread = useCallback(async (conversationId: string) => {
     setActiveId(conversationId);
     setPicking(false);
+    setEditingId(null);
+    setEditDraft("");
     markRead(conversationId);
     await loadMessages(conversationId);
     fetch("/api/chat/reads", {
@@ -231,12 +238,53 @@ export default function ChatDock({ userId }: { userId: string }) {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
+      // Innermost thing first: an open edit, then the thread, then the drawer.
+      if (editingId) { cancelEdit(); return; }
       if (activeId) setActiveId(null);
       else setOpen(false);
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, activeId]);
+  }, [open, activeId, editingId]);
+
+  function beginEdit(m: Message) {
+    setEditingId(m.id);
+    setEditDraft(m.body ?? "");
+    setError(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditDraft("");
+  }
+
+  async function saveEdit() {
+    const body = editDraft.trim();
+    if (!editingId || !body || sending) return;
+    // Nothing changed — close without a request so the message is not marked
+    // edited for a no-op.
+    const original = messages.find((m) => m.id === editingId);
+    if (original && original.body === body) { cancelEdit(); return; }
+
+    setSending(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/chat/messages", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message_id: editingId, body }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Edit failed");
+      cancelEdit();
+      if (activeId) await loadMessages(activeId);
+      refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not edit that message");
+    } finally {
+      setSending(false);
+    }
+  }
 
   async function send() {
     const body = draft.trim();
@@ -333,8 +381,9 @@ export default function ChatDock({ userId }: { userId: string }) {
       <button
         onClick={() => setOpen((v) => !v)}
         aria-label={open ? "Close messages" : `Messages${dmUnread ? `, ${dmUnread} unread` : ""}`}
+        className="chat-dock-launcher"
         style={{
-          position: "fixed", right: 24, bottom: 24, zIndex: 60,
+          position: "fixed", right: 24, zIndex: 60,
           width: 52, height: 52, borderRadius: "50%",
           border: "1px solid var(--color-line)",
           background: "var(--color-ink)", color: "var(--color-paper-light)",
@@ -365,9 +414,10 @@ export default function ChatDock({ userId }: { userId: string }) {
       {!open ? null : (
         <aside
           aria-label="Messages"
+          className="chat-dock-panel"
           style={{
             position: "fixed", top: 0, right: 0, bottom: 0, zIndex: 59,
-            width: "min(400px, 100vw)", display: "flex", flexDirection: "column",
+            display: "flex", flexDirection: "column",
             background: "var(--color-paper-light)",
             borderLeft: "1px solid var(--color-line)",
             boxShadow: "-12px 0 32px -18px rgba(27,26,23,.4)",
@@ -492,29 +542,97 @@ export default function ChatDock({ userId }: { userId: string }) {
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {messages.map((m) => {
                   const mine = m.author_id === userId;
+                  const editing = editingId === m.id;
+                  // Only your own text is editable. A message with no body is
+                  // an attachment on its own — there is nothing to edit, and
+                  // the RPC refuses it too.
+                  const canEdit = mine && m.body !== null;
+                  const meta = mine ? "rgba(251,248,242,.6)" : "var(--color-tan)";
                   return (
                     <div
                       key={m.id}
                       style={{
                         alignSelf: mine ? "flex-end" : "flex-start",
-                        maxWidth: "82%",
+                        maxWidth: editing ? "100%" : "82%",
+                        width: editing ? "100%" : undefined,
                         padding: "8px 11px", borderRadius: 12,
                         border: "1px solid var(--color-line)",
                         background: mine ? "var(--color-ink)" : "var(--color-paper)",
                         color: mine ? "var(--color-paper-light)" : "inherit",
                       }}
                     >
-                      {m.body && (
-                        <div style={{ fontSize: 13, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                          {m.body}
+                      {editing ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          <textarea
+                            value={editDraft}
+                            autoFocus
+                            onChange={(e) => setEditDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); saveEdit(); }
+                              if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
+                            }}
+                            rows={2}
+                            style={{
+                              width: "100%", boxSizing: "border-box", resize: "vertical",
+                              padding: "6px 8px", fontSize: 13, lineHeight: 1.45,
+                              borderRadius: 8, border: "1px solid var(--color-line)",
+                              background: "var(--color-paper)", color: "var(--color-ink)",
+                              fontFamily: "inherit", minHeight: 56,
+                            }}
+                          />
+                          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                            <button
+                              onClick={cancelEdit}
+                              style={{
+                                padding: "4px 10px", borderRadius: 7, fontSize: 11, cursor: "pointer",
+                                border: "1px solid var(--color-line)", background: "var(--color-paper)",
+                                color: "var(--color-ink)",
+                              }}
+                            >Cancel</button>
+                            <button
+                              onClick={saveEdit}
+                              disabled={sending || !editDraft.trim()}
+                              style={{
+                                padding: "4px 10px", borderRadius: 7, fontSize: 11, fontWeight: 600,
+                                border: "1px solid var(--color-line)",
+                                background: editDraft.trim() ? "var(--color-forest)" : "var(--color-paper)",
+                                color: editDraft.trim() ? "#FFF" : "var(--color-tan)",
+                                cursor: sending || !editDraft.trim() ? "default" : "pointer",
+                              }}
+                            >{sending ? "…" : "Save"}</button>
+                          </div>
                         </div>
+                      ) : (
+                        <>
+                          {m.body && (
+                            <div style={{ fontSize: 13, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                              {m.body}
+                            </div>
+                          )}
+                          {m.attachment && <AttachmentView attachment={m.attachment} />}
+                          <div style={{
+                            fontSize: 10, marginTop: 4, display: "flex",
+                            alignItems: "center", gap: 6, flexWrap: "wrap",
+                            color: meta, fontFamily: "var(--font-mono)",
+                          }}>
+                            <span>{fmtTime(m.created_at)}</span>
+                            {/* Marks the message as edited without claiming to
+                                show what changed — no history is kept. */}
+                            {m.edited_at && <span title={`Edited ${fmtTime(m.edited_at)}`}>· edited</span>}
+                            {canEdit && (
+                              <button
+                                onClick={() => beginEdit(m)}
+                                style={{
+                                  marginLeft: "auto", padding: 0, border: "none",
+                                  background: "none", cursor: "pointer",
+                                  fontSize: 10, color: meta, textDecoration: "underline",
+                                  fontFamily: "inherit",
+                                }}
+                              >Edit</button>
+                            )}
+                          </div>
+                        </>
                       )}
-                      {m.attachment && <AttachmentView attachment={m.attachment} />}
-                      <div style={{
-                        fontSize: 10, marginTop: 4,
-                        color: mine ? "rgba(251,248,242,.6)" : "var(--color-tan)",
-                        fontFamily: "var(--font-mono)",
-                      }}>{fmtTime(m.created_at)}</div>
                     </div>
                   );
                 })}
@@ -526,7 +644,10 @@ export default function ChatDock({ userId }: { userId: string }) {
           {/* Composer */}
           {activeId && !picking && (
             <div style={{
-              borderTop: "1px solid var(--color-line)", padding: 12,
+              borderTop: "1px solid var(--color-line)",
+              // On mobile the panel reaches the screen edge, so the composer
+              // pads for the home indicator; on desktop the inset is 0.
+              padding: "12px 12px calc(12px + env(safe-area-inset-bottom, 0px))",
               display: "flex", alignItems: "flex-end", gap: 8,
             }}>
               <input
