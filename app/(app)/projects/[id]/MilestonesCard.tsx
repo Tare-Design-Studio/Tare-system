@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { Fragment, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Milestone = {
@@ -219,11 +219,12 @@ export default function MilestonesCard({
         </div>
       ) : (
         <div style={{ display: "flex", alignItems: "center", gap: 6, overflowX: "auto", paddingBottom: 4 }}>
+          {canEdit && renderInsertButton(0)}
           {sorted.map((m) => {
             const { label, bg, color } = chipProps(m);
             return (
+              <Fragment key={m.schedule_id}>
               <div
-                key={m.schedule_id}
                 onClick={() => setViewing(m)}
                 style={{
                   minWidth: 128, padding: "10px 12px", borderRadius: 12,
@@ -246,6 +247,8 @@ export default function MilestonesCard({
                   Due {new Date(m.due_date + "T00:00:00").toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
                 </div>
               </div>
+              {canEdit && renderInsertButton(m.sequence_order)}
+              </Fragment>
             );
           })}
         </div>

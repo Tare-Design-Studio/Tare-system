@@ -10,6 +10,7 @@ import TeamMemberHome from "./TeamMemberHome";
 import TeamMemberMobileHome, { type MemberProject } from "./TeamMemberMobileHome";
 import { BroadcastsPanel } from "./team/BroadcastsPanel";
 import PresenceCard from "./team-member/PresenceCard";
+import ChatDock from "@/components/chat/ChatDock";
 
 // ── Helpers ────────────────────────────────────────────────────────────
 function computeDayLabel(): string {
@@ -839,6 +840,15 @@ export default async function DashboardPage() {
               nothing beyond what every member already sees. */}
           <div style={{ gridColumn: "span 12" }}><PresenceCard /></div>
         </div>
+      </div>
+      {/* DM-only chat drawer. Reads the conversation list from
+          ChatBadgeProvider in the app layout, so mounting it costs no extra
+          request; project threads stay on /bridge.
+
+          Desktop only: the launcher is fixed to the bottom-right, where mobile
+          already has its own nav bar. Mobile keeps /bridge. */}
+      <div className="desktop-only">
+        <ChatDock userId={user.id} />
       </div>
     </>
   );

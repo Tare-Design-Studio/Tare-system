@@ -1602,3 +1602,46 @@ studio from home. `within_geofence` stays NULL for self-declared rows; nothing w
 
 Historical NULL-office rows are deliberately left blank — there is no evidence of which office
 those check-ins happened at. (Updated: 2026-08-13)
+
+## 116–117 — Usha capability parity; chat file attachments (2026-09-02)
+
+**116 — capability grant, no schema change.** Usha Naveen gains the three tenant-wide
+capabilities Sneha K.M held and she did not: `expenses:view`, `expenses:create`,
+`daily_tasks:view_all`. Written as a set difference against Sneha's granted, unscoped rows
+rather than a hardcoded list. Usha keeps `calendar:create_for_others`, `calendar:view_all` and
+`project_table:create`, which Sneha lacks — "match" read as a union, not a replacement.
+
+This was asked for as a fix for Usha being unable to approve submitted tasks. **It is not one.**
+Both already held `tasks:assign`. The actual gate is `member_tasks.review_requested_to`: when a
+member names a reviewer, `/api/member-tasks/[id]` (096 §2) refuses a verdict from anyone else and
+`?scope=review` hides the row from them. Sneha was named on 53 tasks, Usha on 1. No capability
+affects this.
+
+**117 — chat carries documents.**
+
+- `bridge_messages.message_type` CHECK gains `'file'` (was text/image/drawing_ref/
+  material_request/clarification, unnamed inline CHECK from 020 → dropped by its generated name
+  `bridge_messages_message_type_check` and recreated; a CHECK cannot be widened in place).
+- **`chat_attachments.file_name text`** (nullable) — the original filename. `storage_path` is a
+  UUID, which is correct for the bucket and useless in a message bubble: a recipient cannot tell
+  which drawing they were sent. Nullable because every pre-117 row is an image rendered as a
+  thumbnail, where no name was shown.
+- `notify_dm_message()` replaced. Body copied from the **live** definition
+  (`pg_get_functiondef`), not reconstructed from the 109/111 migration text — `CREATE OR REPLACE`
+  rewrites the whole function, so drift between file and installed state would silently revert
+  111's peer-tenant re-check. Only the preview expression changed: was
+  `COALESCE(NEW.body, 'Sent an image')`, which described a PDF as an image.
+
+Allowed upload types are now JPG, PNG, PDF, DWG (10 MB cap unchanged). Only images get the
+sharp/webp derivative; documents are stored byte-identical, so `webp_path` is NULL for every
+PDF and DWG and the signing route falls through to the original.
+
+**No scanner was added** (explicitly declined). `scan_status` still defaults to `pending` and
+nothing flips it. Worth stating plainly: a PDF or DWG is a materially richer attack surface than
+a JPEG, and nothing in this stack inspects either. Controls remain the private bucket, the
+30-minute signed URL and participant-only RLS. Documented, not mitigated.
+
+**Verified:** 7-assertion transactional probe against the live DB (rolled back) — CHECK admits
+`'file'`, `file_name` exists and persists, `open_dm` unaffected, a `'file'` message inserts, the
+DM notification reads "Sent a file", and an unknown `message_type` is still rejected.
+(Updated: 2026-09-02)

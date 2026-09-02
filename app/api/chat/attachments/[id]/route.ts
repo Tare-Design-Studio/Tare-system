@@ -21,15 +21,13 @@ export async function GET(_req: Request, { params }: Ctx) {
 
   const { data: asset } = await supabase
     .from("chat_attachments")
-    .select("id, bucket, storage_path, webp_path, scan_status")
+    .select("id, bucket, storage_path, webp_path, mime_type, file_name, scan_status")
     .eq("id", id)
     .maybeSingle();
 
   if (!asset) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const a = asset as {
-    bucket: string; storage_path: string; webp_path: string | null; scan_status: string;
-  };
+  const a = asset;
 
   // No scanner runs in this stack today, so every row sits at 'pending' (113).
   // This refuses the two states that mean "do not serve this" — 'infected' for
@@ -43,11 +41,24 @@ export async function GET(_req: Request, { params }: Ctx) {
   }
 
   const service = createServiceClient();
+  // Images serve the webp derivative when one exists. A document has no
+  // derivative, so this falls through to the original for PDF and DWG (117).
   const path = a.webp_path ?? a.storage_path;
+
+  // A PDF opens in the browser; a DWG has no viewer and is only ever a
+  // download, so it is served as an attachment under its original name rather
+  // than as a UUID the recipient has to rename by hand.
+  //
+  // Keyed on the stored extension, not the MIME type: one of the DWG types
+  // browsers send is `image/vnd.dwg`, so a startsWith("image/") test would
+  // classify a drawing as a picture and drop the filename.
+  const storedExt = a.storage_path.split(".").pop()?.toLowerCase() ?? "";
+  const isDoc = storedExt === "pdf" || storedExt === "dwg";
   const { data, error } = await service.storage
     .from(a.bucket)
-    .createSignedUrl(path, 60 * 30);
+    .createSignedUrl(path, 60 * 30,
+      isDoc && a.file_name ? { download: a.file_name } : undefined);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ url: data.signedUrl });
+  return NextResponse.json({ url: data.signedUrl, file_name: a.file_name, mime_type: a.mime_type });
 }

@@ -1,5 +1,77 @@
 # PROJECT_STATE.md
-(Updated: 2026-09-02 — payment wings + reorderable milestones; migrations 114–115)
+(Updated: 2026-09-02 — Usha approval diagnosis, chat dock with PDF/DWG, milestone + button; migrations 116–117)
+
+### Task approval: Usha, and why capabilities were the wrong lever (2026-09-02, migration 116)
+
+Reported as "Usha cannot approve tasks sent to her", and asked to fix it by matching her
+capabilities to Sneha's. The capability diff turned out to be unrelated to the symptom, so both
+were done and are recorded separately.
+
+**The actual cause is per-task addressing.** Usha already held `tasks:assign`, so `ReviewQueue`
+renders for her and `has_capability` passes. What blocks her is `review_requested_to`: 096 made a
+named reviewer exclusive -- `/api/member-tasks/[id]` returns 403 to anyone else, and
+`?scope=review` filters the row out of their queue. Of the two tasks pending at the time, one was
+addressed to Nayan and one to Sneha. Historically Sneha is named on 53 tasks and Usha on 1, which
+is the whole of the difference. Usha is also `team_member`, not `owner`, so she does not get the
+owner fallback for *unnamed* tasks -- she sees only tasks named to her, or unnamed ones she
+assigned herself.
+
+**Not changed.** Widening this is a product decision, not a bug fix. Options: tell members to name
+Usha (no code); let any `tasks:assign` holder override a named reviewer (drop the check at
+`route.ts:163`); or give her the owner-style fallback. Left open.
+
+**116** grants Usha the three capabilities Sneha had that she lacked -- `expenses:view`,
+`expenses:create`, `daily_tasks:view_all`. A real widening of what a `team_member` can see across
+studio finances, so it is logged as a deliberate access change rather than a fix. No effect on
+review.
+
+### Chat dock -- DM-only drawer with PDF/DWG attachments (2026-09-02, migration 117)
+
+A floating launcher bottom-right on the overview, opening a full-height right-hand drawer: DM
+list, thread, composer. `components/chat/ChatDock.tsx`, mounted in `app/(app)/page.tsx`.
+
+**Costs nothing when closed.** The conversation list is not fetched -- `ChatBadgeProvider` already
+holds it app-wide for the nav badge, so the dock reads that context. One request for messages when
+a thread is opened; one realtime subscription, scoped to the open thread and only while the drawer
+is open. Closed, it is a button.
+
+**Scope decisions.** DM-only, per the request: `/bridge` is untouched and still owns project
+threads plus DMs. Desktop-only (`.desktop-only`) -- the launcher is fixed bottom-right, where
+mobile already has its nav bar.
+
+**Attachments now JPG, PNG, PDF, DWG** at the existing 10 MB cap. DWG has no registered MIME type,
+so the upload route resolves by MIME first and falls back to the filename extension: Chrome on
+macOS sends `""` for an unknown extension, Windows may send `application/acad`, and some CAD
+installs register `image/vnd.dwg`. That last one is why both the signing route and the message
+bubble decide image-vs-document on the stored **extension**, never `mime.startsWith("image/")` --
+a DWG would otherwise be rendered in an `<img>`. Only images get the sharp/webp derivative.
+
+**Free tier is not a constraint here.** Measured before building: DB 30 MB of 500 MB, storage
+3.5 MB of 1 GB across 5 files. DWG is the one type with no compression path, but at a 10 MB cap
+that is ~100 worst-case drawings against 1 GB. Egress (5 GB/mo) is the tighter ceiling long before
+storage is.
+
+**No scanner**, explicitly declined -- see SCHEMA.md 117 for the honest posture.
+
+**Verified:** `npm run build` green, `tsc` clean on every file touched, `eslint` clean, and a
+7-assertion transactional probe against the live DB (rolled back).
+
+### Payment milestone insert button was dead code (2026-09-02)
+
+The `+` between milestone rows never rendered. `renderInsertButton` was defined in
+`MilestonesCard.tsx` and called exactly once, inside the `schedule.length === 0` branch -- so it
+appeared only while there were no milestones, and the insert-after-row path it was written for was
+unreachable the moment one existed. The card loop rendered cards and nothing between them.
+
+Now rendered before the first card and after each one, `canEdit`-gated. The ordering maths was
+already correct (`newOrder = addingAfter + 1`, re-sequencing everything at or after it), so only
+the call sites were missing.
+
+**Pre-existing and NOT touched:** the working tree already carried uncommitted payment-presets work
+that does not typecheck -- `payment_milestone_presets` has no `scope` column, breaking
+`settings/table-presets/page.tsx` and `TablePresetsClient.tsx`. Confirmed still present with my
+changes stashed. That migration appears to be unwritten.
+
 
 ### Payment wings, Part A/B, and reorderable milestones (2026-09-02, migrations 114–115)
 

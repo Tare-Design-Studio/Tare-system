@@ -15,7 +15,7 @@ const SELECT = `
   reply_to_id, attachment_id,
   users:author_id (id, full_name, role),
   reply_to:reply_to_id (id, body, message_type, users:author_id (full_name)),
-  attachment:attachment_id (id, storage_path, webp_path, mime_type, scan_status)
+  attachment:attachment_id (id, storage_path, webp_path, mime_type, file_name, byte_size, scan_status)
 `;
 
 export async function GET(req: NextRequest) {
@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
 const PostSchema = z.object({
   conversation_id: z.string().uuid(),
   message_type: z
-    .enum(["text", "image", "drawing_ref", "material_request", "clarification"])
+    .enum(["text", "image", "file", "drawing_ref", "material_request", "clarification"])
     .default("text"),
   body: z.string().min(1).max(2000).optional(),
   structured_payload: z.record(z.string(), z.unknown()).optional(),

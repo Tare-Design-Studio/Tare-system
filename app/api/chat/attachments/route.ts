@@ -14,11 +14,50 @@ import { createServiceClient } from "@/lib/supabase/service";
 // media_assets, whose project_id is NOT NULL and so cannot hold a DM image.
 
 const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
-const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]);
-const EXT: Record<string, string> = {
+
+// Images get the sharp/webp derivative below. Documents are stored as-is —
+// there is nothing to downscale, and a DWG must come back byte-identical or it
+// is not the drawing that was sent.
+const IMAGE_TYPES: Record<string, string> = {
   "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp",
   "image/heic": "heic", "image/heif": "heif",
 };
+
+// DWG has no registered IANA type, so browsers disagree: Chrome on macOS sends
+// "" for an unknown extension, Windows may send application/acad from the
+// registry, and some CAD installs register image/vnd.dwg. Trusting file.type
+// alone would reject real drawings depending on the sender's machine, so the
+// extension is the fallback — see resolveKind().
+const DOC_TYPES: Record<string, string> = {
+  "application/pdf": "pdf",
+  "application/acad": "dwg",
+  "image/vnd.dwg": "dwg",
+  "application/dwg": "dwg",
+  "drawing/dwg": "dwg",
+};
+const DOC_EXTENSIONS = new Set(["pdf", "dwg"]);
+
+/**
+ * Decide what this upload is, from the MIME type where the browser gave a
+ * usable one and from the filename where it did not.
+ *
+ * Returns null when the file is neither an allowed image nor an allowed
+ * document, which the caller turns into a 400.
+ */
+function resolveKind(file: File): { kind: "image" | "file"; ext: string } | null {
+  const mime = file.type.toLowerCase();
+  if (IMAGE_TYPES[mime]) return { kind: "image", ext: IMAGE_TYPES[mime] };
+  if (DOC_TYPES[mime]) return { kind: "file", ext: DOC_TYPES[mime] };
+
+  // MIME was empty or unrecognised. A PNG/JPG that lands here is a
+  // misconfigured client rather than the norm, so only the document
+  // extensions are honoured — an image with a lying MIME type would break
+  // sharp below, and rejecting it is the safer failure.
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  if (DOC_EXTENSIONS.has(ext)) return { kind: "file", ext };
+
+  return null;
+}
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
@@ -34,8 +73,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "conversation_id required" }, { status: 400 });
   }
   if (!(file instanceof File)) return NextResponse.json({ error: "No file" }, { status: 400 });
-  if (file.size > MAX_BYTES) return NextResponse.json({ error: "Image exceeds 10 MB" }, { status: 400 });
-  if (!ALLOWED.has(file.type)) return NextResponse.json({ error: "Unsupported image type" }, { status: 400 });
+  if (file.size > MAX_BYTES) return NextResponse.json({ error: "File exceeds 10 MB" }, { status: 400 });
+
+  const resolved = resolveKind(file);
+  if (!resolved) {
+    return NextResponse.json(
+      { error: "Unsupported file type. Allowed: JPG, PNG, PDF, DWG." },
+      { status: 400 },
+    );
+  }
 
   // Authorization: read the conversation through the caller's own client. RLS
   // returns nothing for a thread they cannot see, so an upload cannot be
@@ -51,20 +97,29 @@ export async function POST(req: NextRequest) {
   const service = createServiceClient();
   const tenant_id = (conv as { tenant_id: string }).tenant_id;
 
-  const ext = EXT[file.type] ?? "jpg";
+  const { kind, ext } = resolved;
   const storage_path = `chat/${conversation_id}/${crypto.randomUUID()}.${ext}`;
   const bytes = new Uint8Array(await file.arrayBuffer());
 
+  // file.type can be "" for a DWG (see resolveKind). Storing that would make
+  // the object serve as application/octet-stream on download, so fall back to a
+  // type derived from the extension we settled on.
+  const contentType = file.type || (ext === "pdf" ? "application/pdf" : "application/acad");
+
   const { error: uploadErr } = await service.storage
     .from("media-private")
-    .upload(storage_path, bytes, { contentType: file.type, upsert: false });
+    .upload(storage_path, bytes, { contentType, upsert: false });
   if (uploadErr) return NextResponse.json({ error: uploadErr.message }, { status: 500 });
 
   // Best-effort compression, matching the project route: a conversion failure
   // leaves webp_path NULL and the original is served, so a bad EXIF header
   // degrades quality instead of failing the send.
+  //
+  // Images only. A PDF or DWG has no derivative — sharp would throw on both,
+  // and a "thumbnail" of a drawing is not what the recipient wants anyway.
   let webp_path: string | null = null;
-  try {
+  if (kind === "image") {
+    try {
     const webpBytes = await sharp(bytes)
       .rotate()
       .resize({ width: 1600, withoutEnlargement: true })
@@ -75,23 +130,29 @@ export async function POST(req: NextRequest) {
       .from("media-private")
       .upload(candidate, webpBytes, { contentType: "image/webp", upsert: false });
     if (!webpErr) webp_path = candidate;
-  } catch {
-    // Intentionally swallowed — see above.
+    } catch {
+      // Intentionally swallowed — see above.
+    }
   }
 
   const { data, error } = await service
     .from("chat_attachments")
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .insert({
       tenant_id,
       uploaded_by: user.id,
       bucket: "media-private",
       storage_path,
       webp_path,
-      mime_type: file.type,
+      // Never file.type: it is "" for a DWG on some browsers, and the download
+      // route hands this straight to the viewer as the Content-Type.
+      mime_type: contentType,
+      // Shown in the message bubble. A UUID storage path tells the recipient
+      // nothing about which drawing they were sent. Trimmed because the column
+      // is unbounded text and the name comes from the client.
+      file_name: file.name.slice(0, 255),
       byte_size: file.size,
-    } as any)
-    .select("id, storage_path, webp_path, mime_type, scan_status")
+    })
+    .select("id, storage_path, webp_path, mime_type, file_name, scan_status")
     .single();
 
   if (error) {
@@ -103,5 +164,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ data }, { status: 201 });
+  // `kind` tells the caller which message_type to post ('image' or 'file', 117).
+  // Derived here rather than re-sniffed client-side so both halves agree.
+  return NextResponse.json({ data, kind }, { status: 201 });
 }
