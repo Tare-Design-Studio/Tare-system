@@ -66,20 +66,49 @@ export default function ChatDock({ userId }: { userId: string }) {
   const endRef = useRef<HTMLDivElement>(null);
   const supabaseRef = useRef(createClient());
 
-  // DMs only — project threads stay on /bridge.
+  // Both kinds. The dock was DM-only on the reasoning that project threads
+  // belong on /bridge with project context around them; in practice that meant
+  // leaving the overview to read a project message. /bridge still owns the full
+  // screen — this is the same threads, reachable without navigating away.
   const dms = useMemo(
     () => conversations.filter((c) => c.kind === "dm"),
     [conversations],
   );
+  const projects = useMemo(
+    () => conversations.filter((c) => c.kind === "project"),
+    [conversations],
+  );
+
+  // Which list the drawer is showing. Not persisted: the dock opens on
+  // whichever tab has unread, and on DMs when neither does.
+  const [tab, setTab] = useState<"dm" | "project">("dm");
+  // 57 project threads on this tenant already, so the list is unusable without
+  // a filter. Applied to both tabs for consistency.
+  const [query, setQuery] = useState("");
+
+  const visible = useMemo(() => {
+    const list = tab === "dm" ? dms : projects;
+    const q = query.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((c) => (c.title ?? "").toLowerCase().includes(q));
+  }, [tab, dms, projects, query]);
+
+  // Resolved against every conversation, not the visible tab — the open thread
+  // must survive a tab switch.
   const active = useMemo(
-    () => dms.find((c) => c.conversation_id === activeId) ?? null,
-    [dms, activeId],
+    () => conversations.find((c) => c.conversation_id === activeId) ?? null,
+    [conversations, activeId],
   );
 
   const dmUnread = useMemo(
     () => dms.reduce((sum, c) => sum + (c.unread ?? 0), 0),
     [dms],
   );
+  const projectUnread = useMemo(
+    () => projects.reduce((sum, c) => sum + (c.unread ?? 0), 0),
+    [projects],
+  );
+  const totalUnread = dmUnread + projectUnread;
 
   const loadMessages = useCallback(async (conversationId: string) => {
     setLoading(true);
@@ -288,14 +317,23 @@ export default function ChatDock({ userId }: { userId: string }) {
     }
   }
 
-  const title = (c: ChatConversation) => c.title ?? "Direct message";
+  const title = (c: ChatConversation) =>
+    c.title ?? (c.kind === "project" ? "Project thread" : "Direct message");
 
   return (
     <>
       {/* Launcher */}
       <button
-        onClick={() => setOpen((v) => !v)}
-        aria-label={open ? "Close messages" : `Messages${dmUnread ? `, ${dmUnread} unread` : ""}`}
+        onClick={() => {
+          setOpen((v) => {
+            // Opening lands on the tab that has something waiting, so an unread
+            // project message is not hidden behind a tab nobody clicks.
+            if (!v && projectUnread > 0 && dmUnread === 0) setTab("project");
+            else if (!v && dmUnread > 0) setTab("dm");
+            return !v;
+          });
+        }}
+        aria-label={open ? "Close messages" : `Messages${totalUnread ? `, ${totalUnread} unread` : ""}`}
         className="chat-dock-launcher"
         style={{
           position: "fixed", right: 24, zIndex: 60,
@@ -315,14 +353,14 @@ export default function ChatDock({ userId }: { userId: string }) {
             <path d="M21 11.5a8.38 8.38 0 0 1-9 8.34 8.5 8.5 0 0 1-3.9-.94L3 20l1.1-4.1A8.38 8.38 0 0 1 3 11.5a8.5 8.5 0 0 1 9-8.34 8.38 8.38 0 0 1 9 8.34z" />
           </svg>
         )}
-        {!open && dmUnread > 0 && (
+        {!open && totalUnread > 0 && (
           <span style={{
             position: "absolute", top: -2, right: -2, minWidth: 20, height: 20,
             padding: "0 5px", borderRadius: 20, background: "var(--color-rust)",
             color: "#FFF", fontSize: 11, fontWeight: 700, lineHeight: "20px",
             textAlign: "center", fontVariantNumeric: "tabular-nums",
             boxShadow: "0 0 0 2px var(--color-paper)",
-          }}>{dmUnread > 99 ? "99+" : dmUnread}</span>
+          }}>{totalUnread > 99 ? "99+" : totalUnread}</span>
         )}
       </button>
 
@@ -360,11 +398,11 @@ export default function ChatDock({ userId }: { userId: string }) {
               </div>
               {!activeId && !picking && (
                 <div style={{ fontSize: 11, color: "var(--color-tan)" }}>
-                  {dmUnread > 0 ? `${dmUnread} unread` : "Direct messages"}
+                  {totalUnread > 0 ? `${totalUnread} unread` : "Messages & project threads"}
                 </div>
               )}
             </div>
-            {!activeId && !picking && (
+            {!activeId && !picking && tab === "dm" && (
               <button
                 onClick={openPicker}
                 aria-label="New message"
@@ -386,6 +424,52 @@ export default function ChatDock({ userId }: { userId: string }) {
               padding: "8px 16px", fontSize: 12,
               background: "var(--color-paper)", color: "var(--color-rust)",
             }}>{error}</div>
+          )}
+
+          {/* Tabs — list view only. Hidden while a thread is open or while
+              picking someone to message, where they would have nothing to do. */}
+          {!activeId && !picking && (
+            <div style={{ display: "flex", borderBottom: "1px solid var(--color-line)", flexShrink: 0 }}>
+              {([["dm", "Direct", dmUnread], ["project", "Projects", projectUnread]] as const).map(
+                ([key, label, unread]) => (
+                  <button
+                    key={key}
+                    onClick={() => { setTab(key); setQuery(""); }}
+                    style={{
+                      flex: 1, padding: "9px 8px", cursor: "pointer", background: "none",
+                      border: "none", borderBottom: `2px solid ${tab === key ? "var(--color-ink)" : "transparent"}`,
+                      color: tab === key ? "var(--color-ink)" : "var(--color-tan)",
+                      fontSize: 12, fontWeight: tab === key ? 700 : 500, fontFamily: "inherit",
+                      display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                    }}
+                  >
+                    {label}
+                    {unread > 0 && (
+                      <span style={{
+                        minWidth: 16, height: 16, padding: "0 4px", borderRadius: 16,
+                        background: "var(--color-rust)", color: "#FFF", fontSize: 9,
+                        fontWeight: 700, lineHeight: "16px", textAlign: "center",
+                      }}>{unread > 99 ? "99+" : unread}</span>
+                    )}
+                  </button>
+                ),
+              )}
+            </div>
+          )}
+
+          {!activeId && !picking && (
+            <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--color-line)", flexShrink: 0 }}>
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={tab === "dm" ? "Search people…" : "Search projects…"}
+                style={{
+                  width: "100%", padding: "7px 10px", borderRadius: 8, fontSize: 12,
+                  border: "1px solid var(--color-line)", background: "var(--color-paper-light)",
+                  fontFamily: "inherit", color: "var(--color-ink)",
+                }}
+              />
+            </div>
           )}
 
           {/* Body */}
@@ -412,12 +496,16 @@ export default function ChatDock({ userId }: { userId: string }) {
                 ))
               )
             ) : !activeId ? (
-              dms.length === 0 ? (
+              visible.length === 0 ? (
                 <div style={{ padding: 16, fontSize: 12, color: "var(--color-tan)" }}>
-                  No conversations yet. Use + to message someone.
+                  {query.trim()
+                    ? `No ${tab === "dm" ? "people" : "projects"} matching “${query.trim()}”.`
+                    : tab === "dm"
+                      ? "No conversations yet. Use + to message someone."
+                      : "No project threads yet."}
                 </div>
               ) : (
-                dms.map((c) => (
+                visible.map((c) => (
                   <button
                     key={c.conversation_id}
                     onClick={() => openThread(c.conversation_id)}
@@ -427,7 +515,7 @@ export default function ChatDock({ userId }: { userId: string }) {
                       border: "none", borderBottom: "1px solid var(--color-line)", textAlign: "left",
                     }}
                   >
-                    <Avatar initials={initialsOf(title(c))} tone="indigo" size={34} />
+                    <Avatar initials={initialsOf(title(c))} tone={c.kind === "project" ? "forest" : "indigo"} size={34} />
                     <span style={{ flex: 1, minWidth: 0 }}>
                       <span style={{
                         display: "block", fontSize: 13,

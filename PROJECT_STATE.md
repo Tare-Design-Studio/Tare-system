@@ -1,5 +1,26 @@
 # PROJECT_STATE.md
-(Updated: 2026-09-03 — portal payments/access, PDF+DWG sending; migrations 120–121)
+(Updated: 2026-09-03 — portal payments/access, PDF+DWG sending, project chats in dock; migrations 120–121)
+
+### Project threads in the overview chat dock (2026-09-03, no migration)
+
+The dock was DM-only by design — project threads "belong on /bridge with project context around
+them". In practice that meant leaving the overview to read a project message. It now shows both,
+behind a **Direct / Projects** tab pair; /bridge is untouched and still owns the full-screen view.
+
+**No API or schema work was needed.** `chat_unread_counts()` already returned both kinds with usable
+titles (57 project threads and 5 DMs on this tenant), and the messages route already sets `project_id`
+for the project branch of the RLS policy. The dock was simply filtering them out client-side.
+
+**A search box, because 57 threads is not a scrollable list.** Filters the active tab by title;
+clears on tab switch. The empty state distinguishes "none exist" from "none match".
+
+The launcher badge now counts both kinds — it previously showed DM unread only, so an unread project
+message left it dark. Opening the dock lands on whichever tab has unread. The `+` button is DM-only
+(it opens a DM with a person; project threads are not created here).
+
+**Verified:** as a real user under RLS (`SET LOCAL ROLE authenticated` with their JWT claims), a
+project thread reads and accepts a message — transactional, rolled back. `npm run build` green, `tsc`
+and eslint clean on `ChatDock.tsx`.
 
 ### PDF and DWG sending (2026-09-03, migration 121)
 
