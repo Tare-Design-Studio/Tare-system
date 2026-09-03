@@ -4,17 +4,12 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Avatar, Chip } from "@/components/atoms";
 import { createClient } from "@/lib/supabase/client";
 import { useChatBadge, type ChatConversation } from "@/components/chat/ChatBadgeProvider";
+import AttachmentView, { CHAT_ACCEPT, type Attachment } from "@/components/chat/AttachmentView";
 
 type User = { id: string; full_name: string; role: string };
 type Peer = { id: string; full_name: string; role: string };
 
-type Attachment = {
-  id: string;
-  storage_path: string;
-  webp_path: string | null;
-  mime_type: string;
-  scan_status: string;
-};
+
 
 type Message = {
   id: string;
@@ -51,42 +46,6 @@ function formatTime(iso: string) {
 
 function initialsOf(name: string) {
   return name.split(" ").map((w) => w[0]).filter(Boolean).slice(0, 2).join("");
-}
-
-/** Lazily signs a chat image. The URL is minted per view and expires in 30m,
- *  so it is fetched on mount rather than embedded in the message payload. */
-function ChatImage({ attachmentId }: { attachmentId: string }) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    let live = true;
-    fetch(`/api/chat/attachments/${attachmentId}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((d) => { if (live) setUrl(d.url); })
-      .catch(() => { if (live) setFailed(true); });
-    return () => { live = false; };
-  }, [attachmentId]);
-
-  if (failed) {
-    return (
-      <div style={{ fontSize: 12, color: "var(--color-tan)", fontStyle: "italic" }}>
-        Image unavailable
-      </div>
-    );
-  }
-  if (!url) {
-    return <div style={{ width: 200, height: 140, borderRadius: 12, background: "var(--bg-2, #EDE7DB)" }} />;
-  }
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={url}
-      alt="Shared image"
-      style={{ maxWidth: 260, width: "100%", borderRadius: 12, display: "block", cursor: "zoom-in" }}
-      onClick={() => window.open(url, "_blank", "noopener,noreferrer")}
-    />
-  );
 }
 
 function MessageBubble({
@@ -144,14 +103,14 @@ function MessageBubble({
           }}>
             <strong style={{ fontSize: 11 }}>{msg.reply_to.users?.full_name ?? "Unknown"}</strong>
             <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {msg.reply_to.body ?? "Image"}
+              {msg.reply_to.body ?? "Attachment"}
             </div>
           </div>
         )}
 
-        {msg.attachment_id && (
+        {msg.attachment && (
           <div style={{ marginBottom: msg.body ? 6 : 0 }}>
-            <ChatImage attachmentId={msg.attachment_id} />
+            <AttachmentView attachment={msg.attachment} maxImageWidth={260} />
           </div>
         )}
 
@@ -214,6 +173,8 @@ export function BridgeClient({ projects, currentUserId }: Props) {
   const [peerTyping, setPeerTyping] = useState(false);
   const [peerSeen, setPeerSeen] = useState(false);
   const [uploading, setUploading] = useState(false);
+  // A rejected file (wrong type, over 10 MB) previously failed silently.
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   const threadRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -371,21 +332,30 @@ export function BridgeClient({ projects, currentUserId }: Props) {
 
   async function uploadAndSend(file: File) {
     if (!activeId) return;
+    setUploadError(null);
     setUploading(true);
     const form = new FormData();
     form.append("conversation_id", activeId);
     form.append("file", file);
 
     const up = await fetch("/api/chat/attachments", { method: "POST", body: form });
-    if (!up.ok) { setUploading(false); return; }
-    const { data: att } = await up.json();
+    if (!up.ok) {
+      const { error } = await up.json().catch(() => ({ error: null }));
+      setUploadError(error ?? "Upload failed");
+      setUploading(false);
+      return;
+    }
+    // `kind` is decided by the upload route ('image' or 'file'), so the message
+    // type matches what was actually stored. Hardcoding "image" here is what
+    // made a PDF arrive tagged as an image.
+    const { data: att, kind } = await up.json();
 
     const res = await fetch("/api/chat/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         conversation_id: activeId,
-        message_type: "image",
+        message_type: kind === "image" ? "image" : "file",
         attachment_id: att.id,
         body: body.trim() || undefined,
         reply_to_id: replyTo?.id,
@@ -733,11 +703,21 @@ export function BridgeClient({ projects, currentUserId }: Props) {
                 </div>
               )}
 
+              {uploadError && (
+                <div style={{
+                  marginBottom: 8, padding: "7px 10px", borderRadius: 8, fontSize: 12,
+                  background: "var(--color-paper-light)", border: "1px solid var(--color-line)",
+                  color: "var(--color-rust, #C5543B)",
+                }}>
+                  {uploadError}
+                </div>
+              )}
+
               <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
                 <input
                   ref={fileRef}
                   type="file"
-                  accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
+                  accept={CHAT_ACCEPT}
                   style={{ display: "none" }}
                   onChange={(e) => {
                     const f = e.target.files?.[0];
@@ -748,7 +728,7 @@ export function BridgeClient({ projects, currentUserId }: Props) {
                 <button
                   onClick={() => fileRef.current?.click()}
                   disabled={uploading}
-                  title="Attach image"
+                  title="Attach image, PDF or drawing"
                   style={{
                     padding: "10px 12px", borderRadius: 10, border: "1px solid var(--color-line)",
                     background: "var(--color-paper-light)", cursor: "pointer",
@@ -765,7 +745,7 @@ export function BridgeClient({ projects, currentUserId }: Props) {
                   onChange={(e) => { setBody(e.target.value); broadcastTyping(); }}
                   onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send(); }}
                   placeholder={
-                    uploading ? "Uploading image…" :
+                    uploading ? "Uploading…" :
                     msgType === "material_request" ? "Note (optional)…" :
                     msgType === "clarification" ? "Describe the clarification needed…" :
                     "Type a message… (⌘Enter to send)"

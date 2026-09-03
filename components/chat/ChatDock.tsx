@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { Avatar } from "@/components/atoms";
 import { useChatBadge, type ChatConversation } from "./ChatBadgeProvider";
+import AttachmentView, { CHAT_ACCEPT, type Attachment } from "./AttachmentView";
 
 // A floating launcher on the overview, opening a right-hand full-height drawer
 // with DMs only.
@@ -19,16 +20,6 @@ import { useChatBadge, type ChatConversation } from "./ChatBadgeProvider";
 
 type Peer = { id: string; full_name: string; role: string };
 
-type Attachment = {
-  id: string;
-  storage_path: string;
-  webp_path: string | null;
-  mime_type: string | null;
-  file_name: string | null;
-  byte_size: number | null;
-  scan_status: string;
-};
-
 type Message = {
   id: string;
   message_type: string;
@@ -41,17 +32,8 @@ type Message = {
   attachment: Attachment | null;
 };
 
-const ACCEPT = ".jpg,.jpeg,.png,.pdf,.dwg";
-
 function initialsOf(name: string) {
   return name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("") || "?";
-}
-
-function fmtSize(bytes: number | null) {
-  if (!bytes) return "";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function fmtTime(iso: string) {
@@ -61,73 +43,6 @@ function fmtTime(iso: string) {
   return sameDay
     ? d.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })
     : d.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
-}
-
-/** An image renders inline; a PDF or DWG renders as a named row you can open. */
-function AttachmentView({ attachment }: { attachment: Attachment }) {
-  const [url, setUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-  // Decided on the stored extension, for the same reason the signing route
-  // does: one of the MIME types browsers send for DWG is `image/vnd.dwg`, so a
-  // mime.startsWith("image/") test would try to render a drawing in an <img>.
-  const ext = (attachment.storage_path.split(".").pop() ?? "").toLowerCase();
-  const isImage = ["jpg", "jpeg", "png", "webp", "heic", "heif"].includes(ext);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/chat/attachments/${attachment.id}`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("signing failed"))))
-      .then((j) => { if (!cancelled) setUrl(j.url); })
-      .catch(() => { if (!cancelled) setFailed(true); });
-    return () => { cancelled = true; };
-  }, [attachment.id]);
-
-  const name = attachment.file_name ?? "Attachment";
-
-  if (isImage) {
-    if (failed) return <div style={{ fontSize: 11, color: "var(--color-tan)" }}>Image unavailable</div>;
-    return url ? (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={url}
-        alt={name}
-        style={{ maxWidth: "100%", borderRadius: 8, display: "block", marginTop: 6 }}
-      />
-    ) : (
-      <div style={{ fontSize: 11, color: "var(--color-tan)", marginTop: 6 }}>Loading image…</div>
-    );
-  }
-
-  const badge = (ext || "file").toUpperCase();
-  return (
-    <a
-      href={url ?? undefined}
-      target="_blank"
-      rel="noreferrer"
-      onClick={(e) => { if (!url) e.preventDefault(); }}
-      style={{
-        display: "flex", alignItems: "center", gap: 10, marginTop: 6,
-        padding: "8px 10px", borderRadius: 8, textDecoration: "none",
-        background: "var(--color-paper)", border: "1px solid var(--color-line)",
-        color: "inherit", cursor: url ? "pointer" : "default", opacity: url ? 1 : 0.6,
-      }}
-    >
-      <span style={{
-        fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 700,
-        padding: "3px 6px", borderRadius: 4, flexShrink: 0,
-        background: "var(--color-ink)", color: "var(--color-paper-light)",
-      }}>{badge}</span>
-      <span style={{ minWidth: 0, flex: 1 }}>
-        <span style={{
-          display: "block", fontSize: 12, fontWeight: 500,
-          overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-        }}>{name}</span>
-        {attachment.byte_size ? (
-          <span style={{ fontSize: 10, color: "var(--color-tan)" }}>{fmtSize(attachment.byte_size)}</span>
-        ) : null}
-      </span>
-    </a>
-  );
 }
 
 export default function ChatDock({ userId }: { userId: string }) {
@@ -653,7 +568,7 @@ export default function ChatDock({ userId }: { userId: string }) {
               <input
                 ref={fileRef}
                 type="file"
-                accept={ACCEPT}
+                accept={CHAT_ACCEPT}
                 style={{ display: "none" }}
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); }}
               />

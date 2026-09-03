@@ -1,5 +1,34 @@
 # PROJECT_STATE.md
-(Updated: 2026-09-03 — portal payment milestones, portal access tracking; migration 120)
+(Updated: 2026-09-03 — portal payments/access, PDF+DWG sending; migrations 120–121)
+
+### PDF and DWG sending (2026-09-03, migration 121)
+
+Reported as "PDF formats are not sendable". Two independent defects, both fixed.
+
+**`/bridge` could only ever send an image.** The dock (117) gained PDF/DWG, but `/bridge` — the main
+chat page, and the only one with project threads — was left behind: its file input accepted
+`image/*` types only, `uploadAndSend` hardcoded `message_type: "image"` regardless of what was
+uploaded, and every attachment rendered through `<img>`. So a PDF could not be picked there, and one
+sent from the dock showed up as a broken image. It now uses the `kind` the upload route already
+returns, so the message type matches what was stored.
+
+**DWG failed everywhere, including the dock.** 117 taught the route the DWG MIME types but never
+widened the storage bucket, so the object write was rejected with `mime type application/acad is not
+supported` and the request 500'd. Migration 121 adds them to both buckets. PDF was already allowed at
+the bucket, which is why only DWG was affected by this half.
+
+**Upload failures were silent** in `/bridge` — a rejected file (wrong type, over 10 MB) just did
+nothing. The route's message is now shown in the composer.
+
+**One renderer for both surfaces.** `components/chat/AttachmentView.tsx` now holds the image-vs-file
+decision (on the stored extension, never `mime.startsWith("image/")` — a DWG can arrive as
+`image/vnd.dwg`), the signed-URL fetch and the file row. `/bridge` and `ChatDock` both use it, so
+they cannot disagree about how an attachment displays.
+
+**Verified:** storage probe across all five MIME types (all accepted); end-to-end probe inserting
+PDF, DWG and PNG attachments plus their messages against the live DB, confirming `message_type`
+resolves to `file`/`file`/`image` (rolled back, storage objects removed); `npm run build` green,
+`tsc` clean. Two pre-existing `set-state-in-effect` eslint errors in `BridgeClient.tsx` are untouched.
 
 ### Portal payment milestones + who is opening the link (2026-09-03, migration 120)
 

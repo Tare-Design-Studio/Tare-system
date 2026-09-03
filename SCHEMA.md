@@ -1,5 +1,22 @@
 # SCHEMA.md
-(Updated: 2026-09-03 — migration 120: portal payment truth + portal access log)
+(Updated: 2026-09-03 — migrations 120/121: portal payment truth, portal access log, DWG storage)
+
+### Migration 121 — storage bucket accepts DWG (applied 2026-09-03)
+
+117 widened chat attachments to PDF and DWG and taught the upload route the several MIME types
+browsers use for a drawing. **It did not widen the bucket.** `media-private.allowed_mime_types` was
+still the 020 image list plus `application/pdf`, so storage rejected every DWG at the object write —
+`mime type application/acad is not supported` — and the route 500'd after resolving the file
+correctly. PDF was already on the list, which is why the gap survived 117.
+
+121 sets both `media-private` and `media-customer-public` to the image list + `application/pdf` +
+all four DWG spellings the route can emit (`application/acad`, `image/vnd.dwg`, `application/dwg`,
+`drawing/dwg`), matching `DOC_TYPES` in `app/api/chat/attachments/route.ts`. The route never stores an
+empty type — it derives one from the extension — so `""` needs no entry. Both buckets carry the same
+list deliberately: a divergence between them is the same class of bug.
+
+**If the allowed types change again, both the route's `DOC_TYPES` and the bucket list must move
+together.**
 
 ### Migration 120 — portal payment truth + portal access log (applied 2026-09-03)
 
