@@ -45,6 +45,22 @@ export default async function CustomerDetailPage({ params }: Params) {
         .order("full_name")
     : { data: [] };
 
+  // Portal open history. Aggregate first (cheap, always shown), then the most
+  // recent opens for the detail list. RLS scopes both to this tenant.
+  const [accessRes, recentViewsRes] = await Promise.all([
+    supabase
+      .from("v_customer_portal_access")
+      .select("view_count, distinct_ips, first_viewed_at, last_viewed_at")
+      .eq("customer_id", id)
+      .maybeSingle(),
+    supabase
+      .from("customer_portal_views")
+      .select("id, viewed_at, ip, user_agent")
+      .eq("customer_id", id)
+      .order("viewed_at", { ascending: false })
+      .limit(20),
+  ]);
+
   const primaryProject = projects?.[0] ?? null;
   const projectId = primaryProject?.id ?? null;
 
@@ -73,6 +89,8 @@ export default async function CustomerDetailPage({ params }: Params) {
       paymentSchedule={(scheduleRes.data ?? []) as any[]}
       paymentRecords={(recordsRes.data ?? []) as any[]}
       canManagePortal={canManagePortal === true}
+      portalAccess={(accessRes.data ?? null) as any}
+      portalViews={(recentViewsRes.data ?? []) as any[]}
       members={(members ?? []) as { id: string; full_name: string }[]}
     />
   );

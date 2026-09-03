@@ -726,6 +726,36 @@ export type Database = {
           },
         ]
       }
+      customer_portal_views: {
+        Row: {
+          id: number
+          tenant_id: string
+          customer_id: string
+          ip: string | null
+          user_agent: string | null
+          request_id: string | null
+          viewed_at: string
+        }
+        Insert: {
+          id?: number
+          tenant_id?: string
+          customer_id: string
+          ip?: string | null
+          user_agent?: string | null
+          request_id?: string | null
+          viewed_at?: string
+        }
+        Update: {
+          id?: number
+          tenant_id?: string
+          customer_id?: string
+          ip?: string | null
+          user_agent?: string | null
+          request_id?: string | null
+          viewed_at?: string
+        }
+        Relationships: []
+      }
       customer_updates: {
         Row: {
           id: string
@@ -4077,6 +4107,17 @@ export type Database = {
       }
     }
     Views: {
+      v_customer_portal_access: {
+        Row: {
+          customer_id: string | null
+          tenant_id: string | null
+          view_count: number | null
+          distinct_ips: number | null
+          first_viewed_at: string | null
+          last_viewed_at: string | null
+        }
+        Relationships: []
+      }
       v_leave_balance: {
         Row: {
           entitled_days: number | null

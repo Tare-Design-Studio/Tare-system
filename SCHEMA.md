@@ -1,5 +1,36 @@
 # SCHEMA.md
-(Updated: 2026-09-02 — migrations 118/119: chat message editing, surplus grant revoke)
+(Updated: 2026-09-03 — migration 120: portal payment truth + portal access log)
+
+### Migration 120 — portal payment truth + portal access log (applied 2026-09-03)
+
+**`get_customer_portal_summary` now reads `v_payment_status`, not `payment_schedule`.** The portal
+was shipping only `is_paid` per milestone, so the page totalled `amount_due` of milestones flagged
+paid — the **schedule**, not the money. The studio-side card totals `SUM(payment_records.amount_paid)`
+via `v_payment_status`. Those agree only when every payment lands exactly on its milestone amount.
+
+Live case that surfaced it: a customer whose "Advance" is due 147,264 and flagged paid, against
+records totalling 248,464 (an advance larger than the first milestone). App showed 2.5L, portal 1.5L.
+Both now report 248,464. **`payment_records` is the source of truth for money received;
+`payment_schedule` is what was billed.** The RPC now sends `amount_received`, `wing` and `part` per
+milestone; `amount_due` and `is_paid` are retained — a milestone can be settled by waiver with no
+record behind it, and must not read as unpaid. Both surfaces now derive from one view, so they
+cannot drift again.
+
+**`customer_portal_views`** — one row per *successful* portal load, written by the RPC after the hash
+resolves. Failures (bad hash, unknown hash, rate-limited) stay in `public_abuse_log` and never
+inflate a customer's count. `(id bigserial, tenant_id, customer_id, ip inet, user_agent, request_id,
+viewed_at)`; index on `(customer_id, viewed_at DESC)`. RLS ENABLE **and** FORCE; SELECT = same tenant.
+**No INSERT policy** — the only writer is the SECURITY DEFINER RPC. `GRANT SELECT` to `authenticated`,
+`REVOKE ALL` from `anon`.
+
+The portal has no login, so this records **that** a link was opened and from where, never a verified
+identity — anyone the link is forwarded to lands in the same table. The UI states this plainly rather
+than implying the customer themselves was the visitor.
+
+**`v_customer_portal_access`** — per-customer aggregate (`view_count`, `distinct_ips`,
+`first_viewed_at`, `last_viewed_at`). SECURITY INVOKER, so the RLS policy above still applies.
+`COUNT()` is `bigint`, which PostgREST serialises as a **string** — the client coerces with `Number()`
+rather than typing these as numbers.
 
 ### Migrations 118 + 119 — chat message editing (applied 2026-09-02)
 

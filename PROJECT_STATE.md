@@ -1,5 +1,37 @@
 # PROJECT_STATE.md
-(Updated: 2026-09-02 — chat on mobile, message editing, per-project milestone editing; migrations 118–119)
+(Updated: 2026-09-03 — portal payment milestones, portal access tracking; migration 120)
+
+### Portal payment milestones + who is opening the link (2026-09-03, migration 120)
+
+**The portal and the customer profile disagreed about money, and the portal was wrong.** Reported as
+"profile says 2.5L paid, portal says 1.5L received". Cause: two different quantities, not a sync bug.
+The profile totals `payment_records` (money actually booked); the portal RPC only ever received
+`is_paid` per milestone, so it summed `amount_due` of milestones flagged paid — the schedule.
+Identical until a payment differs from its milestone amount. The real customer had paid an advance of
+248,464 against a first milestone of 147,264. The portal RPC now reads `v_payment_status`, the same
+view the studio card reads, so the two cannot drift again. Verified on live data (rolled back): both
+surfaces 248,464.
+
+**The portal now shows the payment schedule**, not just a totals line — it previously received
+payment rows and rendered none of them, using them only for the header figure. Milestone list mirrors
+the studio-side `PaymentsCard`: same paid/partial/pending rule (an explicit `is_paid` settles a
+milestone even with no record — waiver/adjustment), same wing grouping, per-milestone billed vs
+received and the remaining amount on a partial.
+
+**Portal opens are now tracked.** Previously a successful open left no trace at all — `public_abuse_log`
+recorded only failures — so there was no way to tell whether a client had ever opened the link.
+`customer_portal_views` takes one row per successful load; the customer profile shows open count,
+distinct devices/networks, last-opened, and an expandable list of recent opens with a device label
+derived from the user agent.
+
+**Deliberately not claimed: identity.** The portal is a hashed URL with no login, so this answers
+"was this opened, how often, from how many origins", never "which person". IP is a weak device proxy
+on mobile networks, and a forwarded link appears identically. The UI says so in place rather than
+implying the customer was the visitor.
+
+**Verified:** live-DB probe (transactional, rolled back) confirming portal total == app total, the
+view row written, and the aggregate view correct; `npm run build` green; `tsc` clean. One pre-existing
+eslint error in `CustomerDetail.tsx:191` (`set-state-in-effect`, the portal URL effect) is untouched.
 
 ### Chat on phones, message editing, per-project milestones (2026-09-02, migrations 118–119)
 

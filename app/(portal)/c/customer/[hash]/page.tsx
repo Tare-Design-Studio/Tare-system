@@ -22,8 +22,11 @@ type Checkpoint = {
 type Payment = {
   milestone_name: string;
   amount_due: number | string;
+  amount_received: number | string;
   due_date: string | null;
   is_paid: boolean;
+  wing: string | null;
+  part: string | null;
 };
 type ProjectSummary = {
   id: string;
@@ -145,8 +148,12 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
     (s, p) => s + p.payments.reduce((ss, x) => ss + Number(x.amount_due), 0),
     0
   );
+  // Money actually booked against milestones (payment_records), which is what
+  // the studio-side card totals. Summing amount_due of is_paid milestones — as
+  // this did — reports the schedule instead, and diverges the moment a payment
+  // differs from its milestone amount.
   const totalReceived = summary.projects.reduce(
-    (s, p) => s + p.payments.filter(x => x.is_paid).reduce((ss, x) => ss + Number(x.amount_due), 0),
+    (s, p) => s + p.payments.reduce((ss, x) => ss + Number(x.amount_received), 0),
     0
   );
   const totalOutstanding = totalBilled - totalReceived;
@@ -346,9 +353,28 @@ function SummaryCard({ label, value, sub, color }: { label: string; value: strin
   );
 }
 
+// Mirrors the studio-side PaymentsCard rule exactly: an explicit is_paid flag
+// settles a milestone even with no record behind it (waiver/adjustment), and a
+// milestone is also paid once receipts cover what was billed.
+function paymentStatus(pay: Payment): "paid" | "partial" | "pending" {
+  const due = Number(pay.amount_due);
+  const got = Number(pay.amount_received);
+  if (pay.is_paid || (due > 0 && got >= due)) return "paid";
+  if (got > 0) return "partial";
+  return "pending";
+}
+
 function ProjectCard({ project: p, portalHash }: { project: ProjectSummary; portalHash: string }) {
   const projTotal = p.payments.reduce((s, x) => s + Number(x.amount_due), 0);
-  const projReceived = p.payments.filter(x => x.is_paid).reduce((s, x) => s + Number(x.amount_due), 0);
+  const projReceived = p.payments.reduce((s, x) => s + Number(x.amount_received), 0);
+  // Preserve schedule order within each wing; a null wing groups under one key.
+  const paymentGroups = Array.from(
+    p.payments.reduce((m, pay) => {
+      const k = pay.wing ?? "";
+      (m.get(k) ?? m.set(k, []).get(k)!).push(pay);
+      return m;
+    }, new Map<string, Payment[]>())
+  );
   const completed = p.checkpoints.filter(c => c.status === "complete").length;
   const total = p.checkpoints.length;
   const overallPct = total > 0 ? Math.round((completed / total) * 100) : 0;
@@ -374,6 +400,64 @@ function ProjectCard({ project: p, portalHash }: { project: ProjectSummary; port
         {p.start_date && <span>Started: <b>{fmtDate(p.start_date)}</b></span>}
         {p.expected_end_date && <span>Est. completion: <b>{fmtDate(p.expected_end_date)}</b></span>}
       </div>
+
+      {/* Payment schedule — same shape and status rules as the studio-side
+          PaymentsCard, so a client and the studio read one story. Grouped by
+          wing when the project has wings (114). */}
+      {p.payments.length > 0 && (
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1 }}>
+              Payment Schedule
+            </div>
+            <span className="mono" style={{ fontSize: 11, color: "var(--muted)" }}>
+              {fmtAmount(projReceived)} received of {fmtAmount(projTotal)}
+            </span>
+          </div>
+          {paymentGroups.map(([wing, rows]) => (
+            <div key={wing ?? "_"} style={{ marginBottom: paymentGroups.length > 1 ? 12 : 0 }}>
+              {paymentGroups.length > 1 && (
+                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-2)", textTransform: "capitalize", margin: "0 0 6px 2px" }}>
+                  {wing?.replace(/_/g, " ")}
+                </div>
+              )}
+              <div style={{ background: "var(--bg)", borderRadius: 14, padding: "6px 16px", border: "1px solid var(--line)" }}>
+                {rows.map((pay, i) => {
+                  const due = Number(pay.amount_due);
+                  const got = Number(pay.amount_received);
+                  const status = paymentStatus(pay);
+                  const dot = status === "paid" ? "var(--mint)" : status === "partial" ? "var(--amber)" : "var(--line-2)";
+                  return (
+                    <div key={`${pay.milestone_name}-${i}`} style={{ display: "grid", gridTemplateColumns: "20px 1fr auto", gap: 12, alignItems: "center", padding: "12px 0", borderBottom: i < rows.length - 1 ? "1px solid var(--line)" : "none" }}>
+                      <div style={{ width: 18, height: 18, borderRadius: "50%", background: status === "paid" ? dot : "var(--bg-2)", border: `2px solid ${dot}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {status === "paid" && (
+                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#F3EFE7" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+                        )}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: status === "pending" ? 400 : 600, color: status === "pending" ? "var(--muted)" : "var(--ink)" }}>
+                          {pay.milestone_name}
+                          {pay.part && <span style={{ color: "var(--muted)", fontWeight: 400 }}> · {pay.part.replace(/_/g, " ")}</span>}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 3 }}>
+                          {pay.due_date ? `Due ${fmtDate(pay.due_date)}` : "No due date"}
+                          {status === "partial" && ` · ${fmtAmount(due - got)} remaining`}
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div className="mono" style={{ fontSize: 13, fontWeight: 600 }}>{fmtAmount(due)}</div>
+                        <div className="mono" style={{ fontSize: 10, color: status === "paid" ? "var(--mint)" : status === "partial" ? "var(--amber)" : "var(--muted)", marginTop: 2 }}>
+                          {status === "paid" ? "Paid" : `${fmtAmount(got)} received`}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Milestones */}
       {total > 0 && (

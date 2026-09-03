@@ -52,6 +52,50 @@ type Reminder = {
   category: string; priority: string | null; is_done: boolean; done_at: string | null;
 };
 
+// The portal has no login, so a user agent is the only clue about who opened a
+// link. It identifies a browser and platform, never a person — two people on
+// the same phone model are indistinguishable here, and the UI says so.
+function deviceLabel(ua: string | null): string {
+  if (!ua) return "Unknown device";
+  const platform =
+    /iPhone|iPad|iPod/i.test(ua) ? "iPhone/iPad" :
+    /Android/i.test(ua)          ? "Android" :
+    /Macintosh|Mac OS X/i.test(ua) ? "Mac" :
+    /Windows/i.test(ua)          ? "Windows" :
+    /Linux/i.test(ua)            ? "Linux" : "Unknown";
+  const browser =
+    /Edg\//i.test(ua)     ? "Edge" :
+    /OPR\/|Opera/i.test(ua) ? "Opera" :
+    /Chrome\//i.test(ua)  ? "Chrome" :
+    /Firefox\//i.test(ua) ? "Firefox" :
+    /Safari\//i.test(ua)  ? "Safari" : "Browser";
+  return `${platform} · ${browser}`;
+}
+
+function fmtDateTime(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString("en-IN", {
+    day: "numeric", month: "short", year: "numeric", hour: "numeric", minute: "2-digit",
+  });
+}
+
+// COUNT() is bigint, which PostgREST serialises as a string to avoid precision
+// loss — so these arrive as strings, not numbers, and are coerced at the point
+// of use rather than being mistyped here.
+type PortalAccess = {
+  view_count: number | string;
+  distinct_ips: number | string;
+  first_viewed_at: string | null;
+  last_viewed_at: string | null;
+};
+
+type PortalView = {
+  id: number;
+  viewed_at: string;
+  ip: string | null;
+  user_agent: string | null;
+};
+
 type Customer = {
   id: string; name: string; phone: string | null; email: string | null;
   address: string | null; created_at: string; created_from_enquiry_id: string | null;
@@ -95,6 +139,7 @@ const miniBtn: React.CSSProperties = {
 export default function CustomerDetail({
   customer: initial, project, projects = [], paymentSchedule = [], paymentRecords = [],
   canManagePortal = false, members = [],
+  portalAccess = null, portalViews = [],
 }: {
   customer: Customer;
   project: Project;
@@ -102,6 +147,8 @@ export default function CustomerDetail({
   paymentSchedule?: AnyRow[];
   paymentRecords?: AnyRow[];
   canManagePortal?: boolean;
+  portalAccess?: PortalAccess | null;
+  portalViews?: PortalView[];
   members?: { id: string; full_name: string }[];
 }) {
   const [customer, setCustomer] = useState<Customer>(initial);
@@ -463,6 +510,62 @@ export default function CustomerDetail({
             <button onClick={() => portalAction("generate")} disabled={portalBusy} style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: "var(--color-ink)", color: "#FBF8F2", fontSize: 12, fontWeight: 600, cursor: portalBusy ? "wait" : "pointer" }}>
               {portalBusy ? "Generating…" : "Generate Customer Portal Link"}
             </button>
+          )}
+
+          {/* Access history. Only meaningful once a link exists, and the
+              counter is not reset by regenerate — history is of the customer,
+              not of a particular hash. */}
+          {portalEnabled && portalHash && (
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--color-line)" }}>
+              {portalAccess && Number(portalAccess.view_count) > 0 ? (
+                <>
+                  <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "baseline" }}>
+                    <div>
+                      <span style={{ fontSize: 17, fontWeight: 600, fontFamily: "var(--font-mono)" }}>{Number(portalAccess.view_count)}</span>
+                      <span style={{ fontSize: 11, color: "var(--color-tan)", marginLeft: 5 }}>
+                        {Number(portalAccess.view_count) === 1 ? "open" : "opens"}
+                      </span>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: 17, fontWeight: 600, fontFamily: "var(--font-mono)" }}>{Number(portalAccess.distinct_ips)}</span>
+                      <span style={{ fontSize: 11, color: "var(--color-tan)", marginLeft: 5 }}>
+                        {Number(portalAccess.distinct_ips) === 1 ? "device/network" : "devices/networks"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--color-tan)" }}>
+                      Last opened {fmtDateTime(portalAccess.last_viewed_at)}
+                    </div>
+                  </div>
+
+                  {portalViews.length > 0 && (
+                    <details style={{ marginTop: 10 }}>
+                      <summary style={{ fontSize: 11, color: "var(--color-tan)", cursor: "pointer" }}>
+                        Recent opens
+                      </summary>
+                      <div style={{ marginTop: 8 }}>
+                        {portalViews.map((v) => (
+                          <div key={v.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "5px 0", fontSize: 11, borderBottom: "1px solid var(--color-line)" }}>
+                            <span>{deviceLabel(v.user_agent)}</span>
+                            <span style={{ color: "var(--color-tan)", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
+                              {fmtDateTime(v.viewed_at)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 10, color: "var(--color-tan)", marginTop: 8, lineHeight: 1.5 }}>
+                        The portal link needs no login, so these show the device and
+                        network a link was opened from — not a verified identity.
+                        Anyone the link is forwarded to appears here too.
+                      </div>
+                    </details>
+                  )}
+                </>
+              ) : (
+                <div style={{ fontSize: 11, color: "var(--color-tan)" }}>
+                  Not opened yet — no one has visited this link.
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
