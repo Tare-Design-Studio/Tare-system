@@ -1,6 +1,8 @@
 import StageFeedback from "./StageFeedback";
+import PaymentSchedule from "./PaymentSchedule";
+import NameGate from "./NameGate";
 import { notFound } from "next/navigation";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 
@@ -27,6 +29,9 @@ type Payment = {
   is_paid: boolean;
   wing: string | null;
   part: string | null;
+  // Date of the most recent receipt against this milestone (MAX(paid_on) from
+  // payment_records, via v_payment_status). Null until money actually lands.
+  last_paid_on: string | null;
 };
 type ProjectSummary = {
   id: string;
@@ -93,6 +98,51 @@ const CARD: React.CSSProperties = {
   border: "1px solid rgba(30,28,24,.04)",
 };
 
+// Portal palette and base styles. Extracted so the name gate can be painted
+// with the same tokens before any project data is rendered.
+function PortalStyles() {
+  return (
+    <style>{`
+      :root {
+        --bg: #F3EFE7; --bg-2: #EDE7DB; --paper: #FBF8F2;
+        --ink: #1B1A17; --ink-2: #3A3833; --muted: #8A857B;
+        --line: #E2DBCC; --line-2: #D6CDBA;
+        --accent: #2D6A4F; --accent-soft: #B7E4C7;
+        --mint: #6B8A6E; --amber: #E2A64B; --rust: #C5543B;
+      }
+      *, *::before, *::after { box-sizing: border-box }
+      html, body {
+        margin: 0; padding: 0;
+        background: var(--bg); color: var(--ink);
+        font-family: 'Geist', ui-sans-serif, system-ui;
+        -webkit-font-smoothing: antialiased;
+      }
+      body {
+        background:
+          radial-gradient(900px 500px at 80% -5%, #D8E2DC 0%, transparent 60%),
+          radial-gradient(700px 400px at -10% 110%, #E8DFCC 0%, transparent 55%),
+          var(--bg);
+        min-height: 100vh;
+      }
+      .mono { font-family: 'Geist Mono', ui-monospace, monospace; letter-spacing: -.01em }
+      .serif { font-family: 'Instrument Serif', serif; letter-spacing: -.01em }
+      a { color: inherit; text-decoration: none }
+      /* Slim, always-visible rail scrollbar: the payment schedule scrolls
+         sideways, and on a trackpad an invisible one hides that it can. */
+      .pay-rail::-webkit-scrollbar { height: 6px }
+      .pay-rail::-webkit-scrollbar-track { background: transparent }
+      .pay-rail::-webkit-scrollbar-thumb {
+        background: var(--line-2); border-radius: 99px;
+      }
+      .pay-rail { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent }
+      @media (max-width: 640px) {
+        .summary-grid { grid-template-columns: 1fr !important }
+        .gallery-grid { grid-template-columns: 1fr 1fr !important }
+      }
+    `}</style>
+  );
+}
+
 export default async function CustomerPortalPage({ params }: { params: Promise<{ hash: string }> }) {
   const { hash } = await params;
   if (!hash || hash.length !== 16) notFound();
@@ -103,15 +153,36 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
   const userAgent = h.get("user-agent") || null;
   const reqId = h.get("x-request-id") || null;
 
+  // Who is looking. Self-declared at the door (NameGate) and remembered in a
+  // cookie so the prompt shows once per device. Unverified — it identifies the
+  // open for the studio's records, it does not authorise it. The link alone
+  // still grants everything it ever did.
+  const jar = await cookies();
+  const viewerName = jar.get("portal_viewer")?.value?.trim() || null;
+
   const { data, error } = await supabase.rpc("get_customer_portal_summary", {
     p_hash: hash,
     p_ip: ip ?? undefined,
     p_user_agent: userAgent ?? undefined,
     p_request_id: reqId ?? undefined,
+    p_viewer_name: viewerName ?? undefined,
   }) as { data: Summary | null; error: unknown };
 
   if (error || !data) notFound();
   const summary = data;
+
+  // Ask before showing anything. The RPC has already resolved the hash (so a
+  // bad link still 404s rather than being asked for a name), and the view is
+  // logged either way — the gate governs what is rendered, not what is
+  // recorded, so a visitor who refuses to answer is still counted as an open.
+  if (!viewerName) {
+    return (
+      <>
+        <PortalStyles />
+        <NameGate customerName={summary.customer_name} />
+      </>
+    );
+  }
 
   // media-private is not a public bucket and the portal caller is anon, which
   // cannot mint signed URLs — so signing runs through the service client. The
@@ -144,53 +215,38 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
   const updates: ClientUpdate[] = Array.isArray(summary.updates) ? summary.updates : [];
   const visits: Visit[] = Array.isArray(summary.visits) ? summary.visits : [];
 
-  const totalBilled = summary.projects.reduce(
-    (s, p) => s + p.payments.reduce((ss, x) => ss + Number(x.amount_due), 0),
-    0
+  // The portal leads with what the client actually needs to act on: the next
+  // payment coming up, and the last one that landed. Totals (billed /
+  // outstanding) are still visible per project, but no longer head the page —
+  // a running balance is the studio's view of the relationship, not the
+  // client's next action.
+  const allPayments = summary.projects.flatMap((p) =>
+    p.payments.map((x) => ({ ...x, projectName: p.name }))
   );
-  // Money actually booked against milestones (payment_records), which is what
-  // the studio-side card totals. Summing amount_due of is_paid milestones — as
-  // this did — reports the schedule instead, and diverges the moment a payment
-  // differs from its milestone amount.
-  const totalReceived = summary.projects.reduce(
-    (s, p) => s + p.payments.reduce((ss, x) => ss + Number(x.amount_received), 0),
-    0
-  );
-  const totalOutstanding = totalBilled - totalReceived;
+
+  // Next expected = the earliest-dated milestone not yet settled. Undated ones
+  // sort last so a schedule with no dates still yields a sensible pick rather
+  // than nothing.
+  const nextExpected = allPayments
+    .filter((x) => paymentStatus(x) !== "paid")
+    .sort((a, b) => {
+      if (!a.due_date) return 1;
+      if (!b.due_date) return -1;
+      return a.due_date.localeCompare(b.due_date);
+    })[0] ?? null;
+
+  // Most recent receipt, by the date money actually arrived (last_paid_on from
+  // payment_records via v_payment_status) — not by due date, which is when it
+  // was meant to.
+  const lastReceived = allPayments
+    .filter((x) => x.last_paid_on && Number(x.amount_received) > 0)
+    .sort((a, b) => (b.last_paid_on ?? "").localeCompare(a.last_paid_on ?? ""))[0] ?? null;
+
+  const hasPayments = allPayments.length > 0;
 
   return (
     <>
-      <style>{`
-        :root {
-          --bg: #F3EFE7; --bg-2: #EDE7DB; --paper: #FBF8F2;
-          --ink: #1B1A17; --ink-2: #3A3833; --muted: #8A857B;
-          --line: #E2DBCC; --line-2: #D6CDBA;
-          --accent: #2D6A4F; --accent-soft: #B7E4C7;
-          --mint: #6B8A6E; --amber: #E2A64B; --rust: #C5543B;
-        }
-        *, *::before, *::after { box-sizing: border-box }
-        html, body {
-          margin: 0; padding: 0;
-          background: var(--bg); color: var(--ink);
-          font-family: 'Geist', ui-sans-serif, system-ui;
-          -webkit-font-smoothing: antialiased;
-        }
-        body {
-          background:
-            radial-gradient(900px 500px at 80% -5%, #D8E2DC 0%, transparent 60%),
-            radial-gradient(700px 400px at -10% 110%, #E8DFCC 0%, transparent 55%),
-            var(--bg);
-          min-height: 100vh;
-        }
-        .mono { font-family: 'Geist Mono', ui-monospace, monospace; letter-spacing: -.01em }
-        .serif { font-family: 'Instrument Serif', serif; letter-spacing: -.01em }
-        a { color: inherit; text-decoration: none }
-        @media (max-width: 640px) {
-          .summary-grid { grid-template-columns: 1fr 1fr !important }
-          .summary-grid > div:last-child { grid-column: span 2 }
-          .gallery-grid { grid-template-columns: 1fr 1fr !important }
-        }
-      `}</style>
+        <PortalStyles />
 
       <div style={{ maxWidth: 880, margin: "0 auto", padding: "max(env(safe-area-inset-top, 0px), 40px) 28px 60px" }}>
 
@@ -221,11 +277,24 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
         </div>
 
         {/* Summary cards */}
-        {totalBilled > 0 && (
-          <div className="summary-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16, marginBottom: 32 }}>
-            <SummaryCard label="Total Billed" value={fmtAmount(totalBilled)} sub="Across all projects" color="var(--ink)" />
-            <SummaryCard label="Received" value={fmtAmount(totalReceived)} sub="Payments cleared" color="var(--mint)" />
-            <SummaryCard label="Outstanding" value={fmtAmount(totalOutstanding)} sub="Remaining balance" color="var(--amber)" />
+        {hasPayments && (
+          <div className="summary-grid" style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 16, marginBottom: 32 }}>
+            <SummaryCard
+              label="Next Payment"
+              value={nextExpected ? fmtAmount(Number(nextExpected.amount_due) - Number(nextExpected.amount_received)) : "—"}
+              sub={nextExpected
+                ? `${nextExpected.milestone_name}${nextExpected.due_date ? ` · due ${fmtDate(nextExpected.due_date)}` : " · no date set"}`
+                : "Nothing outstanding"}
+              color="var(--amber)"
+            />
+            <SummaryCard
+              label="Received"
+              value={lastReceived ? fmtAmount(Number(lastReceived.amount_received)) : "—"}
+              sub={lastReceived
+                ? `${lastReceived.milestone_name} · ${fmtDate(lastReceived.last_paid_on)}`
+                : "No payments yet"}
+              color="var(--mint)"
+            />
           </div>
         )}
 
@@ -367,14 +436,6 @@ function paymentStatus(pay: Payment): "paid" | "partial" | "pending" {
 function ProjectCard({ project: p, portalHash }: { project: ProjectSummary; portalHash: string }) {
   const projTotal = p.payments.reduce((s, x) => s + Number(x.amount_due), 0);
   const projReceived = p.payments.reduce((s, x) => s + Number(x.amount_received), 0);
-  // Preserve schedule order within each wing; a null wing groups under one key.
-  const paymentGroups = Array.from(
-    p.payments.reduce((m, pay) => {
-      const k = pay.wing ?? "";
-      (m.get(k) ?? m.set(k, []).get(k)!).push(pay);
-      return m;
-    }, new Map<string, Payment[]>())
-  );
   const completed = p.checkpoints.filter(c => c.status === "complete").length;
   const total = p.checkpoints.length;
   const overallPct = total > 0 ? Math.round((completed / total) * 100) : 0;
@@ -401,9 +462,9 @@ function ProjectCard({ project: p, portalHash }: { project: ProjectSummary; port
         {p.expected_end_date && <span>Est. completion: <b>{fmtDate(p.expected_end_date)}</b></span>}
       </div>
 
-      {/* Payment schedule — same shape and status rules as the studio-side
-          PaymentsCard, so a client and the studio read one story. Grouped by
-          wing when the project has wings (114). */}
+      {/* Payment schedule — same status rules as the studio-side PaymentsCard,
+          so a client and the studio read one story. A horizontal rail per
+          (wing, part) group, opened at the latest paid milestone. */}
       {p.payments.length > 0 && (
         <div style={{ marginBottom: 18 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
@@ -414,48 +475,7 @@ function ProjectCard({ project: p, portalHash }: { project: ProjectSummary; port
               {fmtAmount(projReceived)} received of {fmtAmount(projTotal)}
             </span>
           </div>
-          {paymentGroups.map(([wing, rows]) => (
-            <div key={wing ?? "_"} style={{ marginBottom: paymentGroups.length > 1 ? 12 : 0 }}>
-              {paymentGroups.length > 1 && (
-                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--ink-2)", textTransform: "capitalize", margin: "0 0 6px 2px" }}>
-                  {wing?.replace(/_/g, " ")}
-                </div>
-              )}
-              <div style={{ background: "var(--bg)", borderRadius: 14, padding: "6px 16px", border: "1px solid var(--line)" }}>
-                {rows.map((pay, i) => {
-                  const due = Number(pay.amount_due);
-                  const got = Number(pay.amount_received);
-                  const status = paymentStatus(pay);
-                  const dot = status === "paid" ? "var(--mint)" : status === "partial" ? "var(--amber)" : "var(--line-2)";
-                  return (
-                    <div key={`${pay.milestone_name}-${i}`} style={{ display: "grid", gridTemplateColumns: "20px 1fr auto", gap: 12, alignItems: "center", padding: "12px 0", borderBottom: i < rows.length - 1 ? "1px solid var(--line)" : "none" }}>
-                      <div style={{ width: 18, height: 18, borderRadius: "50%", background: status === "paid" ? dot : "var(--bg-2)", border: `2px solid ${dot}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        {status === "paid" && (
-                          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#F3EFE7" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-                        )}
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: status === "pending" ? 400 : 600, color: status === "pending" ? "var(--muted)" : "var(--ink)" }}>
-                          {pay.milestone_name}
-                          {pay.part && <span style={{ color: "var(--muted)", fontWeight: 400 }}> · {pay.part.replace(/_/g, " ")}</span>}
-                        </div>
-                        <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 3 }}>
-                          {pay.due_date ? `Due ${fmtDate(pay.due_date)}` : "No due date"}
-                          {status === "partial" && ` · ${fmtAmount(due - got)} remaining`}
-                        </div>
-                      </div>
-                      <div style={{ textAlign: "right" }}>
-                        <div className="mono" style={{ fontSize: 13, fontWeight: 600 }}>{fmtAmount(due)}</div>
-                        <div className="mono" style={{ fontSize: 10, color: status === "paid" ? "var(--mint)" : status === "partial" ? "var(--amber)" : "var(--muted)", marginTop: 2 }}>
-                          {status === "paid" ? "Paid" : `${fmtAmount(got)} received`}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
+          <PaymentSchedule payments={p.payments} />
         </div>
       )}
 

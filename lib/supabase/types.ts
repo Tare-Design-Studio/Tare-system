@@ -4866,6 +4866,37 @@ export type Database = {
         }
         Returns: string
       }
+      reorder_project_checkpoint: {
+        Args: {
+          p_project_id: string
+          p_checkpoint_id: string
+          p_target_index: number
+        }
+        Returns: undefined
+      }
+      resequence_project_checkpoints: {
+        Args: {
+          p_project_id: string
+        }
+        Returns: undefined
+      }
+      insert_project_checkpoint_at: {
+        Args: {
+          p_project_id: string
+          p_after_order: number
+          p_name: string
+          p_due_date: string
+          p_requires_approval?: boolean
+        }
+        Returns: string
+      }
+      delete_project_checkpoint: {
+        Args: {
+          p_project_id: string
+          p_checkpoint_id: string
+        }
+        Returns: undefined
+      }
       edit_chat_message: {
         Args: {
           p_message_id: string

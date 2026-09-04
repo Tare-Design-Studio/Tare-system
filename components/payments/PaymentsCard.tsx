@@ -649,12 +649,15 @@ function RecordPaymentModal({ projectId, row, existingRecords, onClose, onSucces
 // duplicating the row markup.
 
 function MilestoneRow({
-  row, records, readonly, isFirst, isLast, moving,
+  row, records, readonly, displayNumber, isFirst, isLast, moving,
   onEdit, onDelete, onRecord, onMove, onInsertAfter,
 }: {
   row: ScheduleRow;
   records: PaymentRecord[];
   readonly: boolean;
+  // Position within this (wing, part) group, 1-based. NOT sequence_order —
+  // that is project-wide, so Part B used to carry on from where Part A ended.
+  displayNumber: number;
   isFirst: boolean;
   isLast: boolean;
   moving: boolean;
@@ -682,7 +685,7 @@ function MilestoneRow({
               <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: "var(--color-ink)", marginBottom: 2 }}>
-                    {row.sequence_order}. {row.milestone_name}
+                    {displayNumber}. {row.milestone_name}
                   </div>
                   <div style={{ fontSize: 12, color: "var(--color-tan)" }}>
                     Due {fmtDate(row.due_date)}
@@ -994,6 +997,7 @@ export default function PaymentsCard({
                               row={row}
                               records={recordsForRow(row.schedule_id)}
                               readonly={readonly}
+                              displayNumber={idx + 1}
                               isFirst={idx === 0}
                               isLast={idx === group.length - 1}
                               moving={moving === row.schedule_id}
