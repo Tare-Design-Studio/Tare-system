@@ -2043,3 +2043,35 @@ was unaffected (the 900px block adds flex). New `.whatsappLink` class shares `.d
 
 **Verified:** `tsc --noEmit` clean, `next build` passes, transactional DB probe of all four
 functions (see `SCHEMA.md`). Not exercised in a browser.
+
+---
+
+## Cross-tenant IDOR in SECURITY DEFINER helpers — fixed (2026-09-04)
+
+Flagged by automated security review on 123, confirmed by probe, then found in 114/115 too.
+
+**The flaw.** `SECURITY DEFINER` functions bypass RLS, and these were gated only by
+`has_capability(...)` — which checks the *caller's own* tenant and never inspects the tenant of the
+`p_project_id` passed in. The API routes take `projectId` straight from the URL. So a capability
+holder in one tenant could reorder, insert into and delete another tenant's progress milestones
+(123) and payment milestones (114/115).
+
+Not exploitable in production today — one tenant exists — but that is a deployment fact, not a
+property of the code, and `../ARCHITECT_OS_COMMERCIAL` is explicitly multi-tenant.
+
+- 124 — `auth_tenant_id()`, `assert_can_edit_project()`; all four checkpoint functions re-guarded.
+- 125 — `assert_can_edit_payments()`; all three payment functions re-guarded.
+
+Fixed in the DB rather than the routes so the guarantee holds for every caller, not just the
+routes that exist today. A foreign project id reports `'not found'`, never `'Forbidden'`, so the
+error cannot be used to enumerate other tenants' project ids.
+
+**Rule going forward:** `has_capability()` answers "may this user do X?", never "may this user do X
+*to this row*". Any SECURITY DEFINER function taking a resource id needs a tenant check too.
+
+**Verified:** probes with a synthetic second tenant, rolled back. Before: all five mutations
+succeeded cross-tenant. After: all raise `project ... not found`, with same-tenant controls still
+passing.
+
+**Also:** client portal now always labels each payment rail with its wing/part ("Design · Part A"),
+where the label previously appeared only when a project had more than one group.

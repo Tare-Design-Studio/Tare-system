@@ -1800,3 +1800,53 @@ already-completed milestone is deliberately allowed and raises nothing.
 (`D A B C`) → move A to index 2 (`D B A C`) → insert after order 2 (`D B NEW A C`) → delete NEW
 (`D B A C`). Constraint confirmed `condeferrable = true, condeferred = true`.
 (Updated: 2026-09-04)
+
+## 124 — Tenant-scope the checkpoint helpers (security fix to 123)
+
+**Vulnerability in 123.** The four checkpoint functions are `SECURITY DEFINER`, so RLS does not
+apply inside them, and their only gate was `has_capability('project:edit')`. That verifies the
+*caller* holds the capability in the *caller's own* tenant — it never inspects which tenant
+`p_project_id` belongs to. A `project:edit` holder in one tenant could therefore reorder, insert
+into and **delete** another tenant's progress milestones by passing a foreign project id, which
+the API routes take straight from the URL and forward unvalidated.
+
+Not exploitable in production today (one tenant exists), but that is a deployment fact, not a
+property of the code — and `../ARCHITECT_OS_COMMERCIAL` is explicitly multi-tenant.
+
+**Fix.** Two new helpers, then all four functions re-declared to call the guard first:
+
+- `auth_tenant_id()` — the caller's tenant. No such helper existed (`current_tenant_id()` is not
+  in this schema); `STABLE SECURITY DEFINER`, mirroring `has_capability` (005).
+- `assert_can_edit_project(p_project_id)` — raises unless the caller holds `project:edit` **and**
+  the project is live and in the caller's own tenant. Both checks in one place so no future
+  caller can apply only half.
+
+Reported as `'project % not found'`, not `'Forbidden'`: a foreign project id must be
+indistinguishable from a nonexistent one, or the error itself confirms which ids exist elsewhere.
+
+**Verified:** transactional probe (rolled back) with a synthetic second tenant. Before 124, an
+attacker in tenant A successfully reordered, inserted into and deleted checkpoints on a tenant-B
+project. After 124, all three raise `project ... not found`, while a same-tenant control
+(reorder + insert on the caller's own project) still succeeds.
+
+**Note for future SECURITY DEFINER work:** `has_capability()` alone is never sufficient
+authorization for a function that takes a project/resource id as an argument. It answers "may this
+user do X?", not "may this user do X *to this row*". Pair it with `assert_can_edit_project()` /
+`assert_can_edit_payments()` or an equivalent tenant check.
+(Updated: 2026-09-04)
+
+## 125 — Tenant-scope the payment helpers (same fix, 114/115)
+
+Audited `reorder_payment_milestone`, `insert_payment_milestone_at` and
+`resequence_payment_schedule` after 124 and found the identical flaw — confirmed by probe: an
+attacker in tenant A successfully reordered and inserted payment milestones on a tenant-B project.
+
+Adds `assert_can_edit_payments(p_project_id)` (capability `customer_payments:create_schedule` +
+tenant match, same 'not found' masking) and re-declares all three functions to call it first.
+Bodies were copied from the **live** definitions via `pg_get_functiondef`, not reconstructed from
+the 114/115 files — `CREATE OR REPLACE` rewrites the whole function, so drift between file and
+installed state would be silently reverted (the same discipline 117 used for `notify_dm_message`).
+
+**Verified:** probe with a synthetic second tenant — both cross-tenant calls now raise
+`project ... not found`, while a same-tenant reorder + insert control still succeeds.
+(Updated: 2026-09-04)

@@ -66,7 +66,9 @@ export default function PaymentSchedule({ payments }: { payments: PortalPayment[
   return (
     <div style={{ marginBottom: 18 }}>
       {groups.map((g) => (
-        <PaymentRail key={g.key} label={g.label} rows={g.rows} showLabel={groups.length > 1} />
+        // Labelled even when there is only one group: an unlabelled rail leaves
+        // the client guessing which part of the engagement it bills.
+        <PaymentRail key={g.key} label={g.label} rows={g.rows} showLabel={!!g.label} />
       ))}
     </div>
   );
