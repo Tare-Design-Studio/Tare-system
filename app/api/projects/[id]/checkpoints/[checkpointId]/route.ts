@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 
 const ActionSchema = z.object({
   action: z.enum(['start', 'complete', 'reset', 'edit_details']),
+  name: z.string().min(1).max(200).optional(),
   remarks: z.string().optional().nullable(),
   completion_percentage: z.number().min(0).max(100).optional().nullable(),
   due_date: z.string().optional().nullable(),
@@ -25,7 +26,7 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 })
   }
 
-  const { action, remarks, completion_percentage, due_date, completed_at } = parsed.data
+  const { action, name, remarks, completion_percentage, due_date, completed_at } = parsed.data
 
   const [{ data: canProgress }, { data: canEditProject }] = await Promise.all([
     supabase.rpc('has_capability', { p_capability: 'checkpoint:progress' }),
@@ -76,6 +77,14 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
     // Only owner or PM can reset — capability already checked above
     update = { started_at: null, approved_at: null, approved_by: null, completed_at: null }
   } else if (action === 'edit_details') {
+    // Renaming is a project-structure edit, not progress reporting, so it needs
+    // project:edit even when the caller only has checkpoint:progress.
+    if (name !== undefined) {
+      if (!canEditProject) {
+        return NextResponse.json({ error: 'Forbidden — renaming requires project:edit capability' }, { status: 403 })
+      }
+      update.name = name.trim();
+    }
     if (remarks !== undefined) update.remarks = remarks;
     if (completion_percentage !== undefined) update.completion_percentage = completion_percentage;
     if (due_date !== undefined) update.due_date = due_date;
@@ -102,4 +111,32 @@ export async function PATCH(req: NextRequest, { params }: Ctx) {
   }
 
   return NextResponse.json({ checkpoint: data })
+}
+
+export async function DELETE(_req: NextRequest, { params }: Ctx) {
+  const { id: projectId, checkpointId } = await params
+  const supabase = await createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // Removing a milestone changes the project's structure, so unlike PATCH this
+  // requires project:edit — checkpoint:progress alone is not enough.
+  const { data: canEditProject } = await supabase.rpc('has_capability', { p_capability: 'project:edit' })
+  if (!canEditProject) {
+    return NextResponse.json({ error: 'Forbidden — requires project:edit capability' }, { status: 403 })
+  }
+
+  // Hard delete + resequence in one transaction (migration 123).
+  const { error } = await supabase.rpc('delete_project_checkpoint', {
+    p_project_id: projectId,
+    p_checkpoint_id: checkpointId,
+  })
+
+  if (error) {
+    const notFound = error.message?.includes('not found')
+    return NextResponse.json({ error: error.message }, { status: notFound ? 404 : 500 })
+  }
+
+  return NextResponse.json({ ok: true })
 }

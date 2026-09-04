@@ -490,7 +490,7 @@ export default async function ProjectDetailPage({ params }: Ctx) {
               href={p.whatsapp_group_url}
               target="_blank"
               rel="noopener noreferrer"
-              className={`${styles.actionLink}`}
+              className={`${styles.actionLink} ${styles.whatsappLink}`}
               style={{ background: "#25D366", color: "#fff", borderColor: "#25D366" }}
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">

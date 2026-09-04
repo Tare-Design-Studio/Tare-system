@@ -131,11 +131,89 @@ function buildCheckpointEdits(checkpoints: Checkpoint[]) {
     cp.id,
     {
       status: getCheckpointStatus(cp),
+      name: cp.name,
       due_date: cp.due_date,
       remarks: cp.remarks || "",
       completion_percentage: cp.completion_percentage ?? (getCheckpointStatus(cp) === "complete" ? 100 : 0)
     }
   ]));
+}
+
+// A collapsed "+ Add" button that expands into a name/date form. Rendered once
+// above the list and once under each milestone, so a new milestone can go
+// anywhere in the sequence rather than only at the end.
+function InsertRow({
+  show, busy, name, date, onName, onDate, onOpen, onCancel, onAdd, label,
+}: {
+  show: boolean;
+  busy: boolean;
+  name: string;
+  date: string;
+  onName: (v: string) => void;
+  onDate: (v: string) => void;
+  onOpen: () => void;
+  onCancel: () => void;
+  onAdd: () => void;
+  label: string;
+}) {
+  if (!show) {
+    return (
+      <div style={{ display: "flex", justifyContent: "center", padding: "6px 0" }}>
+        <button
+          type="button"
+          onClick={onOpen}
+          disabled={busy}
+          style={{
+            fontSize: 11, padding: "4px 10px", borderRadius: 8,
+            border: "1px dashed var(--color-line)", background: "none",
+            cursor: busy ? "not-allowed" : "pointer", color: "var(--color-tan)",
+          }}
+        >{label}</button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: 12, marginTop: 6, marginBottom: 6, borderRadius: 12, border: "1px dashed var(--color-line)", background: "var(--color-bg)" }}>
+      <input
+        style={{ ...inputStyle, padding: "8px 12px", fontSize: 13 }}
+        value={name}
+        onChange={e => onName(e.target.value)}
+        placeholder="Milestone name"
+        autoFocus
+      />
+      <input
+        style={{ ...inputStyle, padding: "8px 12px", fontSize: 13 }}
+        type="date"
+        value={date}
+        onChange={e => onDate(e.target.value)}
+      />
+      <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          style={{
+            fontSize: 11, padding: "4px 10px", borderRadius: 8,
+            border: "1px solid var(--color-line)", background: "none",
+            cursor: busy ? "not-allowed" : "pointer", color: "var(--color-tan)",
+          }}
+        >Cancel</button>
+        <button
+          type="button"
+          onClick={onAdd}
+          disabled={busy || !name.trim() || !date}
+          style={{
+            fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 8,
+            border: "1px solid var(--color-ink)", background: "var(--color-ink)",
+            cursor: busy || !name.trim() || !date ? "not-allowed" : "pointer",
+            color: "var(--color-paper-light)",
+            opacity: busy || !name.trim() || !date ? 0.5 : 1,
+          }}
+        >Add</button>
+      </div>
+    </div>
+  );
 }
 
 export default function EditProjectModal({
@@ -154,9 +232,20 @@ export default function EditProjectModal({
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-  const [checkpointEdits, setCheckpointEdits] = useState<Record<string, { status: CPStatus; due_date: string; remarks: string; completion_percentage: number }>>(
+  const [checkpointEdits, setCheckpointEdits] = useState<Record<string, { status: CPStatus; name: string; due_date: string; remarks: string; completion_percentage: number }>>(
     () => buildCheckpointEdits(checkpoints)
   );
+
+  // Reorder / insert / delete renumber rows server-side, so unlike the field
+  // edits above they cannot be batched until Save — they apply immediately and
+  // this list mirrors the result until router.refresh() brings fresh props.
+  const [cpList, setCpList] = useState<Checkpoint[]>(
+    () => [...checkpoints].sort((a, b) => a.sequence_order - b.sequence_order)
+  );
+  const [cpBusy, setCpBusy] = useState(false);
+  const [insertAfter, setInsertAfter] = useState<number | null>(null);
+  const [newCpName, setNewCpName] = useState("");
+  const [newCpDate, setNewCpDate] = useState("");
 
   // Preset application (Add Presets section)
   const [tablePresets, setTablePresets] = useState<TablePresetOption[]>([]);
@@ -275,6 +364,10 @@ export default function EditProjectModal({
   function openModal() {
     setError(null);
     setCheckpointEdits(buildCheckpointEdits(checkpoints));
+    setCpList([...checkpoints].sort((a, b) => a.sequence_order - b.sequence_order));
+    setInsertAfter(null);
+    setNewCpName("");
+    setNewCpDate("");
     setShowPresets(false);
     setSelectedTablePresetIds([]);
     setSelectedPipelinePresetIds([]);
@@ -295,6 +388,91 @@ export default function EditProjectModal({
       throw new Error(message);
     }
     return data;
+  }
+
+  // Re-read the project's checkpoints after a structural change so the local
+  // list matches the renumbered rows without waiting for a full page refresh.
+  async function reloadCheckpoints() {
+    const res = await fetch(`/api/projects/${project.id}/checkpoints`);
+    if (!res.ok) return;
+    const data = await res.json().catch(() => null);
+    const rows: Checkpoint[] = data?.checkpoints ?? [];
+    const sorted = [...rows].sort((a, b) => a.sequence_order - b.sequence_order);
+    setCpList(sorted);
+    // Keep in-progress field edits for rows that still exist; seed the new row.
+    setCheckpointEdits(prev => {
+      const fresh = buildCheckpointEdits(sorted);
+      return Object.fromEntries(
+        Object.entries(fresh).map(([id, seed]) => [id, prev[id] ?? seed])
+      );
+    });
+  }
+
+  // Move a milestone one slot up or down. The renumber is one server statement.
+  async function moveCheckpoint(id: string, delta: -1 | 1) {
+    const idx = cpList.findIndex(cp => cp.id === id);
+    const target = idx + delta;
+    if (idx < 0 || target < 0 || target >= cpList.length) return;
+
+    setCpBusy(true); setError(null);
+    try {
+      const res = await fetch(`/api/projects/${project.id}/checkpoints/reorder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ checkpoint_id: id, target_index: target }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : "Failed to reorder milestone");
+      await reloadCheckpoints();
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reorder milestone");
+    } finally {
+      setCpBusy(false);
+    }
+  }
+
+  // afterOrder 0 inserts at the top; otherwise directly after that sequence_order.
+  async function addCheckpoint(afterOrder: number) {
+    if (!newCpName.trim()) { setError("Milestone name is required"); return; }
+    if (!newCpDate) { setError("Milestone due date is required"); return; }
+
+    setCpBusy(true); setError(null);
+    try {
+      const res = await fetch(`/api/projects/${project.id}/checkpoints`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newCpName.trim(), due_date: newCpDate, after_order: afterOrder }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : "Failed to add milestone");
+      setInsertAfter(null);
+      setNewCpName("");
+      setNewCpDate("");
+      await reloadCheckpoints();
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to add milestone");
+    } finally {
+      setCpBusy(false);
+    }
+  }
+
+  async function removeCheckpoint(cp: Checkpoint) {
+    if (!confirm(`Delete milestone "${cp.name}"? This cannot be undone.`)) return;
+
+    setCpBusy(true); setError(null);
+    try {
+      const res = await fetch(`/api/projects/${project.id}/checkpoints/${cp.id}`, { method: "DELETE" });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : "Failed to delete milestone");
+      await reloadCheckpoints();
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete milestone");
+    } finally {
+      setCpBusy(false);
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -341,13 +519,16 @@ export default function EditProjectModal({
         if (!stageRes.ok) throw new Error(stageData.error ?? "Failed to update project stage");
       }
 
-      const cpChanges = checkpoints
+      // cpList, not the checkpoints prop: inserts and deletes applied during
+      // this session are only reflected there until the page refreshes.
+      const cpChanges = cpList
         .filter(cp => {
           const edited = checkpointEdits[cp.id];
+          if (!edited) return false;
           const prevStatus = getCheckpointStatus(cp);
           const prevPct = cp.completion_percentage ?? (prevStatus === "complete" ? 100 : 0);
           const prevRemarks = cp.remarks || "";
-          return edited.status !== prevStatus || edited.due_date !== cp.due_date || edited.remarks !== prevRemarks || edited.completion_percentage !== prevPct;
+          return edited.status !== prevStatus || edited.name !== cp.name || edited.due_date !== cp.due_date || edited.remarks !== prevRemarks || edited.completion_percentage !== prevPct;
         })
         .sort((a, b) => a.sequence_order - b.sequence_order);
 
@@ -372,6 +553,7 @@ export default function EditProjectModal({
 
         await patchCheckpoint(cp.id, {
           action: "edit_details",
+          name: edited.name.trim() || cp.name,
           due_date: edited.due_date,
           remarks: edited.remarks.trim() || null,
           completion_percentage: edited.status === "complete" ? 100 : edited.completion_percentage,
@@ -633,17 +815,41 @@ export default function EditProjectModal({
               </div>
 
               {/* Progress Timeline Editing */}
-              {checkpoints.length > 0 && (
-                <div style={{ marginTop: 12 }}>
+              <div style={{ marginTop: 12 }}>
                   <label style={labelStyle}>Progress Timeline Milestones</label>
+                  {/* Insert point above the first milestone. */}
+                  <InsertRow
+                    show={insertAfter === 0}
+                    busy={cpBusy}
+                    name={newCpName}
+                    date={newCpDate}
+                    onName={setNewCpName}
+                    onDate={setNewCpDate}
+                    onOpen={() => { setInsertAfter(0); setNewCpName(""); setNewCpDate(""); }}
+                    onCancel={() => setInsertAfter(null)}
+                    onAdd={() => addCheckpoint(0)}
+                    label={cpList.length === 0 ? "+ Add milestone" : "+ Add at top"}
+                  />
                   <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 4 }}>
-                    {[...checkpoints].sort((a, b) => a.sequence_order - b.sequence_order).map(cp => {
+                    {cpList.map((cp, idx) => {
                       const edited = checkpointEdits[cp.id];
+                      if (!edited) return null;
+                      const isFirst = idx === 0;
+                      const isLast = idx === cpList.length - 1;
                       return (
-                        <div key={cp.id} style={{ display: "flex", flexDirection: "column", gap: 12, padding: "14px", borderRadius: 12, border: "1px solid var(--color-line)", background: "var(--color-bg)" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                            <div style={{ fontSize: 14, fontWeight: 600 }}>{cp.name}</div>
-                            <div style={{ display: "flex", gap: 4 }}>
+                        <div key={cp.id}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 12, padding: "14px", borderRadius: 12, border: "1px solid var(--color-line)", background: "var(--color-bg)" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1, minWidth: 0 }}>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-tan)", flexShrink: 0 }}>{idx + 1}.</span>
+                              <input
+                                style={{ ...inputStyle, padding: "6px 10px", fontSize: 14, fontWeight: 600 }}
+                                value={edited.name}
+                                onChange={e => setCheckpointEdits(st => ({ ...st, [cp.id]: { ...st[cp.id], name: e.target.value } }))}
+                                placeholder="Milestone name"
+                              />
+                            </div>
+                            <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
                               {CHECKPOINT_STATUS.map(({ value, label }) => {
                                 const active = edited.status === value;
                                 const activeColor = value === "complete" ? "var(--color-forest)" : value === "in_progress" ? "var(--color-teal)" : "var(--color-line)";
@@ -680,12 +886,66 @@ export default function EditProjectModal({
                             <label style={{ ...labelStyle, fontSize: 10, marginBottom: 4 }}>Remarks</label>
                             <input style={{ ...inputStyle, padding: "8px 12px", fontSize: 13 }} value={edited.remarks} onChange={e => setCheckpointEdits(s => ({ ...s, [cp.id]: { ...s[cp.id], remarks: e.target.value } }))} placeholder="Add a remark..." />
                           </div>
+
+                          {/* Reorder / delete. These apply immediately because
+                              they renumber rows server-side; the field edits
+                              above are saved with the form. */}
+                          <div style={{ display: "flex", gap: 6, alignItems: "center", justifyContent: "flex-end" }}>
+                            <button
+                              type="button"
+                              onClick={() => moveCheckpoint(cp.id, -1)}
+                              disabled={isFirst || cpBusy}
+                              title="Move up"
+                              style={{
+                                fontSize: 11, padding: "4px 7px", borderRadius: 8,
+                                border: "1px solid var(--color-line)", background: "none",
+                                cursor: isFirst || cpBusy ? "not-allowed" : "pointer",
+                                color: "var(--color-tan)", opacity: isFirst || cpBusy ? 0.4 : 1,
+                              }}
+                            >↑</button>
+                            <button
+                              type="button"
+                              onClick={() => moveCheckpoint(cp.id, 1)}
+                              disabled={isLast || cpBusy}
+                              title="Move down"
+                              style={{
+                                fontSize: 11, padding: "4px 7px", borderRadius: 8,
+                                border: "1px solid var(--color-line)", background: "none",
+                                cursor: isLast || cpBusy ? "not-allowed" : "pointer",
+                                color: "var(--color-tan)", opacity: isLast || cpBusy ? 0.4 : 1,
+                              }}
+                            >↓</button>
+                            <button
+                              type="button"
+                              onClick={() => removeCheckpoint(cp)}
+                              disabled={cpBusy}
+                              style={{
+                                fontSize: 11, padding: "4px 10px", borderRadius: 8,
+                                border: "1px solid var(--color-line)", background: "none",
+                                cursor: cpBusy ? "not-allowed" : "pointer", color: "var(--color-rust)",
+                              }}
+                            >Delete</button>
+                          </div>
+                        </div>
+
+                        {/* Insert directly below this milestone. */}
+                        <InsertRow
+                          show={insertAfter === cp.sequence_order}
+                          busy={cpBusy}
+                          name={newCpName}
+                          date={newCpDate}
+                          onName={setNewCpName}
+                          onDate={setNewCpDate}
+                          onOpen={() => { setInsertAfter(cp.sequence_order); setNewCpName(""); setNewCpDate(""); }}
+                          onCancel={() => setInsertAfter(null)}
+                          onAdd={() => addCheckpoint(cp.sequence_order)}
+                          label="+ Add below"
+                        />
                         </div>
                       );
                     })}
                   </div>
-                </div>
-              )}
+              </div>
 
               {/* Add Presets */}
               <div style={{ marginTop: 4, borderTop: "1px solid var(--color-line)", paddingTop: 16 }}>

@@ -1,5 +1,38 @@
 # SCHEMA.md
-(Updated: 2026-09-03 — migrations 120/121: portal payment truth, portal access log, DWG storage)
+(Updated: 2026-09-04 — migration 122: Part A/B swap, per-part numbering, portal payment focus, portal viewer name)
+
+### Migration 122 — Part A/B swap, portal payment focus, viewer name (applied 2026-09-04)
+
+**One-shot data fix.** The Ranganathan Srinivasan project (`7e565650-…`) had its two execution parts
+filed the wrong way round: Part A held the 8.32 L advance that belongs to Part B, and vice versa. The
+milestone *names* are identical across the two parts and only the amounts differ, which is why the
+mis-filing survived unnoticed. Fixed by flipping `part` in a **single** UPDATE
+(`CASE part WHEN 'a' THEN 'b' ELSE 'a' END`) — a two-step a→x→b would violate
+`CHECK (part IN ('a','b'))`, and there is no scratch value — then renumbering `sequence_order` across
+the project in display order (design a, design b, execution a, execution b). Safe because the project
+had **zero `payment_records`**: no receipt was re-attributed by the move. Verify before ever repeating
+this on another project — with payments present, a part swap moves money between milestones.
+
+**Per-part milestone numbering.** `sequence_order` is project-wide (UNIQUE per project, 027), so
+Part B's first milestone displayed as *12.* rather than *1.*. Numbering is now derived in the **read
+path** — the row's index within its own (wing, part) group — in both `components/payments/PaymentsCard.tsx`
+(`displayNumber` prop) and the portal rail. Deliberately **not** a stored column: a second number
+beside `sequence_order` is a second thing to keep in sync, and reordering already renumbers.
+
+**`v_payment_status` gains `last_paid_on`** = `MAX(payment_records.paid_on)` per milestone. The view
+already aggregated that table for `amount_received`, so this is free. The portal needs the date money
+actually *arrived*, which is not `due_date`.
+
+**`customer_portal_views.viewer_name text NULL`** — self-declared name typed at the portal door.
+**Not an authenticated identity and must never be used as one:** the portal has no login, the hashed
+URL is the only credential, and anyone holding the link can type any name. It records *who says they
+opened it* next to the existing IP / user-agent signals. Normalised in the RPC (trim, cap 80, empty→NULL)
+rather than trusted from the client. Nullable so pre-122 rows and refusals still log.
+
+**`get_customer_portal_summary` re-declared with a 5th argument** `p_viewer_name text DEFAULT NULL`.
+The old 4-arg signature is **dropped**, not left alongside: a stale overload would silently keep
+serving callers that omit the name, and the view log would quietly lose it. Payments payload now also
+carries `last_paid_on`. Grants re-issued for the new signature (`anon` EXECUTE).
 
 ### Migration 121 — storage bucket accepts DWG (applied 2026-09-03)
 
@@ -1739,3 +1772,31 @@ a JPEG, and nothing in this stack inspects either. Controls remain the private b
 `'file'`, `file_name` exists and persists, `open_dm` unaffected, a `'file'` message inserts, the
 DM notification reads "Sent a file", and an unknown `message_type` is still rejected.
 (Updated: 2026-09-02)
+
+## 123 — Progress milestone reorder / insert / delete
+
+`project_checkpoints` UNIQUE (project_id, sequence_order) from 011 was **not** deferrable, so a
+renumber could not pass through a transient collision. Dropped and re-added as
+`DEFERRABLE INITIALLY DEFERRED` — matching `payment_schedule` (027). The constraint name is
+`project_checkpoints_project_id_sequence_order_key` (Postgres default; 011 declared it unnamed).
+
+Four `SECURITY DEFINER` functions, all gated on `has_capability('project:edit')` and all
+renumbering in a single statement so the deferrable constraint only sees transient duplicates:
+
+- `resequence_project_checkpoints(p_project_id)` — collapse to dense 1..N by `(sequence_order, created_at)`
+- `reorder_project_checkpoint(p_project_id, p_checkpoint_id, p_target_index)` — 0-based target index
+- `insert_project_checkpoint_at(p_project_id, p_after_order, p_name, p_due_date, p_requires_approval)` — `p_after_order = 0` inserts first; returns the new uuid
+- `delete_project_checkpoint(p_project_id, p_checkpoint_id)` — **hard** delete (no `deleted_at` column on this table); `checkpoint_items` cascade
+
+`reorder_project_checkpoint` ranks the other rows 0-based before comparing against
+`p_target_index`, avoiding the scale bug 115 had to fix in `reorder_payment_milestone`.
+
+**Progression trigger unaffected.** `enforce_checkpoint_progression()` (043) fires on
+`started_at` / `approved_at` transitions, not on `sequence_order`, so reordering around an
+already-completed milestone is deliberately allowed and raises nothing.
+
+**Verified:** transactional probe against the live DB (rolled back) on a scratch project with
+`request.jwt.claims` set to a real `project:edit` holder — `A B C D` → move D to index 0
+(`D A B C`) → move A to index 2 (`D B A C`) → insert after order 2 (`D B NEW A C`) → delete NEW
+(`D B A C`). Constraint confirmed `condeferrable = true, condeferred = true`.
+(Updated: 2026-09-04)

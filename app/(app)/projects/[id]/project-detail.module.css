@@ -74,7 +74,8 @@
   color: var(--color-ink);
 }
 
-.driveLink {
+.driveLink,
+.whatsappLink {
   display: flex;
   align-items: center;
   gap: 6px;

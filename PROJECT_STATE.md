@@ -1,5 +1,43 @@
 # PROJECT_STATE.md
-(Updated: 2026-09-03 — portal payments/access, PDF+DWG sending, project chats in dock; migrations 120–121)
+(Updated: 2026-09-04 — Part A/B swap, per-part numbering, portal payment rail + name gate; migration 122)
+
+### Part A/B swap, per-part numbering, portal payment focus (2026-09-04, migration 122)
+
+**Part swap (data fix, one project).** Ranganathan Srinivasan's execution parts were reversed —
+Part A carried Part B's amounts and vice versa. The 22 milestones share names across parts and differ
+only in amount, which is how it went unnoticed. Swapped and renumbered in 122; **the project had zero
+`payment_records`, so nothing was re-attributed.** Part A now leads with the ₹14.7 L advance,
+Part B with ₹8.32 L. See `SCHEMA.md` for the single-statement CASE flip and why a two-step swap
+would break the CHECK constraint.
+
+**Each part numbers from 1.** Was numbering off project-wide `sequence_order`, so Part B started at
+12. Now derived from the row's index inside its own (wing, part) group, in the read path only —
+studio card and portal both.
+
+**Portal summary cards: next expected / most recently received.** Total Billed and Outstanding are
+gone from the header. The client now sees the *next* payment due (amount still owed on the earliest
+unsettled milestone, with its date) and the *last* payment that actually landed (with the date it
+arrived, from the new `v_payment_status.last_paid_on`). Per-project "Received / Billed" totals remain
+on each project card — the running balance is still available, it just no longer leads. Undated
+milestones sort last so a dateless schedule still yields a sensible "next".
+
+**Payment schedule is now a horizontal rail** (`app/(portal)/c/customer/[hash]/PaymentSchedule.tsx`,
+client component). One card per milestone, one rail per (wing, part), and each rail **opens already
+scrolled to the most recent paid milestone** — falling back to the first unpaid one for a part that
+has not started. Scrolls the rail element, not `scrollIntoView`, which would drag the page down to it
+on load. 22 milestones as a vertical list was a wall the client had to scroll past.
+
+**Name gate before the portal** (`NameGate.tsx`). The viewer types their name once per device
+(cookie, 180 days); it is passed to the portal RPC and stored on `customer_portal_views.viewer_name`
+alongside the IP/user-agent already recorded. **This is not authentication** — the hashed URL remains
+the only credential and the name is unverified self-declaration. The gate governs what renders, not
+what is logged: a bad hash still 404s before any prompt, and an open is counted whether or not the
+visitor answers.
+
+**Verified:** migration applied via `scripts/migrate.ts`; the swap re-queried on the live DB (Part A
+= 14.7 L advance, Part B = 8.32 L); the 5-arg RPC exercised end-to-end in a rolled-back transaction —
+returns 22 payments with `last_paid_on`, and logs `viewer_name` trimmed. `tsc --noEmit` exit 0,
+`next build` green.
 
 ### Project threads in the overview chat dock (2026-09-03, no migration)
 
@@ -1970,3 +2008,38 @@ Pending (Phase 4 "done means" gates not yet verified against live DB):
 **Known data gap**
 - ~70% of historical `attendance_logs` rows have no office because no GPS was captured. Left blank
   by decision; backfilling would write an assumption into attendance history as recorded fact.
+
+---
+
+## Progress milestones editable in Edit Project (2026-09-04)
+
+Progress timeline milestones were previously fixed in name and order — the Edit Project modal
+could only set status, due date, completion % and remarks. Now fully editable.
+
+**Built**
+- 123 — deferrable ordering constraint + `reorder_project_checkpoint`,
+  `insert_project_checkpoint_at`, `resequence_project_checkpoints`, `delete_project_checkpoint`.
+  Details in `SCHEMA.md`.
+- `app/api/projects/[id]/checkpoints/route.ts` — new. `GET` lists a project's checkpoints (RLS
+  scoped, no extra gate — the project page already shows these rows); `POST` inserts at any
+  position via `after_order` (0 = top). `project:edit`.
+- `app/api/projects/[id]/checkpoints/reorder/route.ts` — new. `POST { checkpoint_id, target_index }`.
+  `project:edit`.
+- `checkpoints/[checkpointId]/route.ts` — `PATCH` accepts `name` on `edit_details`; renaming
+  requires `project:edit` even though the route otherwise admits `checkpoint:progress`. New
+  `DELETE`, `project:edit` only.
+- `EditProjectModal.tsx` — editable name per milestone, ↑/↓ reorder, "+ Add at top" / "+ Add below"
+  insert points between every row, Delete per row.
+
+**Design note.** Field edits (name/status/date/%/remarks) stay batched until Save, as before.
+Reorder, insert and delete apply **immediately** — they renumber rows server-side and cannot be
+deferred — so the modal keeps a local `cpList` mirroring the server between refreshes, and the
+save loop iterates that rather than the `checkpoints` prop (which is stale for rows added this
+session). Reordering is unrestricted: a completed milestone may be moved below an incomplete one.
+
+**Also fixed.** WhatsApp link on the desktop project page had no `display: flex` — only
+`.driveLink` carried it, so the inline SVG sat on the text baseline instead of beside it. Mobile
+was unaffected (the 900px block adds flex). New `.whatsappLink` class shares `.driveLink`'s rule.
+
+**Verified:** `tsc --noEmit` clean, `next build` passes, transactional DB probe of all four
+functions (see `SCHEMA.md`). Not exercised in a browser.
