@@ -1,5 +1,57 @@
 # PROJECT_STATE.md
-(Updated: 2026-09-04 — Part A/B swap, per-part numbering, portal payment rail + name gate; migration 122)
+(Updated: 2026-10-13 — site auto check-in/out, end-of-day close, 10:00 reminder; migration 126)
+
+### Site check-in: automatic in/out, end-of-day close, morning reminder (2026-10-13, migration 126 APPLIED)
+
+Client: site engineers forget to check in/out. True background geofencing needs a native app (no
+background location for web/PWA, iOS especially) — not built. Instead:
+
+- **A · auto in/out while `/site` is open** — `app/(app)/site/useAutoSiteCheckIn.ts`. GPS every 60 s
+  (and on returning to the tab). Inside a project's radius with no open session → check in. Open
+  session and > radius + max(100 m, accuracy) for 3 min → check out. Fixes worse than 150 m ignored.
+  Status strip on `/site` says what it did, or that location is blocked.
+- **API** `POST /api/projects/[id]/checkin` takes `method: "button" | "geofence"`. Geofence calls are
+  re-verified server-side: check-in only if within radius, no open session anywhere, and no tapped
+  Check Out at that project in the last hour; check-out only if outside the radius. Writes
+  `checkin_method` / `checkout_method`.
+- **B · `close_stale_site_checkins()`** every 15 min — closes sessions at 18:15 IST of the day they began.
+- **C · `remind_site_checkin()`** 10:00 IST Mon–Sat — push to engineers with no check-in of either kind
+  and not on approved leave.
+
+**Not done / known:**
+- [ ] Never run on a phone. `tsc` + `eslint` green; migration dry-run + apply verified.
+- [ ] Auto actions work only with the app open. Closing the app on site leaves the session open
+      until 18:15 — B stamps 18:15, not the real departure.
+- [ ] Reminder needs a push subscription; engineers who never allowed notifications get nothing.
+- [ ] Pre-existing: Today card's `openSession` is any open check-in on the project. RLS limits a plain
+      engineer to his own rows, but a viewer holding `site_check_in:view_all` (Adarsha) gets everyone's,
+      so another engineer's open session reads as "You're on site" for him.
+- [ ] Check-in history UI does not yet show which legs were automatic (columns exist).
+
+(Previous: 2026-10-13 — supervising site engineer reaches every granted page; Assign Task modal fixed)
+
+### Supervising site engineer: office tabs + Assign Task modal (2026-10-13, no migration)
+
+Client: Adarsha (site engineer + `project_manager` tag) must be able to use everything he is granted.
+Closes the "grants exist, no screen reads them" gap recorded in SCHEMA.md (2026-08-13 note).
+
+- **Site chrome gains office tabs**, each shown only when the capability its page already gates on is
+  held: **Projects** (`project:view_all` → `/projects`, create/edit/stage/expenses-approve inside),
+  **Customers** (`customer:view` → `/customers`), **Finance** (`finance:view_dashboard` → `/finance`).
+  Resolved in `app/(app)/layout.tsx` (`OFFICE_TAB_CAPS`); pages re-check their own capability.
+  Verified live: Adarsha holds all three; none are in `SITE_ENGINEER_CAPABILITIES`.
+- **`/site/team` rows link to `/team/[id]`** (attendance, site hours, history) when the viewer holds
+  `office_attendance:view_all`.
+- **Assign Task modal rendered transparent on `/site/team`.** Its `--aos-*` tokens lived only on
+  `.surface` (the `/team` wrapper); `/site/team` has none. Tokens now also sit on `.overlay`. Copy
+  reworked: required marker, review/no-review hint per project choice, assignee named on the button.
+  `defaultTag` prop — `/site/team` defaults to **Site**, `/team` stays **Drawing**.
+
+**Not done / known:**
+- [ ] Never opened in a browser (no test login). `tsc` + `eslint` green; `next build` not run — see below.
+- [ ] **iCloud-evicted files hang every read**: `app/api/bridge/reads/route.ts`, `scripts/_tmp_caps.ts`,
+      `probe-tmp.ts` (all untracked, `compressed,dataless`). `tsc -p tsconfig.json`, `grep -r` and
+      `next build` block on them. Typecheck ran via a temp config excluding them.
 
 ### Part A/B swap, per-part numbering, portal payment focus (2026-09-04, migration 122)
 

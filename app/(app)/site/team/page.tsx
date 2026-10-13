@@ -31,11 +31,12 @@ export default async function SiteTeamPage() {
   // member_tasks:view_all is the gate — it is what makes "who is doing what"
   // legible at all. Without it the page would render an empty roster rather
   // than an error, so it is refused up front.
-  const [capTasks, capCheckIns, capAssign, capAssignProject] = await Promise.all([
+  const [capTasks, capCheckIns, capAssign, capAssignProject, capProfiles] = await Promise.all([
     supabase.rpc("has_capability", { p_capability: "member_tasks:view_all" }),
     supabase.rpc("has_capability", { p_capability: "site_check_in:view_all" }),
     supabase.rpc("has_capability", { p_capability: "tasks:assign" }),
     supabase.rpc("has_capability", { p_capability: "team:assign_to_project" }),
+    supabase.rpc("has_capability", { p_capability: "office_attendance:view_all" }),
   ]);
   if (capTasks.data !== true) redirect("/site");
 
@@ -95,6 +96,7 @@ export default async function SiteTeamPage() {
         nowMs={nowMs}
         canAssignTask={false}
         canAssignToProject={canAssignToProject}
+        canViewProfiles={false}
         selfId={user.id}
         selfProjectIds={selfProjectIds}
       />
@@ -239,6 +241,7 @@ export default async function SiteTeamPage() {
       nowMs={nowMs}
       canAssignTask={canAssignTask}
       canAssignToProject={canAssignToProject}
+      canViewProfiles={capProfiles.data === true}
       selfId={user.id}
       selfProjectIds={selfProjectIds}
     />

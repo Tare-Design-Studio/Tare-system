@@ -1,4 +1,7 @@
-.surface {
+/* Tokens also sit on .overlay: the modals open from /site/team too, which has
+   no .surface wrapper — without them the dialog renders transparent. */
+.surface,
+.overlay {
   --aos-bg: var(--color-paper);
   --aos-bg-2: var(--bg-2);
   --aos-paper: var(--color-paper-light);
@@ -12,6 +15,9 @@
   --aos-indigo: var(--color-indigo);
   --aos-amber: var(--color-amber);
   --aos-rose: var(--color-rose);
+}
+
+.surface {
   padding: 0 0 40px;
 }
 
@@ -1193,6 +1199,13 @@
 .input:focus {
   outline: none;
   border-color: var(--aos-accent);
+}
+
+.fieldHint {
+  font-size: 12px;
+  color: var(--aos-muted);
+  margin-top: 6px;
+  line-height: 1.4;
 }
 
 .fieldRow {

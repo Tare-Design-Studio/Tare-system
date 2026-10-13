@@ -15,7 +15,8 @@ export type ChromeProject = {
 // Tab ids that live as state inside /site. Everything else routes.
 const PANEL_TABS = ["today", "updates", "materials", "progress", "expenses"] as const;
 
-type IconName = "dashboard" | "info" | "feed" | "list" | "trending" | "credit" | "bridge" | "team";
+type IconName = "dashboard" | "info" | "feed" | "list" | "trending" | "credit" | "bridge" | "team"
+  | "folder" | "user" | "rupee";
 
 const ICON_PATHS: Record<IconName, string> = {
   dashboard: "M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z",
@@ -26,6 +27,9 @@ const ICON_PATHS: Record<IconName, string> = {
   credit: "M21 4H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM3 8h18v2H3V8zm0 8v-4h18v4H3z",
   bridge: "M2 12h20 M4 12V9a8 8 0 0 1 16 0v3 M7 12v6 M12 12v6 M17 12v6 M2 18h20",
   team: "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2 M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M23 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75",
+  folder: "M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z",
+  user: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8",
+  rupee: "M6 3h12 M6 8h12 M6 13l8.5 8 M6 13h3 M9 13c6.667 0 6.667-10 0-10",
 };
 
 function Icon({ name, size = 24, stroke = 1.5, color = "currentColor" }: {
@@ -56,14 +60,25 @@ const TEAM_TAB: { id: string; label: string; icon: IconName } = {
   id: "team", label: "Team", icon: "team",
 };
 
+// Office pages, linked only for a site engineer who holds the page's
+// capability (resolved in layout.tsx). Appended after Team for the same reason.
+export type OfficeTab = "projects" | "customers" | "finance";
+
+const OFFICE_TABS: Record<OfficeTab, { id: string; label: string; icon: IconName }> = {
+  projects:  { id: "projects",  label: "Projects",  icon: "folder" },
+  customers: { id: "customers", label: "Customers", icon: "user" },
+  finance:   { id: "finance",   label: "Finance",   icon: "rupee" },
+};
+
 interface SiteEngineerChromeProps {
   fullName: string;
   projects: ChromeProject[];
   /** Site engineer who also manages other engineers — adds the Team tab. */
   canSuperviseTeam?: boolean;
+  officeTabs?: OfficeTab[];
 }
 
-export function SiteEngineerChrome({ fullName, projects, canSuperviseTeam = false }: SiteEngineerChromeProps) {
+export function SiteEngineerChrome({ fullName, projects, canSuperviseTeam = false, officeTabs = [] }: SiteEngineerChromeProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -77,13 +92,22 @@ export function SiteEngineerChrome({ fullName, projects, canSuperviseTeam = fals
   const activeProject = projects.find(p => p.id === activeProjectId);
 
   const onSite = pathname === "/site";
-  const activeTab = pathname.startsWith("/projects/") ? "details"
+  // A project outside his own list was reached from the Projects tab.
+  const ownRouteProject = routeProjectId !== null && projects.some(p => p.id === routeProjectId);
+  const activeTab = routeProjectId && (ownRouteProject || !officeTabs.includes("projects")) ? "details"
+    : pathname.startsWith("/projects") ? "projects"
+    : pathname.startsWith("/customers") ? "customers"
+    : pathname.startsWith("/finance") ? "finance"
     : pathname.startsWith("/bridge") ? "bridge"
-    : pathname === "/site/team" ? "team"
+    : pathname === "/site/team" || pathname.startsWith("/team/") ? "team"
     : onSite ? (searchParams.get("tab") ?? "today")
     : "";
 
-  const tabs = canSuperviseTeam ? [...TABS, TEAM_TAB] : TABS;
+  const tabs = [
+    ...TABS,
+    ...(canSuperviseTeam ? [TEAM_TAB] : []),
+    ...officeTabs.map(t => OFFICE_TABS[t]),
+  ];
 
   function go(tabId: string) {
     if (tabId === "details") {
@@ -96,6 +120,10 @@ export function SiteEngineerChrome({ fullName, projects, canSuperviseTeam = fals
     }
     if (tabId === "team") {
       router.push("/site/team");
+      return;
+    }
+    if (tabId in OFFICE_TABS) {
+      router.push(`/${tabId}`);
       return;
     }
     // Panel tab — always lands on /site with the tab (and project) in the URL.

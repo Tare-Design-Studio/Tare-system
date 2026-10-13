@@ -5,6 +5,8 @@ import { Project, Engineer, MaterialPlan, Expense, CheckIn, SiteVisit } from "./
 import type { FeedUpdate } from "@/components/updates/UpdatesFeed";
 import { DesktopSiteEngineer } from "./components/DesktopSiteEngineer";
 import { MobileSiteEngineer } from "./components/MobileSiteEngineer";
+import { formatTime } from "./components/shared";
+import { useAutoSiteCheckIn } from "./useAutoSiteCheckIn";
 
 type Props = {
   engineer: Engineer;
@@ -55,8 +57,27 @@ export default function SiteEngineerDashboard({ engineer, projects, nowMs, siteV
     return () => { cancelled = true; };
   }, [projectId, refresh]);
 
+  const autoNotice = useAutoSiteCheckIn(
+    engineer.id,
+    projects,
+    checkIns,
+    useCallback(() => refresh(projectId), [refresh, projectId]),
+  );
+
   return (
     <>
+      {autoNotice && (
+        <div role="status" style={{
+          padding: "10px 14px", borderRadius: 12, marginBottom: 12, fontSize: 13,
+          background: autoNotice.kind === "denied" ? "#C5543B18" : "var(--color-paper-light)",
+          border: `1px solid ${autoNotice.kind === "denied" ? "var(--color-rust)" : "var(--color-line)"}`,
+          color: autoNotice.kind === "denied" ? "var(--color-rust)" : "var(--color-ink)",
+        }}>
+          {autoNotice.kind === "denied"
+            ? "Location is blocked — allow it so the app can check you in and out at site automatically."
+            : `Automatically checked ${autoNotice.kind === "checked_in" ? "in at" : "out of"} ${autoNotice.projectName} at ${formatTime(new Date(autoNotice.at).toISOString())}.`}
+        </div>
+      )}
       <div className="desktop-only">
         <DesktopSiteEngineer
           engineer={engineer}

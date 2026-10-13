@@ -1,5 +1,35 @@
 # SCHEMA.md
-(Updated: 2026-09-04 — migration 122: Part A/B swap, per-part numbering, portal payment focus, portal viewer name)
+(Updated: 2026-10-13 — migration 126: site check-in methods, end-of-day close, morning reminder)
+
+### Migration 126 — site check-in: geofence auto, end-of-day close, reminder (applied 2026-10-13)
+
+**`site_check_ins.checkin_method`** `text NOT NULL DEFAULT 'button'`, CHECK `button | geofence`.
+**`site_check_ins.checkout_method`** `text NULL`, CHECK `button | geofence | end_of_day`. NULL = still open,
+or closed before 126 (no backfill — historic method unknown). Both written only by
+`POST /api/projects/[id]/checkin` (service client) and the job below; no new RLS — authenticated has no
+UPDATE policy that reaches them (`site_checkin_update_override` covers only out-of-geofence approval).
+
+Do not confuse with the pre-existing **`source`** (`check_in` = engineer session, `manual` = owner-logged
+customer visit, 106). Both new functions touch **`source = 'check_in'` only**.
+
+**`close_stale_site_checkins()`** — SECURITY DEFINER, revoked from public/anon/authenticated. Closes open
+engineer sessions once `now()` passes the cutoff of the **local day the session began**
+(`workday_end` + `late_grace_minutes`, tenant timezone — 18:15 IST today). Stamps
+`checked_out_at = GREATEST(checked_in_at, cutoff)`, computes `duration_minutes`, sets
+`checkout_method='end_of_day'`. A session begun after the cutoff closes at 0 min on the next tick.
+pg_cron **`close-stale-site-checkins`** `*/15 * * * *`. Also unblocks the 070 partial unique index
+`(user_id, project_id) WHERE checked_out_at IS NULL`, which made a forgotten check-out block the next
+day's check-in at that project.
+
+**`remind_site_checkin()`** — SECURITY DEFINER, revoked. One `emit_notification(kind =>
+'site_checkin_reminder', p_user_ids => ARRAY[user])` per active `site_engineer` with ≥1 active
+project assignment and **no** site check-in, **no** office `attendance_logs.check_in_at`, and **no**
+approved `leave_requests` covering today. Dedupe key `site_checkin_reminder:<user>:<local date>`.
+pg_cron **`remind-site-checkin`** `30 4 * * 1-6` (10:00 IST Mon–Sat — cron is UTC; single IST tenant).
+Push goes out through the existing `notification_recipients` webhook → `send-push`.
+
+Verified before apply in a rolled-back transaction: close = 0 (both open sessions began today, before
+cutoff), remind = 3 on first call, 0 on second (dedupe).
 
 ### Migration 122 — Part A/B swap, portal payment focus, viewer name (applied 2026-09-04)
 

@@ -3120,6 +3120,8 @@ export type Database = {
           visible_to_customer: boolean
           customer_note: string | null
           source: string
+          checkin_method: string
+          checkout_method: string | null
         }
         Insert: {
           approved_at?: string | null
@@ -3140,6 +3142,8 @@ export type Database = {
           visible_to_customer?: boolean
           customer_note?: string | null
           source?: string
+          checkin_method?: string
+          checkout_method?: string | null
         }
         Update: {
           approved_at?: string | null
@@ -3160,6 +3164,8 @@ export type Database = {
           visible_to_customer?: boolean
           customer_note?: string | null
           source?: string
+          checkin_method?: string
+          checkout_method?: string | null
         }
         Relationships: [
           {

@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { TopBar } from "./TopBar";
 import { MobileNav, type MobileNavItem } from "./MobileNav";
-import { SiteEngineerChrome, type ChromeProject } from "./SiteEngineerChrome";
+import { SiteEngineerChrome, type ChromeProject, type OfficeTab } from "./SiteEngineerChrome";
 import { RealtimeRefresher } from "@/components/realtime/RealtimeRefresher";
 import { ChatBadgeProvider } from "@/components/chat/ChatBadgeProvider";
 
@@ -38,6 +38,13 @@ const ALL_NAV_DEFS: NavItemDef[] = [
   { href: "/enquiries",  label: "Enquiries",    roles: ["owner"], tags: ["accountant", "admin"] },
   { href: "/team",       label: "Team",         roles: ["owner"], tags: ["accountant", "admin"], capability: "team:coordinate" },
   { href: "/settings",   label: "Settings" },
+];
+
+// The capability each office page gates on (see each page's own check).
+const OFFICE_TAB_CAPS: [OfficeTab, string][] = [
+  ["projects", "project:view_all"],
+  ["customers", "customer:view"],
+  ["finance", "finance:view_dashboard"],
 ];
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
@@ -84,8 +91,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // engineers. The project_manager tag already grants member_tasks:view_all,
   // so this reads an existing grant rather than introducing a new one.
   let canSuperviseTeam = false;
+  // Office pages a site engineer may hold grants for (project_manager tag, or
+  // per-user grants). Each page re-checks its own capability; this only decides
+  // whether the chrome links to it.
+  const officeTabs: OfficeTab[] = [];
   if (isSiteEngineer) {
-    const [assignmentsRes, superviseRes] = await Promise.all([
+    const [assignmentsRes, superviseRes, ...officeRes] = await Promise.all([
       // Every assignment; the active ones are preferred below. A finished
       // project in the selector is dead weight that grows permanently as work
       // completes, but an engineer whose only assignments are finished still
@@ -96,7 +107,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         .eq("user_id", user.id)
         .is("projects.deleted_at", null),
       supabase.rpc("has_capability", { p_capability: "member_tasks:view_all" }),
+      ...OFFICE_TAB_CAPS.map(([, cap]) => supabase.rpc("has_capability", { p_capability: cap })),
     ]);
+    OFFICE_TAB_CAPS.forEach(([tab], i) => {
+      if (officeRes[i].data === true) officeTabs.push(tab);
+    });
     const assigned = (assignmentsRes.data ?? [])
       .map(a => a.projects as unknown as ChromeProject)
       .filter(Boolean);
@@ -132,6 +147,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               fullName={profile?.full_name ?? ""}
               projects={engineerProjects}
               canSuperviseTeam={canSuperviseTeam}
+              officeTabs={officeTabs}
             />
           </Suspense>
           <div className="desktop-only" style={{ maxWidth: 1100, margin: "0 auto", padding: "28px 28px 64px" }}>

@@ -32,14 +32,17 @@ export function AssignTaskModal({
   members,
   projects,
   onClose,
+  defaultTag = "drawing",
 }: {
   members: AssignableMember[];
   projects: AssignableTaskProject[];
   onClose: () => void;
+  /** Site supervisors assign site work; the office default is drawing. */
+  defaultTag?: (typeof TAGS)[number]["value"];
 }) {
   const [assignee, setAssignee] = useState(members[0]?.id ?? "");
   const [title, setTitle] = useState("");
-  const [tag, setTag] = useState<string>("drawing");
+  const [tag, setTag] = useState<string>(defaultTag);
   const [projectId, setProjectId] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [saving, setSaving] = useState(false);
@@ -88,7 +91,10 @@ export function AssignTaskModal({
         aria-label="Assign a task"
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <h3 className={styles.modalTitle}>Assign a task</h3>
+          <div>
+            <h3 className={styles.modalTitle}>Assign a task</h3>
+            <div className={styles.fieldHint}>Pick who does it, then say what needs doing.</div>
+          </div>
           <button className={styles.cornerButton} onClick={onClose} type="button" aria-label="Close">
             <Icon name="x" size={14} />
           </button>
@@ -109,15 +115,16 @@ export function AssignTaskModal({
         </div>
 
         <div className={styles.field}>
-          <label className={styles.fieldLabel} htmlFor="assign-title">Task</label>
+          <label className={styles.fieldLabel} htmlFor="assign-title">What needs doing *</label>
           <input
             id="assign-title"
             className={styles.input}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="e.g. Ground-floor plan revision"
+            placeholder="e.g. Check slab shuttering before pour"
             autoFocus
           />
+          {!title.trim() && <div className={styles.fieldHint}>Required — the Assign button unlocks once this is filled.</div>}
         </div>
 
         <div className={styles.field}>
@@ -133,6 +140,11 @@ export function AssignTaskModal({
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
+          <div className={styles.fieldHint}>
+            {projectId
+              ? "When they mark it done, it goes for review before it closes."
+              : "No review step — it closes as soon as they mark it done."}
+          </div>
         </div>
 
         <div className={styles.fieldRow}>
@@ -164,7 +176,7 @@ export function AssignTaskModal({
         {selected && (
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 16, fontSize: 12, color: "var(--color-tan)" }}>
             <Avatar initials={selected.initials} tone="indigo" size={26} />
-            The assignee is notified and can accept the task.
+            {selected.name} gets a notification and sees it in their task list.
           </div>
         )}
 
@@ -176,7 +188,7 @@ export function AssignTaskModal({
             onClick={save}
             disabled={saving || !title.trim() || !assignee}
           >
-            {saving ? "Assigning…" : "Assign task"}
+            {saving ? "Assigning…" : selected ? `Assign to ${selected.name.split(" ")[0]}` : "Assign task"}
           </Button>
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
         </div>

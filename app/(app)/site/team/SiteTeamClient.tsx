@@ -60,6 +60,8 @@ type Props = {
   nowMs: number;
   canAssignTask: boolean;
   canAssignToProject: boolean;
+  /** office_attendance:view_all — opens /team/[id] (attendance, hours, history). */
+  canViewProfiles: boolean;
   /** The viewer — he can add himself to projects, so his own row is needed. */
   selfId: string;
   selfProjectIds: string[];
@@ -107,7 +109,7 @@ const LABEL: React.CSSProperties = {
 
 export default function SiteTeamClient({
   engineers, updates, projects, nowMs, canAssignTask, canAssignToProject,
-  selfId, selfProjectIds,
+  canViewProfiles, selfId, selfProjectIds,
 }: Props) {
   const router = useRouter();
   const [openId, setOpenId] = useState<string | null>(null);
@@ -202,15 +204,15 @@ export default function SiteTeamClient({
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           {onSiteNow.length > 0 && (
             <Group title="On site now" engineers={onSiteNow} now={now}
-              openId={openId} setOpenId={setOpenId} />
+              openId={openId} setOpenId={setOpenId} canViewProfiles={canViewProfiles} />
           )}
           {inOffice.length > 0 && (
             <Group title="In the office" engineers={inOffice} now={now}
-              openId={openId} setOpenId={setOpenId} />
+              openId={openId} setOpenId={setOpenId} canViewProfiles={canViewProfiles} />
           )}
           {idle.length > 0 && (
             <Group title="Not checked in" engineers={idle} now={now}
-              openId={openId} setOpenId={setOpenId} />
+              openId={openId} setOpenId={setOpenId} canViewProfiles={canViewProfiles} />
           )}
         </div>
       )}
@@ -288,6 +290,7 @@ export default function SiteTeamClient({
         <AssignTaskModal
           members={assignableMembers}
           projects={projects}
+          defaultTag="site"
           onClose={() => {
             setAssignOpen(false);
             router.refresh();
@@ -298,12 +301,13 @@ export default function SiteTeamClient({
   );
 }
 
-function Group({ title, engineers, now, openId, setOpenId }: {
+function Group({ title, engineers, now, openId, setOpenId, canViewProfiles }: {
   title: string;
   engineers: TrackedEngineer[];
   now: number;
   openId: string | null;
   setOpenId: (id: string | null) => void;
+  canViewProfiles: boolean;
 }) {
   return (
     <div>
@@ -311,7 +315,7 @@ function Group({ title, engineers, now, openId, setOpenId }: {
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {engineers.map((e) => (
           <EngineerCard key={e.id} engineer={e} now={now}
-            expanded={openId === e.id}
+            expanded={openId === e.id} canViewProfile={canViewProfiles}
             onToggle={() => setOpenId(openId === e.id ? null : e.id)} />
         ))}
       </div>
@@ -319,10 +323,11 @@ function Group({ title, engineers, now, openId, setOpenId }: {
   );
 }
 
-function EngineerCard({ engineer: e, now, expanded, onToggle }: {
+function EngineerCard({ engineer: e, now, expanded, canViewProfile, onToggle }: {
   engineer: TrackedEngineer;
   now: number;
   expanded: boolean;
+  canViewProfile: boolean;
   onToggle: () => void;
 }) {
   const overdue = e.openTasks.filter(
@@ -370,6 +375,9 @@ function EngineerCard({ engineer: e, now, expanded, onToggle }: {
           {e.pendingReviewCount > 0 && <Row label="Awaiting review" value={`${e.pendingReviewCount}`} />}
           {e.phone && (
             <Row label="Phone" value={<a href={`tel:${e.phone}`} style={{ color: "var(--color-forest)" }}>{e.phone}</a>} />
+          )}
+          {canViewProfile && (
+            <Row label="Profile" value={<a href={`/team/${e.id}`} style={{ color: "var(--color-forest)" }}>Attendance, site hours &amp; history →</a>} />
           )}
 
           <SubHead>Open tasks</SubHead>
