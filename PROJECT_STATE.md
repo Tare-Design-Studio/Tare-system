@@ -1,5 +1,14 @@
 # PROJECT_STATE.md
-(Updated: 2026-10-13 — site auto check-in/out, end-of-day close, 10:00 reminder; migration 126)
+(Updated: 2026-10-13 — Access Matrix can revoke tag-granted capabilities)
+
+### Access Matrix: revoking a tag-granted capability snapped back on (2026-10-13, no migration)
+
+`PATCH /api/access-matrix` only deleted `source='manual'` rows, so unticking a capability that came
+from a tag (e.g. Adarsha's `customer:view` from `project_manager`) was a silent no-op. Now the tag row
+becomes a **manual deny** (`granted=false, source='manual'`): `has_capability()` reads `granted=true`
+only and the 065 tag triggers touch `source='tag'` only, so the tag cannot re-grant it. Re-ticking
+updates the same row to `granted=true`. Verified as owner in a rolled-back transaction.
+- [ ] A manual deny survives tag removal and re-add — intended (explicit owner decision wins).
 
 ### Site check-in: automatic in/out, end-of-day close, morning reminder (2026-10-13, migration 126 APPLIED)
 

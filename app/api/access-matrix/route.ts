@@ -136,10 +136,19 @@ export async function PATCH(req: NextRequest) {
           if (error) return NextResponse.json({ error: error.message }, { status: 500 });
         }
       } else if (existing && existing.source === "manual") {
-        // Only manual grants are revocable here; tag grants follow the tag.
         const { error } = await db
           .from("user_capabilities")
           .delete()
+          .eq("id", existing.id);
+        if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+      } else if (existing && existing.source === "tag") {
+        // Revoking a tag grant: keep the row as a manual deny. has_capability()
+        // reads granted = true only, and the 065 tag triggers touch source = 'tag'
+        // rows only — so the tag cannot silently re-grant it. Deleting instead
+        // was a no-op: the matrix toggle snapped back on after save.
+        const { error } = await db
+          .from("user_capabilities")
+          .update({ granted: false, source: "manual", granted_by: user.id })
           .eq("id", existing.id);
         if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       }
