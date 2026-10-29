@@ -6,7 +6,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 // when no email is set up. Owner / team:edit_user (admin tag). The link opens
 // /reset-password, which redeems it with verifyOtp.
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ memberId: string }> }
 ) {
   const supabase = await createClient();
@@ -39,7 +39,8 @@ export async function POST(
   const { data, error } = await admin.auth.admin.generateLink({ type: "recovery", email });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
-  const link = `${siteUrl}/reset-password?token_hash=${encodeURIComponent(data.properties.hashed_token)}`;
+  // Origin of this request, not NEXT_PUBLIC_SITE_URL: the link is opened on another
+  // device, so it must carry the host the owner/admin is actually using.
+  const link = `${req.nextUrl.origin}/reset-password?token_hash=${encodeURIComponent(data.properties.hashed_token)}`;
   return NextResponse.json({ link });
 }
