@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import Link from "next/link";
 import { signIn } from "../actions";
 import { Input } from "@/components/atoms";
 
@@ -10,7 +11,7 @@ const ROLES = [
   { dot: "#E2A64B", label: "Site Engineer", sub: "Materials · progress · check-in" },
 ];
 
-export function LoginForm() {
+export function LoginForm({ passwordReset }: { passwordReset: boolean }) {
   const [state, formAction, pending] = useActionState(signIn, null);
   const [showPass, setShowPass] = useState(false);
 
@@ -131,6 +132,23 @@ export function LoginForm() {
             Enter your credentials to continue.
           </p>
 
+          {passwordReset && (
+            <div
+              role="status"
+              style={{
+                marginBottom: 24,
+                padding: "12px 14px",
+                borderRadius: 12,
+                background: "rgba(45,106,79,0.1)",
+                color: "var(--color-forest)",
+                fontSize: 13,
+                lineHeight: 1.5,
+              }}
+            >
+              Password updated. Sign in with your new password.
+            </div>
+          )}
+
           <form action={formAction} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
             <Input
               label="Email"
@@ -171,6 +189,13 @@ export function LoginForm() {
                 </button>
               }
             />
+
+            <Link
+              href="/login/forgot"
+              style={{ alignSelf: "flex-end", marginTop: -8, fontSize: 13, color: "var(--color-tan)" }}
+            >
+              Forgot password?
+            </Link>
 
             <button
               type="submit"

@@ -69,7 +69,7 @@ export async function updateSession(request: NextRequest) {
   // Auth paths: accessible without login; logged-in users redirected away from /login only
   const isLoginPath = path === "/login" || path.startsWith("/login/");
   const isAuthConfirmPath = path === "/auth/confirm";
-  const isAuthPath = isLoginPath || path === "/accept" || isAuthConfirmPath;
+  const isAuthPath = isLoginPath || path === "/accept" || isAuthConfirmPath || path === "/reset-password";
 
   // API routes handle their own auth — don't redirect, let them return proper JSON errors
   if (!isApiPath && !user && !isPublicPath && !isAuthPath) {

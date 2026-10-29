@@ -1,5 +1,31 @@
 # PROJECT_STATE.md
-(Updated: 2026-10-13 — Access Matrix can revoke tag-granted capabilities)
+(Updated: 2026-10-29 — password reset by email, from login and settings)
+
+### Password reset by email (2026-10-29, no migration)
+
+- **Login** → "Forgot password?" → `/login/forgot` → email → `requestPasswordReset` (5 / 15 min per IP,
+  same reply whether the account exists).
+- **Settings → Security → Change password** → "Forgot it? Email me a reset link" → `emailMyPasswordReset`
+  (signed-in user's own address).
+- Both call `resetPasswordForEmail`; **Supabase sends the email** over custom SMTP. Its "Reset password"
+  template links to `{{ .SiteURL }}/reset-password?token_hash={{ .TokenHash }}`. `/reset-password` (public
+  in middleware) redeems it in the browser with `verifyOtp` (works on any device; link-scanner pre-fetches
+  don't burn it), sets the password, signs out everywhere, sends to `/login?reset=1`. Signing in again
+  keeps MFA in the path. The redirect-URL allowlist is not involved.
+- **Dashboard config (required, not in repo):** Auth → SMTP Settings (custom SMTP, e.g. Gmail app
+  password); Auth → Email Templates → Reset password (link above); Auth → URL Configuration → Site URL =
+  production domain (the template builds the link from it).
+- **Verified:** throwaway auth user against cloud — `generateLink` token_hash (same hash as
+  `{{ .TokenHash }}`) → `verifyOtp` → `updateUser` → sign in with new password all OK; reused link
+  rejected (`otp_expired`). User deleted.
+
+**Not done / known:**
+- [ ] Never run in a browser. `tsc` + `eslint` green.
+- [ ] Custom SMTP also makes team invite emails deliverable; the invite template was not touched.
+- [ ] Pre-existing: Settings "Current password" field is collected but never checked.
+- [ ] Pre-existing: `/auth/confirm` routes `type=recovery` to `/accept`, which bounces active users to `/`.
+
+(Previous: 2026-10-13 — Access Matrix can revoke tag-granted capabilities)
 
 ### Access Matrix: revoking a tag-granted capability snapped back on (2026-10-13, no migration)
 
@@ -9,6 +35,8 @@ becomes a **manual deny** (`granted=false, source='manual'`): `has_capability()`
 only and the 065 tag triggers touch `source='tag'` only, so the tag cannot re-grant it. Re-ticking
 updates the same row to `granted=true`. Verified as owner in a rolled-back transaction.
 - [ ] A manual deny survives tag removal and re-add — intended (explicit owner decision wins).
+
+(Previous: 2026-10-13 — site auto check-in/out, end-of-day close, 10:00 reminder; migration 126)
 
 ### Site check-in: automatic in/out, end-of-day close, morning reminder (2026-10-13, migration 126 APPLIED)
 
