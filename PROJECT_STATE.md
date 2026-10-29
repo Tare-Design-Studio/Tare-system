@@ -1,5 +1,16 @@
 # PROJECT_STATE.md
-(Updated: 2026-10-29 — password reset by email, from login and settings)
+(Updated: 2026-10-29 — owner/admin password reset link; password reset by email)
+
+### Password reset link for owners/admins (2026-10-29, no migration)
+
+No email needed. Team page → edit mode → member pencil → **Password reset link** → Create link → Copy /
+WhatsApp. `POST /api/team/[memberId]/reset-link` (`team:edit_user` = owners + `admin` tag; verified live:
+same holders as `team:create_user`, which shows the menu). Service role `generateLink({type:'recovery'})`
+→ `/reset-password?token_hash=…` (same page/verifyOtp path as the email flow). Tenant-scoped; not self;
+an admin cannot get a link for an owner (the link signs in as the target). Each new link cancels the
+previous one, so it is created on click, not on modal open.
+- [ ] Never run in a browser. `tsc` + `eslint` green.
+- [ ] An admin can get a link for another admin or member and sign in as them — inherent to the feature.
 
 ### Password reset by email (2026-10-29, no migration)
 

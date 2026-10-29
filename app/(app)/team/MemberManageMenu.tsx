@@ -37,7 +37,7 @@ export function MemberManageMenu({ member }: { member: ManageMember }) {
   const router = useRouter();
   const editMode = useMemberEditMode();
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"edit" | "delete" | null>(null);
+  const [mode, setMode] = useState<"edit" | "reset" | "delete" | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -94,6 +94,14 @@ export function MemberManageMenu({ member }: { member: ManageMember }) {
           <button
             type="button"
             role="menuitem"
+            onClick={() => { setOpen(false); setMode("reset"); }}
+            style={menuItem}
+          >
+            Password reset link
+          </button>
+          <button
+            type="button"
+            role="menuitem"
             onClick={() => { setOpen(false); setMode("delete"); }}
             style={{ ...menuItem, color: "var(--color-rust)" }}
           >
@@ -104,6 +112,9 @@ export function MemberManageMenu({ member }: { member: ManageMember }) {
 
       {mode === "edit" && (
         <EditMemberModal member={member} onClose={() => setMode(null)} onSaved={() => { setMode(null); router.refresh(); }} />
+      )}
+      {mode === "reset" && (
+        <ResetLinkModal member={member} onClose={() => setMode(null)} />
       )}
       {mode === "delete" && (
         <DeleteMemberModal member={member} onClose={() => setMode(null)} onDeleted={() => { setMode(null); router.refresh(); }} />
@@ -194,6 +205,75 @@ function EditMemberModal({ member, onClose, onSaved }: { member: ManageMember; o
               {saving ? "Saving…" : "Save Changes"}
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ResetLinkModal({ member, onClose }: { member: ManageMember; onClose: () => void }) {
+  const [link, setLink] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [creating, setCreating] = useState(false);
+
+  // On click, not on mount: each new link cancels the previous one.
+  async function create() {
+    setCreating(true); setError(null);
+    const res = await fetch(`/api/team/${member.id}/reset-link`, { method: "POST" }).catch(() => null);
+    const j = res ? await res.json().catch(() => ({})) : {};
+    setCreating(false);
+    if (!res?.ok || !j.link) setError(j.error ?? "Failed to create link");
+    else { setLink(j.link); setCopied(false); }
+  }
+
+  async function copy() {
+    if (!link) return;
+    await navigator.clipboard.writeText(link);
+    setCopied(true);
+  }
+
+  const message = link ? `Hi ${member.full_name}, use this link to set a new password for Tare system: ${link}` : "";
+
+  return (
+    <div style={overlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal-mobile-full" style={{ background: "var(--color-paper-light)", borderRadius: 22, padding: 28, width: "100%", maxWidth: 440, boxShadow: "0 32px 80px -20px rgba(27,26,23,.3)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
+          <h2 className="font-serif" style={{ fontSize: 26, fontWeight: 400, margin: 0, letterSpacing: -0.5 }}>Password Reset Link</h2>
+          <button onClick={onClose} aria-label="Close" style={closeBtn}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+          </button>
+        </div>
+        <p style={{ fontSize: 13, lineHeight: 1.6, color: "var(--color-ink)", margin: "0 0 16px" }}>
+          Send this to <strong>{member.full_name}</strong>. It works once, on any device, and lets them
+          choose a new password. Anyone holding it can sign in as them, so send it only to them.
+        </p>
+        {error && <div style={errBox}>{error}</div>}
+        {link && (
+          <input style={field} value={link} readOnly onFocus={(e) => e.target.select()} />
+        )}
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 18 }}>
+          <button type="button" onClick={onClose} style={cancelBtn}>Close</button>
+          {!link && (
+            <button type="button" onClick={create} disabled={creating} style={{ ...primaryBtn, opacity: creating ? 0.6 : 1 }}>
+              {creating ? "Creating…" : "Create link"}
+            </button>
+          )}
+          {link && (
+            <a
+              href={`https://wa.me/?text=${encodeURIComponent(message)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ ...cancelBtn, textDecoration: "none" }}
+            >
+              WhatsApp
+            </a>
+          )}
+          {link && (
+            <button type="button" onClick={copy} style={primaryBtn}>
+              {copied ? "Copied" : "Copy link"}
+            </button>
+          )}
         </div>
       </div>
     </div>
