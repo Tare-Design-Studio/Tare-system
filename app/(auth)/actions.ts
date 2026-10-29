@@ -1,7 +1,6 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { checkRateLimit, clientIp } from "@/lib/auth/rateLimit";
 
@@ -96,56 +95,6 @@ export async function verifyMfa(prevState: AuthState, formData: FormData): Promi
   }
 
   redirect("/");
-}
-
-export type ResetState = { error: string } | { sent: true } | null;
-
-// Supabase sends the email (custom SMTP, set in the dashboard). Its "Reset
-// password" template links to {{ .SiteURL }}/reset-password?token_hash={{ .TokenHash }},
-// which /reset-password redeems with verifyOtp, so the link works on any device.
-async function sendResetEmail(email: string): Promise<ResetState> {
-  const supabase = createSupabaseClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { auth: { persistSession: false, autoRefreshToken: false } }
-  );
-  // No error for unknown addresses, so accounts can't be probed.
-  const { error } = await supabase.auth.resetPasswordForEmail(email);
-  if (error) {
-    return { error: "Couldn't send the email right now. Please try again in a few minutes." };
-  }
-  return { sent: true };
-}
-
-export async function requestPasswordReset(prevState: ResetState, formData: FormData): Promise<ResetState> {
-  const email = (formData.get("email") as string | null)?.trim() ?? "";
-  if (!email) return { error: "Enter your email address." };
-
-  // 5 requests / 15 min per IP.
-  const ip = await clientIp();
-  if (ip) {
-    const ok = await checkRateLimit({
-      kind: "password_reset",
-      identifier: ip,
-      limit: 5,
-      windowSeconds: 900,
-      ip,
-    });
-    if (!ok) {
-      return { error: "Too many attempts. Please wait a few minutes and try again." };
-    }
-  }
-
-  // Same reply whether or not the account exists.
-  return sendResetEmail(email);
-}
-
-/** Settings: email a reset link to the signed-in user's own address. */
-export async function emailMyPasswordReset(): Promise<ResetState> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user?.email) return { error: "Not signed in." };
-  return sendResetEmail(user.email);
 }
 
 export async function setPassword(prevState: AuthState, formData: FormData): Promise<AuthState> {

@@ -1,7 +1,6 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import Link from "next/link";
 import { signIn } from "../actions";
 import { Input } from "@/components/atoms";
 
@@ -190,12 +189,9 @@ export function LoginForm({ passwordReset }: { passwordReset: boolean }) {
               }
             />
 
-            <Link
-              href="/login/forgot"
-              style={{ alignSelf: "flex-end", marginTop: -8, fontSize: 13, color: "var(--color-tan)" }}
-            >
-              Forgot password?
-            </Link>
+            <p style={{ alignSelf: "flex-end", margin: "-8px 0 0", fontSize: 13, color: "var(--color-tan)" }}>
+              Forgot password? Ask an owner or admin for a reset link.
+            </p>
 
             <button
               type="submit"

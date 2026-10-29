@@ -1,5 +1,5 @@
 # PROJECT_STATE.md
-(Updated: 2026-10-29 — owner/admin password reset link; password reset by email)
+(Updated: 2026-10-29 — password reset via owner/admin link only; email flow removed)
 
 ### Password reset link for owners/admins (2026-10-29, no migration)
 
@@ -12,27 +12,14 @@ previous one, so it is created on click, not on modal open.
 - [ ] Never run in a browser. `tsc` + `eslint` green.
 - [ ] An admin can get a link for another admin or member and sign in as them — inherent to the feature.
 
-### Password reset by email (2026-10-29, no migration)
+### Password reset by email — built, then removed (2026-10-29)
 
-- **Login** → "Forgot password?" → `/login/forgot` → email → `requestPasswordReset` (5 / 15 min per IP,
-  same reply whether the account exists).
-- **Settings → Security → Change password** → "Forgot it? Email me a reset link" → `emailMyPasswordReset`
-  (signed-in user's own address).
-- Both call `resetPasswordForEmail`; **Supabase sends the email** over custom SMTP. Its "Reset password"
-  template links to `{{ .SiteURL }}/reset-password?token_hash={{ .TokenHash }}`. `/reset-password` (public
-  in middleware) redeems it in the browser with `verifyOtp` (works on any device; link-scanner pre-fetches
-  don't burn it), sets the password, signs out everywhere, sends to `/login?reset=1`. Signing in again
-  keeps MFA in the path. The redirect-URL allowlist is not involved.
-- **Dashboard config (required, not in repo):** Auth → SMTP Settings (custom SMTP, e.g. Gmail app
-  password); Auth → Email Templates → Reset password (link above); Auth → URL Configuration → Site URL =
-  production domain (the template builds the link from it).
-- **Verified:** throwaway auth user against cloud — `generateLink` token_hash (same hash as
-  `{{ .TokenHash }}`) → `verifyOtp` → `updateUser` → sign in with new password all OK; reused link
-  rejected (`otp_expired`). User deleted.
-
-**Not done / known:**
-- [ ] Never run in a browser. `tsc` + `eslint` green.
-- [ ] Custom SMTP also makes team invite emails deliverable; the invite template was not touched.
+Login "Forgot password?" page + Settings "Email me a reset link" were built (47512ff) and removed the same
+day: Supabase's built-in mailer only reaches the Supabase org's own members (~2/hour) and no custom SMTP
+could be set up (Google blocked app-password creation on the studio Gmail). Login now says "Forgot
+password? Ask an owner or admin for a reset link." To bring email back: set custom SMTP + the Reset
+password template (`{{ .SiteURL }}/reset-password?token_hash={{ .TokenHash }}`) + Site URL in the
+dashboard, then restore `/login/forgot` and the actions from 47512ff.
 - [ ] Pre-existing: Settings "Current password" field is collected but never checked.
 - [ ] Pre-existing: `/auth/confirm` routes `type=recovery` to `/accept`, which bounces active users to `/`.
 

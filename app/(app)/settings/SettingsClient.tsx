@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { emailMyPasswordReset } from "@/app/(auth)/actions";
 import KpiSettingsSection from "./KpiSettingsSection";
 import OfficesSection from "./OfficesSection";
 import S from "./settings.module.css";
@@ -146,16 +145,6 @@ function SecuritySection({ profile }: { profile: Profile }) {
     }
   }
 
-  async function sendResetLink() {
-    setPwSaving(true);
-    setPwMsg(null);
-    const res = await emailMyPasswordReset();
-    setPwMsg(res && "error" in res
-      ? { ok: false, text: res.error }
-      : { ok: true, text: "Reset link sent — check your email" });
-    setPwSaving(false);
-  }
-
   return (
     <div className={S.card}>
       <div className={S.cardHeader}>
@@ -223,13 +212,6 @@ function SecuritySection({ profile }: { profile: Profile }) {
               disabled={pwSaving || !pwNew}
             >
               {pwSaving ? "Updating…" : "Update password"}
-            </button>
-            <button
-              className={`${S.btn} ${S.btnSm}`}
-              onClick={sendResetLink}
-              disabled={pwSaving}
-            >
-              Forgot it? Email me a reset link
             </button>
             {pwMsg && (
               <span className={`${S.toast} ${pwMsg.ok ? S.toastOk : S.toastErr}`}>{pwMsg.text}</span>

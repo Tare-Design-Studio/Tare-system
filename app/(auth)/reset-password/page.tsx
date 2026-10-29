@@ -7,9 +7,10 @@ import { createClient } from "@/lib/supabase/client";
 import { Input } from "@/components/atoms";
 
 /**
- * Landing page for the password-reset email link (?token_hash=…, from the
- * Supabase "Reset password" template). Redeemed here in the browser, not on
- * the server, so email link scanners that pre-fetch the URL don't burn it.
+ * Landing page for the password-reset link (?token_hash=…) an owner/admin
+ * creates on the Team page (POST /api/team/[memberId]/reset-link). Redeemed
+ * here in the browser, not on the server, so link-preview pre-fetches
+ * (WhatsApp etc.) don't burn it.
  */
 export default function ResetPasswordPage() {
   const router = useRouter();
@@ -81,10 +82,10 @@ export default function ResetPasswordPage() {
         {status === "invalid" && (
           <>
             <p style={{ fontSize: 14, color: "var(--color-tan)", marginBottom: 32, lineHeight: 1.6 }}>
-              This reset link is invalid, expired or already used. Request a new one.
+              This reset link is invalid, expired or already used. Ask an owner or admin for a new one.
             </p>
-            <Link href="/login/forgot" style={{ fontSize: 14, color: "var(--color-ink)", fontWeight: 500 }}>
-              Send a new link
+            <Link href="/login" style={{ fontSize: 14, color: "var(--color-ink)", fontWeight: 500 }}>
+              Back to sign in
             </Link>
           </>
         )}
