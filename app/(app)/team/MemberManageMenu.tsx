@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/atoms";
 import { useMemberEditMode } from "./MemberEditMode";
@@ -38,19 +39,35 @@ export function MemberManageMenu({ member }: { member: ManageMember }) {
   const editMode = useMemberEditMode();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"edit" | "reset" | "delete" | null>(null);
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  function toggle() {
+    if (open) { setOpen(false); return; }
+    const r = wrapRef.current?.getBoundingClientRect();
+    if (r) setPos({ top: r.bottom + 6, right: window.innerWidth - r.right });
+    setOpen(true);
+  }
 
   useEffect(() => {
     if (!open) return;
     function onDocClick(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (!wrapRef.current?.contains(t) && !menuRef.current?.contains(t)) setOpen(false);
     }
     function onEsc(e: KeyboardEvent) { if (e.key === "Escape") setOpen(false); }
+    // Menu is fixed-positioned in a portal; close rather than drift on scroll/resize.
+    function onMove() { setOpen(false); }
     document.addEventListener("mousedown", onDocClick);
     document.addEventListener("keydown", onEsc);
+    window.addEventListener("scroll", onMove, true);
+    window.addEventListener("resize", onMove);
     return () => {
       document.removeEventListener("mousedown", onDocClick);
       document.removeEventListener("keydown", onEsc);
+      window.removeEventListener("scroll", onMove, true);
+      window.removeEventListener("resize", onMove);
     };
   }, [open]);
 
@@ -62,7 +79,7 @@ export function MemberManageMenu({ member }: { member: ManageMember }) {
     <div ref={wrapRef} style={{ position: "relative", display: "inline-flex" }}>
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={toggle}
         aria-label={`Manage ${member.full_name}`}
         title="Manage member"
         style={{
@@ -74,11 +91,12 @@ export function MemberManageMenu({ member }: { member: ManageMember }) {
         <Icon name="pencil" size={13} />
       </button>
 
-      {open && (
+      {open && pos && createPortal(
         <div
+          ref={menuRef}
           role="menu"
           style={{
-            position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 60, width: 180, padding: 6,
+            position: "fixed", top: pos.top, right: pos.right, zIndex: 110, width: 180, padding: 6,
             borderRadius: 12, background: "var(--color-paper-light)", border: "1px solid var(--color-line)",
             boxShadow: "0 8px 28px -8px rgba(30,28,24,.28)",
           }}
@@ -107,7 +125,8 @@ export function MemberManageMenu({ member }: { member: ManageMember }) {
           >
             Remove access
           </button>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {mode === "edit" && (
