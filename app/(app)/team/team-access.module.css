@@ -142,6 +142,25 @@
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 20px 40px -30px rgba(0, 0, 0, 0.4);
 }
 
+/* Same orange mesh as the customer portal summary cards. */
+.performanceCard {
+  background: radial-gradient(60% 80% at 0 0, #e2a64b 0, #0000 70%), radial-gradient(50% 70% at 100% 100%, #f6c98a 0, #0000 70%), #b8642a;
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 16px 32px -20px rgba(30, 28, 24, 0.45);
+}
+.performanceCard .cardTitleText p,
+.performanceCard .taskMeta,
+.performanceCard .emptyNote { color: rgba(255, 255, 255, 0.85); }
+.performanceCard .cornerButton { background: rgba(255, 255, 255, 0.18); color: #fff; }
+.performanceCard .leaderRow { border-bottom-color: rgba(255, 255, 255, 0.2); }
+.performanceCard .leaderRow:last-child { border-bottom: none; }
+.performanceCard .rank { background: rgba(255, 255, 255, 0.18); color: #fff; border-color: transparent; }
+.performanceCard .rank1 { background: #fff; color: #b8642a; }
+.performanceCard .leaderBar { background: rgba(255, 255, 255, 0.25); }
+.performanceCard .leaderFill { background: #fff; }
+.performanceCard .grade { color: #fff; }
+
 .cardTitle {
   display: flex;
   align-items: flex-start;

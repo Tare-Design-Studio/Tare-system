@@ -291,7 +291,7 @@ export function TeamBoard({
 
         <div className={styles.sideStack}>
           {canSeePerformance && (
-          <div className={styles.card}>
+          <div className={`${styles.card} ${styles.performanceCard}`}>
             <div className={styles.cardTitle}>
               <div className={styles.cardTitleText}>
                 <h2 className="font-serif">Performance</h2>
