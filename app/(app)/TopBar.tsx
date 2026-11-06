@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { Avatar } from "@/components/atoms";
 import { signOut } from "@/app/(auth)/actions";
@@ -178,6 +178,17 @@ export function TopBar({ fullName, role, memberTags = [], capabilities = [] }: T
     return false;
   });
 
+  // Centre the active pill in the nav strip; the scroll clamps, so an item near
+  // either end scrolls the strip all the way to that end.
+  const navRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const nav = navRef.current;
+    const link = nav?.querySelector<HTMLElement>('[aria-current="page"]');
+    if (!nav || !link) return;
+    const n = nav.getBoundingClientRect(), l = link.getBoundingClientRect();
+    nav.scrollTo({ left: nav.scrollLeft + l.left - n.left - (n.width - l.width) / 2, behavior: "smooth" });
+  }, [pathname]);
+
   const initials = fullName.split(" ").map(w => w[0]).filter(Boolean).slice(0, 2).join("");
   const avatarTone = role === "owner" ? "forest" : role === "site_engineer" ? "amber" : "indigo";
   const roleLabel = role === "owner" ? "Principal" : role === "site_engineer" ? "Site Engineer" : "Team Member";
@@ -187,12 +198,18 @@ export function TopBar({ fullName, role, memberTags = [], capabilities = [] }: T
   })();
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, paddingBottom: 22, flexWrap: "wrap" }}>
+    <div style={{
+      display: "flex", alignItems: "center", gap: 12,
+      position: "sticky", top: 0, zIndex: 40,
+      padding: "12px 0", marginTop: -12, marginBottom: 10,
+      background: "color-mix(in srgb, var(--color-paper) 85%, transparent)",
+      backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",
+    }}>
 
       {/* Brand pill */}
       <div style={{
         display: "flex", alignItems: "center", gap: 10, padding: "8px 14px 8px 10px",
-        border: "1px solid var(--line-2)", borderRadius: 14,
+        border: "1px solid var(--line-2)", borderRadius: 999,
         background: "rgba(255,255,255,.4)", flexShrink: 0,
       }}>
         <img src="/tare-logo.png" alt="Tare Logo" style={{ width: 80, height: 35, borderRadius: 8, objectFit: "contain", flexShrink: 0 }} />
@@ -201,11 +218,12 @@ export function TopBar({ fullName, role, memberTags = [], capabilities = [] }: T
       </div>
 
       {/* Nav pills */}
-      <nav style={{
+      <nav ref={navRef} style={{
         display: "flex", alignItems: "center", gap: 2,
-        background: "var(--color-paper-light)", borderRadius: 14, padding: 4,
+        background: "var(--color-paper-light)", borderRadius: 999, padding: 4,
         boxShadow: "0 1px 0 #FFF inset, 0 2px 20px -10px rgba(30,28,24,.15)",
-        border: "1px solid rgba(30,28,24,.04)", flexShrink: 0, overflowX: "auto", maxWidth: "100%",
+        border: "1px solid var(--line-2)", flexShrink: 1, minWidth: 0, overflowX: "auto",
+        scrollbarWidth: "none",
       }}>
         {NAV.map(item => {
           const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
@@ -214,9 +232,10 @@ export function TopBar({ fullName, role, memberTags = [], capabilities = [] }: T
               key={item.href}
               href={item.href}
               title={item.label}
+              aria-current={active ? "page" : undefined}
               style={{
                 display: "flex", alignItems: "center", gap: 7,
-                padding: "9px 12px", borderRadius: 10,
+                padding: "9px 14px", borderRadius: 999,
                 background: active ? "var(--color-ink)" : "transparent",
                 color: active ? "#F3EFE7" : "var(--ink-2, #3A3833)",
                 fontSize: 13, fontWeight: 500, letterSpacing: -0.1,
@@ -238,7 +257,7 @@ export function TopBar({ fullName, role, memberTags = [], capabilities = [] }: T
 
       {/* Settings */}
       <Link href="/settings" style={{
-        position: "relative", width: 40, height: 40, borderRadius: 12,
+        position: "relative", width: 40, height: 40, borderRadius: "50%",
         background: "rgba(30,28,24,.04)", display: "inline-flex", alignItems: "center",
         justifyContent: "center", flexShrink: 0, border: "none", cursor: "pointer",
         color: "var(--color-ink)",

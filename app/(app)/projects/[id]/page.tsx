@@ -4,13 +4,12 @@ import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { serverNowMs } from "@/lib/serverNow";
 import { Chip } from "@/components/atoms";
-import ProjectTablesSection from "./ProjectTablesSection";
 import EditProjectModal from "./EditProjectModal";
 import TeamStreamCard from "./TeamStreamCard";
 import MilestonesCard from "./MilestonesCard";
 import ProgressTimelineClient from "./ProgressTimelineClient";
 import { UpdateComposer } from "@/components/updates/UpdateComposer";
-import { MaterialPlanCard } from "./MaterialPlanCard";
+import ProjectInfoPopover from "./ProjectInfoPopover";
 import styles from "./project-detail.module.css";
 
 type CheckpointStatus = "complete" | "in_progress" | "overdue" | "pending";
@@ -95,25 +94,6 @@ function formatDate(d: string | null): string {
   return new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
 
-function hoursVariance(estimated: number | null, actual: number): string | null {
-  if (!estimated || estimated === 0) return null;
-  const pct = ((actual - estimated) / estimated) * 100;
-  if (Math.abs(pct) < 5) return "On track";
-  return pct > 0 ? `+${pct.toFixed(0)}% over hours` : `${pct.toFixed(0)}% under hours`;
-}
-
-function varianceTone(
-  estimated: number | null,
-  actual: number,
-  threshold: number = 25
-): "mint" | "amber" | "rust" {
-  if (!estimated || estimated === 0) return "mint";
-  const pct = Math.abs(((actual - estimated) / estimated) * 100);
-  if (pct < 5) return "mint";
-  if (pct < threshold) return "amber";
-  return "rust";
-}
-
 type Ctx = { params: Promise<{ id: string }> };
 
 export default async function ProjectDetailPage({ params }: Ctx) {
@@ -175,28 +155,18 @@ export default async function ProjectDetailPage({ params }: Ctx) {
   const canProgressCheckpoints = userRole === "owner"
     || (await supabase.rpc("has_capability", { p_capability: "checkpoint:progress" })).data === true;
 
-  // Owner / PM can manage the planned material list
-  const canPlanMaterials = userRole === "owner"
-    || (await supabase.rpc("has_capability", { p_capability: "materials:plan", p_project_id: id })).data === true;
-
   // Assigned users (team members / site engineers) can post updates here
   const isAssigned = p.project_assignments.some(a => a.users?.id === user.id);
 
   // Scope: when the project is design-only, hide all execution / site-engineer cards
   const isExecution = p.scope !== "design_only";
 
-  const [hoursRes, expensesRes, paymentsRes, paymentRecordsRes, tablesRes, canEditTableRes, updatesRes, materialPlanRes, materialConsumptionRes, materialPresetsRes, mediaRes, projectTasksRes] = await Promise.all([
-    supabase
-      .from("work_log")
-      .select("hours")
-      .eq("project_id", id)
-      .eq("is_corrected", false)
-      .is("deleted_at", null),
-
+  const [expensesRes, paymentsRes, paymentRecordsRes, updatesRes, mediaRes, projectTasksRes, siteVisitsRes] = await Promise.all([
     supabase
       .from("expenses")
-      .select("id, amount, category, description, spent_on, approval_status, recorded_by, users!expenses_recorded_by_fkey(full_name)")
+      .select("id, amount, category, description, spent_on, approval_status, recorded_by, users!expenses_recorded_by_fkey!inner(full_name, role)")
       .eq("project_id", id)
+      .eq("users.role", "site_engineer")
       .eq("is_corrected", false)
       .is("deleted_at", null)
       .order("spent_on", { ascending: false })
@@ -215,20 +185,6 @@ export default async function ProjectDetailPage({ params }: Ctx) {
       .order("paid_on", { ascending: false }),
 
     supabase
-      .from("project_tables")
-      .select(`
-        id, name, table_owner_role, description, display_order,
-        project_table_columns ( id, name, column_kind, display_order, is_required ),
-        project_table_sections ( id, name, display_order ),
-        project_table_rows ( id, section_id, display_order, cells )
-      `)
-      .eq("project_id", id)
-      .is("deleted_at", null)
-      .order("display_order"),
-
-    supabase.rpc("has_capability", { p_capability: "project_table:edit" }),
-
-    supabase
       .from("updates")
       .select(`id, update_type, body, created_at, edited_at, author_id,
         users:author_id (id, full_name, role),
@@ -236,25 +192,6 @@ export default async function ProjectDetailPage({ params }: Ctx) {
       .eq("project_id", id)
       .order("created_at", { ascending: false })
       .limit(50),
-
-    supabase
-      .from("material_plan")
-      .select("id, material_name, unit, planned_quantity, planned_for_date, planned_for_week, created_at")
-      .eq("project_id", id)
-      .is("deleted_at", null)
-      .order("created_at", { ascending: true }),
-
-    supabase
-      .from("material_consumption")
-      .select("material_plan_id, quantity_used, is_corrected")
-      .eq("project_id", id)
-      .is("deleted_at", null),
-
-    supabase
-      .from("material_plan_presets")
-      .select("id, name, material_plan_preset_items(id, material_name, unit, planned_quantity, sequence_order)")
-      .is("deleted_at", null)
-      .order("name"),
 
     supabase
       .from("media_assets")
@@ -275,10 +212,24 @@ export default async function ProjectDetailPage({ params }: Ctx) {
       .eq("tenant_id", p.tenant_id)
       .order("created_at", { ascending: false })
       .limit(50),
+
+    // Site visit history — RLS (site_checkin_select) limits viewers without
+    // site_check_in:view_all to their own visits.
+    supabase
+      .from("site_check_ins")
+      .select("id, checked_in_at, checked_out_at, duration_minutes, users!user_id ( full_name, role )")
+      .eq("project_id", id)
+      .eq("source", "check_in")
+      .order("checked_in_at", { ascending: false })
+      .limit(30),
   ]);
 
-  const actualHours = (hoursRes.data ?? []).reduce((sum, r) => sum + Number(r.hours), 0);
   const expenses = expensesRes.data ?? [];
+  const siteVisits = siteVisitsRes.data ?? [];
+  const visitTime = (d: string) =>
+    new Date(d).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" });
+  const visitDate = (d: string) =>
+    new Date(d).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const paymentSchedule = (paymentsRes.data ?? []) as any[];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -328,33 +279,6 @@ export default async function ProjectDetailPage({ params }: Ctx) {
       };
     }),
   ].sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const projectTables = (tablesRes.data ?? []) as any[];
-  const canEditTable = !!canEditTableRes.data;
-
-  // Material plan rows with aggregated (non-corrected) consumption
-  const consumedByPlan = new Map<string, number>();
-  for (const c of (materialConsumptionRes.data ?? [])) {
-    if (c.material_plan_id && !c.is_corrected) {
-      consumedByPlan.set(c.material_plan_id, (consumedByPlan.get(c.material_plan_id) ?? 0) + Number(c.quantity_used));
-    }
-  }
-  const materialPlan = (materialPlanRes.data ?? []).map((m) => ({
-    id: m.id,
-    material_name: m.material_name,
-    unit: m.unit,
-    planned_quantity: Number(m.planned_quantity),
-    planned_for_date: m.planned_for_date,
-    consumed: consumedByPlan.get(m.id) ?? 0,
-  }));
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const materialPresets = ((materialPresetsRes.data ?? []) as any[]).map((p) => ({
-    id: p.id as string,
-    name: p.name as string,
-    itemCount: (p.material_plan_preset_items ?? []).length as number,
-  }));
-
   // Latest Files — site_image (site engineers) vs drawing (team members), signed
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mediaAssets = (mediaRes.data ?? []) as any[];
@@ -373,15 +297,6 @@ export default async function ProjectDetailPage({ params }: Ctx) {
   const [siteImages, drawingImages] = await Promise.all([signMedia("site_image"), signMedia("drawing")]);
   const siteImageCount = mediaAssets.filter((m) => m.kind === "site_image").length;
   const drawingCount = mediaAssets.filter((m) => m.kind === "drawing").length;
-
-  const siteEngineerAssignments = p.project_assignments.filter(
-    (a) => a.role_on_project === "site_engineer" || a.users?.role === "site_engineer"
-  );
-
-  const expenseTotals = expenses.reduce(
-    (acc, e) => { acc[e.approval_status] = (acc[e.approval_status] ?? 0) + Number(e.amount); return acc; },
-    {} as Record<string, number>
-  );
 
   const checkpoints = [...p.project_checkpoints].sort(
     (a, b) => a.sequence_order - b.sequence_order
@@ -410,8 +325,6 @@ export default async function ProjectDetailPage({ params }: Ctx) {
     marginBottom: 12,
   };
 
-  const variance = hoursVariance(p.estimated_work_hours, actualHours);
-  const vTone = varianceTone(p.estimated_work_hours, actualHours);
 
   const infoRows = ([
     { label: "Stage", value: capitalise(p.current_stage) },
@@ -420,7 +333,11 @@ export default async function ProjectDetailPage({ params }: Ctx) {
     { label: "Expected End", value: formatDate(p.expected_end_date) },
     canViewFinance ? {
       label: "Budget",
-      value: p.budget_total ? `₹${(p.budget_total / 100000).toFixed(1)} L` : null,
+      value: p.budget_total
+        ? p.budget_total >= 10000000
+          ? `₹${(p.budget_total / 10000000).toFixed(2)} Cr`
+          : `₹${(p.budget_total / 100000).toFixed(1)} L`
+        : null,
     } : null,
     { label: "Est. Hours", value: p.estimated_work_hours ? `${p.estimated_work_hours}h` : null },
     { label: "Est. Duration", value: p.estimated_duration_days ? `${p.estimated_duration_days} days` : null },
@@ -449,6 +366,7 @@ export default async function ProjectDetailPage({ params }: Ctx) {
             >
               {p.name}
             </h1>
+            {infoRows.length > 0 && <ProjectInfoPopover rows={infoRows} />}
             <Chip
               label={capitalise(p.status)}
               tone={statusTone(p.status)}
@@ -469,9 +387,6 @@ export default async function ProjectDetailPage({ params }: Ctx) {
               <span>
                 {formatDate(p.start_date)} – {formatDate(p.expected_end_date)}
               </span>
-            )}
-            {variance && (
-              <Chip label={variance} tone={vTone} size="sm" />
             )}
             <Chip
               label={p.current_stage === "execution" ? "Execution Stage" : "Design Stage"}
@@ -523,106 +438,131 @@ export default async function ProjectDetailPage({ params }: Ctx) {
         </div>
       )}
 
-      {/* Main 8/4 grid */}
-      <div className={styles.mainGrid}>
-        {/* Left column */}
-        <div className={styles.column}>
+      {/* Progress Timeline — full width */}
+      <div className={styles.card} style={{ marginBottom: 20 }}>
+        <ProgressTimelineClient
+          projectId={p.id}
+          checkpoints={checkpoints}
+          nowMs={serverNowMs()}
+          canEdit={canEditProject}
+          overallProgress={overallProgress}
+          labelStyle={sectionLabel}
+        />
+      </div>
 
-          {/* Pipelines */}
-          <div className={styles.card}>
-            <div className={styles.sectionTitle} style={{ marginBottom: 24 }}>
-              Project Pipelines
-            </div>
+      {/* Duration (left) · Payment Milestones (right) */}
+      <div className={canViewFinance ? styles.splitGrid : undefined} style={{ marginBottom: 20 }}>
+        <div className={styles.card}>
+          {/* Project Duration & Progress (B4 — replaces Hours Logged) */}
+          {(() => {
+            const startDate = p.start_date ? new Date(p.start_date) : null;
+            const endDate = p.expected_end_date ? new Date(p.expected_end_date) : null;
+            const today = new Date();
+            const msPerDay = 86400000;
 
-            {/* Checkpoint timeline */}
-            {checkpoints.length > 0 && (
-              <div style={{ marginBottom: 28 }}>
-                <div style={{ ...sectionLabel, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span>Progress Timeline</span>
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 10 }}>{overallProgress}% complete</span>
-                </div>
-                <ProgressTimelineClient checkpoints={checkpoints} nowMs={serverNowMs()} />
-              </div>
-            )}
+            const estimatedDays = startDate && endDate
+              ? Math.round((endDate.getTime() - startDate.getTime()) / msPerDay)
+              : p.estimated_duration_days ?? null;
 
-            {/* Project Duration & Progress (B4 — replaces Hours Logged) */}
-            {(() => {
-              const startDate = p.start_date ? new Date(p.start_date) : null;
-              const endDate = p.expected_end_date ? new Date(p.expected_end_date) : null;
-              const today = new Date();
-              const msPerDay = 86400000;
+            const daysCompleted = startDate
+              ? Math.max(0, Math.round((today.getTime() - startDate.getTime()) / msPerDay))
+              : null;
 
-              const estimatedDays = startDate && endDate
-                ? Math.round((endDate.getTime() - startDate.getTime()) / msPerDay)
-                : p.estimated_duration_days ?? null;
+            const completedCheckpoints = checkpoints.filter(c => c.completed_at || c.approved_at).length;
+            const progressPct = checkpoints.length > 0 ? completedCheckpoints / checkpoints.length : 0;
+            const projectedEnd = startDate && progressPct > 0 && daysCompleted
+              ? new Date(startDate.getTime() + (daysCompleted / progressPct) * msPerDay)
+              : null;
 
-              const daysCompleted = startDate
-                ? Math.max(0, Math.round((today.getTime() - startDate.getTime()) / msPerDay))
-                : null;
-
-              const completedCheckpoints = checkpoints.filter(c => c.completed_at || c.approved_at).length;
-              const progressPct = checkpoints.length > 0 ? completedCheckpoints / checkpoints.length : 0;
-              const projectedEnd = startDate && progressPct > 0 && daysCompleted
-                ? new Date(startDate.getTime() + (daysCompleted / progressPct) * msPerDay)
-                : null;
-
-              return (
-                <div style={{ marginBottom: 24 }}>
-                  <div style={sectionLabel}>Project Duration & Progress</div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10, marginBottom: 12 }}>
-                    <div style={{ padding: "10px 12px", background: "var(--color-bg)", borderRadius: 10 }}>
-                      <div style={{ fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 1 }}>Estimated</div>
-                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 18, fontWeight: 600, marginTop: 2 }}>
-                        {estimatedDays !== null ? `${estimatedDays} days` : "—"}
-                      </div>
-                    </div>
-                    <div style={{ padding: "10px 12px", background: "var(--color-bg)", borderRadius: 10 }}>
-                      <div style={{ fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 1 }}>Days Elapsed</div>
-                      <div style={{ fontFamily: "var(--font-mono)", fontSize: 18, fontWeight: 600, marginTop: 2, color: estimatedDays && daysCompleted && daysCompleted > estimatedDays ? "var(--color-rust)" : "inherit" }}>
-                        {daysCompleted !== null ? `${daysCompleted} days` : "—"}
-                      </div>
-                    </div>
-                    <div style={{ padding: "10px 12px", background: "var(--color-bg)", borderRadius: 10 }}>
-                      <div style={{ fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 1 }}>Projected End</div>
-                      <div style={{ fontFamily: "var(--font-mono)", fontSize: projectedEnd ? 14 : 18, fontWeight: 600, marginTop: 2, color: projectedEnd && endDate && projectedEnd > endDate ? "var(--color-rust)" : projectedEnd ? "var(--color-forest)" : "inherit" }}>
-                        {projectedEnd ? projectedEnd.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—"}
-                      </div>
+            return (
+              <div>
+                <div style={sectionLabel}>Project Duration & Progress</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10, marginBottom: 12 }}>
+                  <div style={{ padding: "10px 12px", background: "var(--color-bg)", borderRadius: 10 }}>
+                    <div style={{ fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 1 }}>Estimated</div>
+                    <div style={{ fontFamily: "var(--font-mono)", fontSize: 18, fontWeight: 600, marginTop: 2 }}>
+                      {estimatedDays !== null ? `${estimatedDays} days` : "—"}
                     </div>
                   </div>
-                  {/* Progress bar */}
-                  {estimatedDays && daysCompleted !== null ? (
-                    <div style={{ height: 8, background: "var(--color-line)", borderRadius: 99, position: "relative", overflow: "hidden" }}>
-                      <div style={{
-                        position: "absolute", left: 0, top: 0, bottom: 0,
-                        width: `${Math.min((daysCompleted / estimatedDays) * 100, 100)}%`,
-                        background: daysCompleted > estimatedDays ? "var(--color-rust)" : "var(--color-forest)",
-                        borderRadius: 99,
-                      }} />
+                  <div style={{ padding: "10px 12px", background: "var(--color-bg)", borderRadius: 10 }}>
+                    <div style={{ fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 1 }}>Days Elapsed</div>
+                    <div style={{ fontFamily: "var(--font-mono)", fontSize: 18, fontWeight: 600, marginTop: 2, color: estimatedDays && daysCompleted && daysCompleted > estimatedDays ? "var(--color-rust)" : "inherit" }}>
+                      {daysCompleted !== null ? `${daysCompleted} days` : "—"}
                     </div>
-                  ) : (
-                    <div style={{ fontSize: 12, color: "var(--color-tan)", fontStyle: "italic" }}>
-                      Set start and end dates to track duration
+                  </div>
+                  <div style={{ padding: "10px 12px", background: "var(--color-bg)", borderRadius: 10 }}>
+                    <div style={{ fontSize: 10, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 1 }}>Projected End</div>
+                    <div style={{ fontFamily: "var(--font-mono)", fontSize: projectedEnd ? 14 : 18, fontWeight: 600, marginTop: 2, color: projectedEnd && endDate && projectedEnd > endDate ? "var(--color-rust)" : projectedEnd ? "var(--color-forest)" : "inherit" }}>
+                      {projectedEnd ? projectedEnd.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—"}
                     </div>
-                  )}
+                  </div>
                 </div>
-              );
-            })()}
+                {/* Progress bar */}
+                {estimatedDays && daysCompleted !== null ? (
+                  <div style={{ height: 8, background: "var(--color-line)", borderRadius: 99, position: "relative", overflow: "hidden" }}>
+                    <div style={{
+                      position: "absolute", left: 0, top: 0, bottom: 0,
+                      width: `${Math.min((daysCompleted / estimatedDays) * 100, 100)}%`,
+                      background: daysCompleted > estimatedDays ? "var(--color-rust)" : "var(--color-forest)",
+                      borderRadius: 99,
+                    }} />
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: "var(--color-tan)", fontStyle: "italic" }}>
+                    Set start and end dates to track duration
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
-            {/* Payment Milestones */}
-            {canViewFinance && (
-              <MilestonesCard
-                key={paymentSchedule.map(m => `${m.schedule_id}:${m.amount_received}:${m.is_paid}`).join("|")}
-                projectId={id}
-                initialSchedule={paymentSchedule}
-                paymentRecords={paymentRecords}
-                canEdit={canViewFinance}
-              />
-            )}
-          </div>
-
-          {/* Team Stream — directly below Project Pipelines */}
+          {/* Site visit history — team members + site engineers */}
+          <div style={{ ...sectionLabel, marginTop: 24 }}>Site Visit History</div>
+          {siteVisits.length === 0 ? (
+            <div style={{ fontSize: 12, color: "var(--color-tan)", fontStyle: "italic" }}>No site visits yet.</div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 280, overflowY: "auto" }}>
+              {siteVisits.map((v) => {
+                const isEngineer = v.users?.role === "site_engineer";
+                const mins = v.duration_minutes;
+                return (
+                  <div key={v.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "10px 12px", background: "var(--color-bg)", borderRadius: 10 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        {v.users?.full_name ?? "—"}
+                        <Chip label={isEngineer ? "Site Engineer" : "Team Member"} tone={isEngineer ? "teal" : "indigo"} size="sm" />
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--color-tan)", marginTop: 2 }}>
+                        {visitDate(v.checked_in_at)} · {visitTime(v.checked_in_at)}{v.checked_out_at ? ` – ${visitTime(v.checked_out_at)}` : ""}
+                      </div>
+                    </div>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600, flexShrink: 0, color: v.checked_out_at ? "var(--color-ink)" : "var(--color-forest)" }}>
+                      {!v.checked_out_at ? "On site" : mins !== null ? `${Math.floor(mins / 60)}h ${mins % 60}m` : "—"}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        {canViewFinance && (
           <div className={styles.card}>
-            <TeamStreamCard assignments={p.project_assignments} updates={projectStream} projectId={id} currentUserId={user.id} />
+            <MilestonesCard
+              key={paymentSchedule.map(m => `${m.schedule_id}:${m.amount_received}:${m.is_paid}`).join("|")}
+              initialSchedule={paymentSchedule}
+              paymentRecords={paymentRecords}
+            />
+          </div>
+        )}
+      </div>
+
+      <div className={styles.mainGrid} style={{ paddingBottom: 40 }}>
+        {/* Left column */}
+        <div className={styles.column}>
+          <div className={`${styles.card} ${styles.streamCard}`}>
+            <div className={styles.streamCardInner}>
+              <TeamStreamCard assignments={p.project_assignments} updates={projectStream} projectId={id} currentUserId={user.id} />
+            </div>
           </div>
 
           {/* Post an update — assigned team members / site engineers */}
@@ -631,70 +571,50 @@ export default async function ProjectDetailPage({ params }: Ctx) {
               <UpdateComposer projectId={id} compact />
             </div>
           )}
-
-          {/* Material Plan */}
-          {isExecution && (materialPlan.length > 0 || canPlanMaterials) && (
-            <div className={styles.card}>
-              <MaterialPlanCard
-                projectId={id}
-                initialRows={materialPlan}
-                canEdit={canPlanMaterials}
-                presets={materialPresets}
-              />
-            </div>
-          )}
-
         </div>
 
         {/* Right sidebar */}
         <div className={styles.column}>
-
-
-
-          {/* Project info */}
-          <div className={styles.card}>
-            <div className={styles.cardHeading} style={{ marginBottom: 16 }}>
-              Project Info
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {infoRows.map((row) => (
-                <div
-                  key={row.label}
-                  className={styles.infoRow}
-                >
-                  <span style={{ color: "var(--color-tan)" }}>{row.label}</span>
-                  <span className={styles.infoValue}>{row.value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Expense Summary */}
+          {/* Expenses logged by site engineers */}
           {isExecution && (
           <div className={styles.card}>
-            <div className={styles.cardHeading} style={{ marginBottom: 16 }}>Expense Summary</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
-              <div style={{ padding: 12, background: "var(--color-bg)", borderRadius: 12 }}>
-                <div style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 1 }}>Approved</div>
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: 18, fontWeight: 600, marginTop: 4 }}>
-                  ₹{(expenseTotals["approved"] ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}
-                </div>
+            <div className={styles.cardHeading} style={{ marginBottom: 16 }}>Expenses</div>
+            {expenses.length === 0 ? (
+              <div style={{ fontSize: 12, color: "var(--color-tan)", fontStyle: "italic", marginBottom: 16 }}>
+                No expenses logged by site engineers yet.
               </div>
-              <div style={{ padding: 12, background: "var(--color-bg)", borderRadius: 12 }}>
-                <div style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 1 }}>Pending</div>
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: 18, fontWeight: 600, marginTop: 4, color: (expenseTotals["pending"] ?? 0) > 0 ? "var(--color-amber)" : "inherit" }}>
-                  ₹{(expenseTotals["pending"] ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}
-                </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 16 }}>
+                {expenses.map((e) => (
+                  <div key={e.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, padding: "10px 12px", background: "var(--color-bg)", borderRadius: 10 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, overflowWrap: "anywhere" }}>{e.description || capitalise(e.category)}</div>
+                      <div style={{ fontSize: 11, color: "var(--color-tan)", marginTop: 2 }}>
+                        {e.users?.full_name ?? "—"} · {formatDate(e.spent_on)}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
+                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, fontWeight: 600 }}>
+                        ₹{Number(e.amount).toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                      </span>
+                      <Chip
+                        label={capitalise(e.approval_status)}
+                        tone={e.approval_status === "approved" ? "forest" : e.approval_status === "rejected" ? "rust" : "amber"}
+                        size="sm"
+                      />
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
-            <Link href={`/projects/${id}/expenses`} style={{ display: "block", width: "100%", padding: "10px", borderRadius: 10, border: "1px solid var(--color-line)", fontSize: 12, fontWeight: 600, textAlign: "center", textDecoration: "none", color: "var(--color-ink)" }}>
-              View Detailed Breakdown
+            )}
+            <Link href={`/projects/${id}/expenses`} style={{ display: "block", width: "100%", padding: "10px", borderRadius: 999, border: "1px solid var(--color-line)", fontSize: 12, fontWeight: 600, textAlign: "center", textDecoration: "none", color: "var(--color-ink)" }}>
+              View All Expenses
             </Link>
           </div>
           )}
 
           {/* Latest Files */}
-          <div className={styles.card}>
+          <div className={`${styles.card} ${styles.fill}`}>
             <div className={styles.cardHeading} style={{ marginBottom: 16 }}>Latest Files</div>
             {([
               { label: "Site Images", images: siteImages, total: siteImageCount, empty: "No site images uploaded by site engineers yet." },
@@ -722,32 +642,19 @@ export default async function ProjectDetailPage({ params }: Ctx) {
               </div>
             ))}
             {p.drive_folder_url ? (
-              <a href={p.drive_folder_url} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", padding: "10px", borderRadius: 10, background: "var(--color-bg)", fontSize: 12, fontWeight: 600, textDecoration: "none", color: "var(--color-ink)" }}>
+              <a href={p.drive_folder_url} target="_blank" rel="noopener noreferrer" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", padding: "10px", borderRadius: 999, background: "var(--color-bg)", fontSize: 12, fontWeight: 600, textDecoration: "none", color: "var(--color-ink)" }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
                 Open Drive Folder
               </a>
             ) : (
-              <button disabled style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", padding: "10px", borderRadius: 10, background: "var(--color-bg)", fontSize: 12, fontWeight: 600, border: "none", color: "var(--color-tan)", cursor: "not-allowed" }}>
+              <button disabled style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", padding: "10px", borderRadius: 999, background: "var(--color-bg)", fontSize: 12, fontWeight: 600, border: "none", color: "var(--color-tan)", cursor: "not-allowed" }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
                 Open Drive Folder
               </button>
             )}
           </div>
-
         </div>
       </div>
-
-      {/* Execution Tables — full-width below the two-column grid (hidden when design-only) */}
-      {isExecution && (
-      <div style={{ paddingBottom: 40 }}>
-        <ProjectTablesSection
-          projectId={p.id}
-          initialTables={projectTables}
-          canEdit={canEditTable}
-          siteEngineers={siteEngineerAssignments}
-        />
-      </div>
-      )}
     </div>
   );
 }

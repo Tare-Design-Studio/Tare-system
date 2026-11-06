@@ -611,7 +611,7 @@ export default function EditProjectModal({
       <button
         onClick={openModal}
         style={{
-          padding: "9px 18px", borderRadius: 12, border: "1px solid var(--color-line)",
+          padding: "9px 18px", borderRadius: 999, border: "1px solid var(--color-line)",
           background: "transparent", fontSize: 13, fontWeight: 600, cursor: "pointer", color: "var(--color-ink)",
         }}
       >
@@ -623,7 +623,7 @@ export default function EditProjectModal({
           style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(27,26,23,.5)", backdropFilter: "blur(4px)", padding: 24 }}
           onClick={e => e.target === e.currentTarget && setOpen(false)}
         >
-          <div className="modal-mobile-full" style={{ background: "var(--color-paper-light)", borderRadius: 22, padding: 32, width: "100%", maxWidth: 580, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 32px 80px -20px rgba(27,26,23,.3)" }}>
+          <div className="modal-mobile-full" style={{ background: "var(--color-paper-light)", borderRadius: 28, padding: 32, width: "100%", maxWidth: 580, maxHeight: "90vh", overflowY: "auto", boxShadow: "0 32px 80px -20px rgba(27,26,23,.3)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
               <h2 className="font-serif" style={{ fontSize: 30, fontWeight: 400, margin: 0, letterSpacing: -0.5 }}>Edit Project</h2>
               <button onClick={() => setOpen(false)} style={{ width: 34, height: 34, borderRadius: 9, background: "var(--color-bg)", border: "none", cursor: "pointer", color: "var(--color-tan)", display: "flex", alignItems: "center", justifyContent: "center" }}>

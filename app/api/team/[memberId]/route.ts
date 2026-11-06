@@ -127,10 +127,12 @@ export async function GET(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { data: cap } = await supabase.rpc("has_capability", { p_capability: "office_attendance:view_all" });
-  if (!cap) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
   const { memberId } = await params;
+  // Own record is always readable (My Profile, 096); anyone else needs view_all.
+  if (memberId !== user.id) {
+    const { data: cap } = await supabase.rpc("has_capability", { p_capability: "office_attendance:view_all" });
+    if (!cap) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const { searchParams } = new URL(req.url);
   const range = searchParams.get("range") ?? "month";
   const start = rangeStart(range);
@@ -156,7 +158,7 @@ export async function GET(
 
   if (isSiteEngineer) {
     // Site engineers: same panels as team members minus drawing-centric performance.
-    const [checkInsRes, projectsRes, dailyTasksRes, memberTasksRes, attendanceRes, broadcastsRes] = await Promise.all([
+    const [checkInsRes, projectsRes, dailyTasksRes, memberTasksRes, attendanceRes] = await Promise.all([
       supabase
         .from("site_check_ins")
         .select("id, project_id, checked_in_at, checked_out_at, duration_minutes, gps_lat, gps_lng, within_geofence, projects:project_id(name)")
@@ -191,12 +193,6 @@ export async function GET(
         .gte("work_date", start)
         .lte("work_date", today)
         .order("work_date", { ascending: false }),
-
-      supabase
-        .from("owner_broadcast_recipients")
-        .select("broadcast_id, is_acknowledged, acknowledged_at, owner_broadcasts:broadcast_id(created_at, body)")
-        .eq("user_id", memberId)
-        .order("broadcast_id", { ascending: false }),
     ]);
 
     return NextResponse.json({
@@ -207,7 +203,6 @@ export async function GET(
       dailyTasks: dailyTasksRes.data ?? [],
       memberTasks: memberTasksRes.data ?? [],
       attendance: attendanceRes.data ?? [],
-      broadcasts: broadcastsRes.data ?? [],
     });
   }
 
@@ -230,7 +225,6 @@ export async function GET(
     memberTasksRes,
     attendanceRes,
     perfRes,
-    broadcastsRes,
   ] = await Promise.all([
     supabase
       .from("project_assignments")
@@ -265,12 +259,6 @@ export async function GET(
       .eq("user_id", memberId)
       .gte("period_month", perfMonthStart)
       .order("period_month", { ascending: false }),
-
-    supabase
-      .from("owner_broadcast_recipients")
-      .select("broadcast_id, is_acknowledged, acknowledged_at, owner_broadcasts:broadcast_id(created_at, body)")
-      .eq("user_id", memberId)
-      .order("broadcast_id", { ascending: false }),
   ]);
 
   return NextResponse.json({
@@ -281,6 +269,5 @@ export async function GET(
     memberTasks: memberTasksRes.data ?? [],
     attendance: attendanceRes.data ?? [],
     performance: perfRes.data ?? [],
-    broadcasts: broadcastsRes.data ?? [],
   });
 }

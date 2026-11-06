@@ -99,7 +99,7 @@ interface Props {
 
 const CARD_STYLE: React.CSSProperties = {
   background: "var(--color-paper-light)",
-  borderRadius: 22,
+  borderRadius: 28,
   padding: 24,
   border: "1px solid rgba(30,28,24,.04)",
   boxShadow: "0 1px 0 #FFF inset, 0 2px 8px -4px rgba(30,28,24,.06)",

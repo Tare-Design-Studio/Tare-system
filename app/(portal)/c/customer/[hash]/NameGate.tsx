@@ -36,7 +36,7 @@ export default function NameGate({ customerName }: { customerName: string }) {
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 28 }}>
       <div style={{
         background: "var(--paper)",
-        borderRadius: 20,
+        borderRadius: 26,
         boxShadow: "0 1px 0 #FFF inset, 0 8px 24px -16px rgba(30,28,24,.14)",
         border: "1px solid rgba(30,28,24,.04)",
         padding: 32,

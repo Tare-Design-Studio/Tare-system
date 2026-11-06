@@ -2,6 +2,8 @@
 
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { Icon } from "@/components/atoms";
+import { useDragReorder, reorderMilestone } from "./useDragReorder";
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
@@ -23,6 +25,7 @@ interface ScheduleRow {
   is_paid: boolean;
   triggered_at: string | null;
   deleted_at: string | null;
+  last_paid_on?: string | null;
 }
 
 interface PaymentRecord {
@@ -43,6 +46,8 @@ interface PaymentsCardProps {
   readonly?: boolean;
   /** design_only projects have no execution wing — it is not rendered at all. */
   scope?: "design_only" | "design_and_execution";
+  /** rail: one Part per wing at a time (A/B toggle), compact tiles in a sideways-scrolling row. */
+  layout?: "list" | "rail";
 }
 
 const WING_LABEL: Record<Wing, string> = {
@@ -103,7 +108,7 @@ function ModalShell({ title, onClose, children }: {
       display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
     }}>
       <div className="modal-mobile-full" style={{
-        background: "var(--color-paper)", borderRadius: 22,
+        background: "var(--color-paper)", borderRadius: 28,
         padding: "28px 28px 24px", width: "100%", maxWidth: 420,
         boxShadow: "0 20px 60px rgba(0,0,0,0.18)",
       }}>
@@ -815,10 +820,182 @@ function MilestoneRow({
   );
 }
 
+// ── Compact tile (rail layout) ───────────────────────────────────────────
+// Styled after the client portal's payment rail (PaymentSchedule.tsx): status
+// circle, zero-padded number, mono amount, one status line. Studio actions sit
+// underneath; in reorder mode they are hidden and the whole tile drags.
+
+const tileBtn: React.CSSProperties = {
+  fontSize: 11, padding: "4px 8px", borderRadius: 8,
+  border: "1px solid var(--color-line)", background: "none",
+  cursor: "pointer", color: "var(--color-tan)", lineHeight: 1.2,
+};
+
+function MilestoneTile({
+  row, readonly, displayNumber, reordering, dragging, dragProps,
+  onEdit, onDelete, onRecord,
+}: {
+  row: ScheduleRow;
+  readonly: boolean;
+  displayNumber: number;
+  reordering: boolean;
+  dragging: boolean;
+  dragProps?: Record<string, unknown> & { style?: React.CSSProperties };
+  onEdit: () => void;
+  onDelete: () => void;
+  onRecord: () => void;
+}) {
+  const status = payStatus(row);
+  const due = row.amount_due;
+  const got = row.amount_received;
+  const accent = status === "paid" ? "var(--color-mint)"
+    : status === "partial" ? "var(--color-amber)"
+    : status === "due" ? "var(--color-rust)" : "#D6CDBA";
+  const canEdit = !row.is_paid && !row.deleted_at;
+  const { style: dragStyle, ...dragRest } = dragProps ?? {};
+
+  return (
+    <div {...dragRest} style={{
+      flex: "0 0 auto", width: 210, scrollSnapAlign: "start",
+      background: "var(--color-paper)",
+      border: `1px solid ${dragging ? "var(--color-ink)" : status === "due" ? accent : "var(--color-line)"}`,
+      borderStyle: reordering && !dragging ? "dashed" : "solid",
+      borderRadius: 14, padding: "14px 14px 12px",
+      display: "flex", flexDirection: "column", gap: 8,
+      opacity: dragging ? 0.85 : 1,
+      boxShadow: dragging ? "0 12px 24px -12px rgba(30,28,24,.35)" : "none",
+      ...dragStyle,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{
+          width: 18, height: 18, borderRadius: "50%", flexShrink: 0,
+          background: status === "paid" ? accent : "#EDE7DB",
+          border: `2px solid ${accent}`,
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          {status === "paid" && (
+            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#F3EFE7" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          )}
+        </div>
+        <span style={{ fontSize: 11, color: "var(--color-tan)", fontFamily: "var(--font-mono)" }}>
+          {String(displayNumber).padStart(2, "0")}
+        </span>
+        {reordering && (
+          <span aria-hidden style={{ marginLeft: "auto", color: "var(--color-tan)", fontSize: 14, lineHeight: 1 }}>⠿</span>
+        )}
+      </div>
+
+      <div style={{
+        fontSize: 13, lineHeight: 1.3,
+        fontWeight: status === "pending" ? 400 : 600,
+        color: status === "pending" ? "var(--color-tan)" : "var(--color-ink)",
+      }}>
+        {row.milestone_name}
+      </div>
+
+      <div style={{ marginTop: "auto" }}>
+        <div style={{ fontSize: 15, fontWeight: 600, fontFamily: "var(--font-mono)" }}>{fmtAmount(due)}</div>
+        <div style={{
+          fontSize: 10, marginTop: 2, fontFamily: "var(--font-mono)",
+          color: status === "paid" ? "var(--color-mint)" : status === "partial" ? "var(--color-amber)"
+            : status === "due" ? "var(--color-rust)" : "var(--color-tan)",
+        }}>
+          {status === "paid"
+            ? `Paid${row.last_paid_on ? ` ${fmtDate(row.last_paid_on)}` : ""}`
+            : status === "partial"
+              ? `${fmtAmount(due - got)} remaining`
+              : `${status === "due" ? "Due now · " : "Due "}${fmtDate(row.due_date)}`}
+        </div>
+      </div>
+
+      {/* Normal view: Record only. Edit / ✕ appear once the Part's pencil is
+          on (reordering), alongside drag-to-reorder and + Add milestone. */}
+      {!readonly && !reordering && (
+        <div style={{ display: "flex", gap: 6, paddingTop: 8, borderTop: "1px solid var(--color-line)" }}>
+          <button type="button" onClick={onRecord} style={{
+            ...tileBtn, flex: 1, fontWeight: 600, border: "none",
+            background: row.is_paid ? "transparent" : "var(--color-forest)",
+            color: row.is_paid ? "var(--color-tan)" : "#FBF8F2",
+          }}>{row.is_paid ? "View Payments" : "Record"}</button>
+        </div>
+      )}
+      {!readonly && reordering && canEdit && (
+        // stopPropagation: the tile captures the pointer for dragging, which
+        // would otherwise retarget these clicks to the tile.
+        <div style={{ display: "flex", gap: 6, paddingTop: 8, borderTop: "1px solid var(--color-line)" }}>
+          <button type="button" title="Edit" onPointerDown={(e) => e.stopPropagation()} onClick={onEdit}
+            style={{ ...tileBtn, flex: 1, color: "var(--color-ink)" }}>Edit</button>
+          <button type="button" title="Delete" aria-label="Delete" onPointerDown={(e) => e.stopPropagation()} onClick={onDelete}
+            style={{ ...tileBtn, color: "var(--color-rust)", borderColor: "var(--color-rust)" }}>✕</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// One (wing, part) rail. Its own component so each rail owns a drag hook.
+function RailGroup({
+  projectId, wing, part, rows, version, readonly, reordering,
+  onEdit, onDelete, onRecord, onAdd, onReordered,
+}: {
+  projectId: string;
+  wing: Wing;
+  part: Part;
+  rows: ScheduleRow[];
+  version: unknown;
+  readonly: boolean;
+  reordering: boolean;
+  onEdit: (row: ScheduleRow) => void;
+  onDelete: (row: ScheduleRow) => void;
+  onRecord: (row: ScheduleRow) => void;
+  onAdd: () => void;
+  onReordered: () => void;
+}) {
+  const { ordered, dragging, itemProps } = useDragReorder({
+    group: `rail-${wing}-${part}`,
+    items: rows,
+    version,
+    getId: (r) => r.schedule_id,
+    commit: async (row, target) => {
+      const ok = await reorderMilestone(projectId, row, target);
+      if (ok) onReordered();
+      return ok;
+    },
+  });
+
+  return (
+    <div style={{ display: "flex", gap: 12, overflowX: "auto", scrollSnapType: reordering ? "none" : "x proximity", paddingBottom: 8 }}>
+      {ordered.map((row, idx) => (
+        <MilestoneTile
+          key={row.schedule_id}
+          row={row}
+          readonly={readonly}
+          displayNumber={idx + 1}
+          reordering={reordering}
+          dragging={dragging === row.schedule_id}
+          dragProps={reordering ? itemProps(idx) : undefined}
+          onEdit={() => onEdit(row)}
+          onDelete={() => onDelete(row)}
+          onRecord={() => onRecord(row)}
+        />
+      ))}
+      {reordering && (
+        <button type="button" onClick={onAdd} style={{
+          flex: "0 0 auto", width: 140, borderRadius: 14, border: "1px dashed var(--color-tan)",
+          background: "transparent", color: "var(--color-tan)", fontSize: 12, fontWeight: 600, cursor: "pointer",
+        }}>+ Add milestone</button>
+      )}
+    </div>
+  );
+}
+
 export default function PaymentsCard({
-  projectId, schedule, records, readonly = false, scope = "design_and_execution",
+  projectId, schedule, records, readonly = false, scope = "design_and_execution", layout = "list",
 }: PaymentsCardProps) {
   const router = useRouter();
+  const [railPart, setRailPart] = useState<Record<Wing, Part>>({ design: "a", execution: "a" });
+  // Rail only: which (wing, part) is in drag-to-reorder mode, toggled by the pencil.
+  const [reorderKey, setReorderKey] = useState<string | null>(null);
   const [modal, setModal] = useState<
     | { type: "add"; wing: Wing; part: Part; afterOrder?: number }
     | { type: "edit"; row: ScheduleRow }
@@ -948,12 +1125,28 @@ export default function PaymentsCard({
                     fontFamily: "'Instrument Serif', serif", fontSize: 17,
                     color: "var(--color-ink)",
                   }}>{WING_LABEL[wing]}</span>
+                  {layout === "rail" && (
+                    <span style={{ display: "inline-flex", border: "1px solid var(--color-line)", borderRadius: 99, padding: 2, marginLeft: 10, marginRight: "auto", alignSelf: "center" }}>
+                      {PARTS.map((pt) => {
+                        const on = railPart[wing] === pt;
+                        return (
+                          <button key={pt} type="button"
+                            onClick={() => setRailPart((m) => ({ ...m, [wing]: pt }))}
+                            style={{
+                              fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 99, border: "none", cursor: "pointer",
+                              background: on ? "var(--color-ink)" : "transparent",
+                              color: on ? "#FBF8F2" : "var(--color-tan)",
+                            }}>{PART_LABEL[pt]}</button>
+                        );
+                      })}
+                    </span>
+                  )}
                   <span style={{ fontSize: 11, color: "var(--color-tan)" }}>
                     {fmtAmount(wingReceived)} / {fmtAmount(wingDue)}
                   </span>
                 </div>
 
-                {PARTS.map((part) => {
+                {(layout === "rail" ? [railPart[wing]] : PARTS).map((part) => {
                   const group = rowsFor(wing, part);
                   if (group.length === 0 && readonly) return null;
 
@@ -967,7 +1160,26 @@ export default function PaymentsCard({
                         marginBottom: 8,
                       }}>
                         <span>{PART_LABEL[part]}</span>
-                        {!readonly && (
+                        {!readonly && layout === "rail" && (
+                          <button
+                            type="button"
+                            onClick={() => setReorderKey((k) => k === `${wing}-${part}` ? null : `${wing}-${part}`)}
+                            aria-label={reorderKey === `${wing}-${part}` ? "Done editing" : "Edit milestones"}
+                            title={reorderKey === `${wing}-${part}` ? "Done" : "Edit, delete, reorder or add milestones"}
+                            style={{
+                              display: "inline-flex", alignItems: "center", gap: 5,
+                              fontSize: 11, padding: reorderKey === `${wing}-${part}` ? "4px 10px" : 0,
+                              width: reorderKey === `${wing}-${part}` ? "auto" : 28, height: 28, justifyContent: "center",
+                              borderRadius: 8, cursor: "pointer", textTransform: "none", letterSpacing: 0,
+                              border: "1px solid var(--color-line)",
+                              background: reorderKey === `${wing}-${part}` ? "var(--color-ink)" : "none",
+                              color: reorderKey === `${wing}-${part}` ? "#FBF8F2" : "var(--color-tan)",
+                            }}
+                          >
+                            {reorderKey === `${wing}-${part}` ? "Done" : <Icon name="pencil" size={13} />}
+                          </button>
+                        )}
+                        {!readonly && layout !== "rail" && (
                           <button
                             type="button"
                             onClick={() => setModal({ type: "add", wing, part })}
@@ -989,6 +1201,21 @@ export default function PaymentsCard({
                         }}>
                           No milestones in {PART_LABEL[part]}.
                         </div>
+                      ) : layout === "rail" ? (
+                        <RailGroup
+                          projectId={projectId}
+                          wing={wing}
+                          part={part}
+                          rows={group}
+                          version={schedule}
+                          readonly={readonly}
+                          reordering={reorderKey === `${wing}-${part}`}
+                          onEdit={(row) => setModal({ type: "edit", row })}
+                          onDelete={softDelete}
+                          onRecord={(row) => setModal({ type: "record", row })}
+                          onAdd={() => setModal({ type: "add", wing, part })}
+                          onReordered={() => router.refresh()}
+                        />
                       ) : (
                         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                           {group.map((row, idx) => (

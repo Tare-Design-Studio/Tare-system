@@ -89,12 +89,12 @@ function Card({
       style={{
         background: dark ? "var(--color-slate-deep)" : "var(--color-paper-light)",
         color: dark ? "#F3EFE7" : "var(--color-ink)",
-        borderRadius: 22,
+        borderRadius: 28,
         padding: pad,
         boxShadow: dark
           ? "0 1px 0 rgba(255,255,255,.04) inset, 0 20px 40px -30px rgba(0,0,0,.4)"
-          : "0 1px 0 #FFF inset, 0 2px 0 rgba(30,28,24,.02), 0 20px 40px -30px rgba(30,28,24,.2)",
-        border: dark ? "1px solid rgba(255,255,255,.06)" : "1px solid rgba(30,28,24,.04)",
+          : "var(--shadow-card)",
+        border: dark ? "1px solid rgba(255,255,255,.06)" : "1px solid var(--line-2)",
         position: "relative",
         ...style,
       }}

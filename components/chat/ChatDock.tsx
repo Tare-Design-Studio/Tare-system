@@ -356,7 +356,7 @@ export default function ChatDock({ userId }: { userId: string }) {
         {!open && totalUnread > 0 && (
           <span style={{
             position: "absolute", top: -2, right: -2, minWidth: 20, height: 20,
-            padding: "0 5px", borderRadius: 20, background: "var(--color-rust)",
+            padding: "0 5px", borderRadius: 26, background: "var(--color-rust)",
             color: "#FFF", fontSize: 11, fontWeight: 700, lineHeight: "20px",
             textAlign: "center", fontVariantNumeric: "tabular-nums",
             boxShadow: "0 0 0 2px var(--color-paper)",
@@ -483,6 +483,7 @@ export default function ChatDock({ userId }: { userId: string }) {
                 peers.map((p) => (
                   <button
                     key={p.id}
+                    className="shape-free"
                     onClick={() => startDm(p.id)}
                     style={{
                       display: "flex", alignItems: "center", gap: 10, width: "100%",
@@ -508,6 +509,7 @@ export default function ChatDock({ userId }: { userId: string }) {
                 visible.map((c) => (
                   <button
                     key={c.conversation_id}
+                    className="shape-free"
                     onClick={() => openThread(c.conversation_id)}
                     style={{
                       display: "flex", alignItems: "center", gap: 10, width: "100%",

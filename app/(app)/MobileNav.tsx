@@ -46,7 +46,7 @@ export function MobileNav({ navItems }: MobileNavProps) {
         background: "rgba(251,248,242,.92)",
         backdropFilter: "blur(20px) saturate(180%)",
         WebkitBackdropFilter: "blur(20px) saturate(180%)",
-        borderTop: "1px solid rgba(30,28,24,.06)",
+        borderTop: "1px solid var(--line-2)",
         display: "flex",
         overflowX: "auto",
         scrollbarWidth: "none",
@@ -77,7 +77,7 @@ export function MobileNav({ navItems }: MobileNavProps) {
             >
               <div style={{
                 position: "relative",
-                width: 36, height: 36, borderRadius: 10,
+                width: 48, height: 32, borderRadius: 999,
                 background: active ? "rgba(45,106,79,.1)" : "transparent",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 transition: "background .15s",

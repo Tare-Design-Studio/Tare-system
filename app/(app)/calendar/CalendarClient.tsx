@@ -203,7 +203,7 @@ function EventModal({ event, onClose, onSaved }: {
         onClick={(e) => e.stopPropagation()}
         className="modal-mobile-full"
         style={{
-          background: "var(--color-paper-light)", borderRadius: 20,
+          background: "var(--color-paper-light)", borderRadius: 26,
           padding: "max(env(safe-area-inset-top), 24px) 24px 24px", width: 400, maxWidth: "100%",
           boxShadow: "0 20px 60px -20px rgba(27,26,23,.4)",
           display: "flex", flexDirection: "column", gap: 14,
@@ -326,9 +326,10 @@ function DayUpdatesCard({ day, month, year, updates }: {
                   </div>
                   <div style={{
                     padding: "12px 14px",
-                    borderRadius: 14,
-                    background: "rgba(234,227,211,.4)",
+                    borderRadius: 20,
+                    background: "var(--subcard-bg)",
                     border: "1px solid var(--color-line)",
+                    color: "var(--color-ink)",
                   }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, fontWeight: 600, letterSpacing: -0.1, color: "var(--color-ink)" }}>
                       <Icon name={iconName as any} size={14} color={typeColor} />
@@ -355,10 +356,6 @@ function DayUpdatesCard({ day, month, year, updates }: {
             })}
           </div>
         )}
-
-        <Link href="/updates" style={{ marginTop: 14, width: "100%", padding: "10px", borderRadius: 12, border: "1px dashed var(--color-line)", color: "var(--color-tan)", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "none", cursor: "pointer", textDecoration: "none", boxSizing: "border-box" }}>
-          View all updates
-        </Link>
       </div>
     </Card>
   );
@@ -520,14 +517,6 @@ export default function CalendarClient({ initial, initialUpdates, initialYear, i
       <PageHeader
         title="Calendar"
         subtitle={`${MONTH_NAMES[month]} ${year} · ${eventsThisMonth.length} events`}
-        actions={
-          <button
-            onClick={() => setAdding(true)}
-            style={{ padding: "8px 16px", borderRadius: 10, background: "var(--color-forest)", color: "#FFF", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}
-          >
-            <Icon name="plus" size={13} color="#FFF" /> Add Event
-          </button>
-        }
       />
 
       <div className="stack-mobile" style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 18, alignItems: "flex-start" }}>
@@ -739,9 +728,9 @@ export default function CalendarClient({ initial, initialUpdates, initialYear, i
                 )}
                 <button
                   onClick={() => setAdding(true)}
-                  style={{ marginTop: 14, width: "100%", padding: "10px", borderRadius: 12, border: "1px dashed var(--color-line)", color: "var(--color-tan)", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "none", cursor: "pointer" }}
+                  style={{ marginTop: 14, width: "100%", padding: "10px", borderRadius: 12, border: "none", color: "#FFF", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, background: "var(--color-forest)", cursor: "pointer" }}
                 >
-                  <Icon name="plus" size={13} /> Schedule event
+                  <Icon name="plus" size={13} color="#FFF" /> Schedule event
                 </button>
               </div>
             </Card>

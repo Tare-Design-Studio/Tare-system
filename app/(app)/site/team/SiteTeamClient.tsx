@@ -7,7 +7,7 @@ import { useClientNow } from "@/lib/useClientNow";
 import { formatTime, formatMinutes } from "../components/shared";
 import { AssignTaskModal } from "../../team/AssignTaskModal";
 import { MyProjectsCard } from "./MyProjectsCard";
-import { AssignEngineerCard } from "./AssignEngineerCard";
+import { AddToProjectModal } from "./AddToProjectModal";
 
 export type TrackedTask = {
   id: string;
@@ -96,8 +96,14 @@ const STATUS_LABELS: Record<string, string> = {
 const CARD: React.CSSProperties = {
   background: "var(--color-paper-light)",
   borderRadius: 18,
-  border: "1px solid rgba(30,28,24,.05)",
+  border: "1px solid var(--line-2)",
   boxShadow: "var(--shadow-card)",
+};
+
+const ROSTER_BTN: React.CSSProperties = {
+  padding: "10px 18px", fontSize: 13, fontWeight: 600, border: "none",
+  background: "var(--color-forest)", color: "#F3EFE7", cursor: "pointer",
+  fontFamily: "inherit", minHeight: 44,
 };
 
 const LABEL: React.CSSProperties = {
@@ -114,6 +120,7 @@ export default function SiteTeamClient({
   const router = useRouter();
   const [openId, setOpenId] = useState<string | null>(null);
   const [assignOpen, setAssignOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const [tab, setTab] = useState<"roster" | "updates" | "manage">("roster");
 
   // The server clock keeps the first paint deterministic; the client clock
@@ -186,7 +193,7 @@ export default function SiteTeamClient({
         {([
           ["roster", `Roster (${engineers.length})`],
           ["updates", `Updates (${updates.length})`],
-          ...(canAssignTask || canAssignToProject ? [["manage", "Manage"] as const] : []),
+          ...(canAssignToProject ? [["manage", "Manage"] as const] : []),
         ] as [typeof tab, string][]).map(([id, label]) => (
           <button key={id} type="button" onClick={() => setTab(id)} style={{
             padding: "9px 16px", borderRadius: 999, fontSize: 13, fontWeight: 500,
@@ -202,6 +209,16 @@ export default function SiteTeamClient({
 
       {tab === "roster" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          {(canAssignToProject || canAssignTask) && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {canAssignToProject && (
+                <button type="button" onClick={() => setAddOpen(true)} style={ROSTER_BTN}>+ Add to project</button>
+              )}
+              {canAssignTask && (
+                <button type="button" onClick={() => setAssignOpen(true)} style={{ ...ROSTER_BTN, background: "var(--color-ink)" }}>+ Assign task</button>
+              )}
+            </div>
+          )}
           {onSiteNow.length > 0 && (
             <Group title="On site now" engineers={onSiteNow} now={now}
               openId={openId} setOpenId={setOpenId} canViewProfiles={canViewProfiles} />
@@ -257,33 +274,15 @@ export default function SiteTeamClient({
               selfId={selfId}
             />
           )}
-          {canAssignTask && (
-            <div style={{ ...CARD, padding: 20 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Assign a task</div>
-              <div style={{ fontSize: 13, color: "var(--color-tan)", marginBottom: 14 }}>
-                Hand work to any site engineer. Naming a project sends the finished
-                task through review.
-              </div>
-              <button type="button" onClick={() => setAssignOpen(true)} style={{
-                padding: "10px 18px", borderRadius: 10, fontSize: 13, fontWeight: 600,
-                border: "none", background: "var(--color-forest)", color: "#F3EFE7",
-                cursor: "pointer", fontFamily: "inherit", minHeight: 44,
-              }}>
-                Assign task
-              </button>
-            </div>
-          )}
-          {canAssignToProject && engineers.length > 0 && (
-            <AssignEngineerCard
-              projects={projects}
-              engineers={engineers.map((e) => ({
-                id: e.id,
-                name: e.name,
-                projectIds: e.projects.map((p) => p.id),
-              }))}
-            />
-          )}
         </div>
+      )}
+
+      {addOpen && (
+        <AddToProjectModal
+          projects={projects}
+          engineers={engineers.map((e) => ({ id: e.id, name: e.name, projectIds: e.projects.map((p) => p.id) }))}
+          onClose={() => setAddOpen(false)}
+        />
       )}
 
       {assignOpen && (

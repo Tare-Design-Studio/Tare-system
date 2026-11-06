@@ -14,10 +14,10 @@ type Broadcast = {
 
 const C: React.CSSProperties = {
   background: "var(--color-paper-light)",
-  borderRadius: 22,
+  borderRadius: 28,
   padding: 24,
-  boxShadow: "0 1px 0 #FFF inset, 0 2px 0 rgba(30,28,24,.02), 0 20px 40px -30px rgba(30,28,24,.2)",
-  border: "1px solid rgba(30,28,24,.04)",
+  boxShadow: "var(--shadow-card)",
+  border: "1px solid var(--line-2)",
 };
 
 export default function BroadcastsCard({ broadcasts: initial }: { broadcasts: Broadcast[] }) {

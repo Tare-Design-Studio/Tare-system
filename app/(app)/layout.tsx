@@ -41,9 +41,9 @@ const ALL_NAV_DEFS: NavItemDef[] = [
 ];
 
 // The capability each office page gates on (see each page's own check).
+// Projects and Customers are deliberately absent: site engineers get their own
+// project's Details page only, and never customer data (migration 128).
 const OFFICE_TAB_CAPS: [OfficeTab, string][] = [
-  ["projects", "project:view_all"],
-  ["customers", "customer:view"],
   ["finance", "finance:view_dashboard"],
 ];
 
@@ -112,9 +112,17 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     OFFICE_TAB_CAPS.forEach(([tab], i) => {
       if (officeRes[i].data === true) officeTabs.push(tab);
     });
-    const assigned = (assignmentsRes.data ?? [])
-      .map(a => a.projects as unknown as ChromeProject)
-      .filter(Boolean);
+    // An engineer can hold more than one assignment row on a project (one per
+    // assignment role), so dedupe by project id — duplicates broke the
+    // selector's React keys.
+    const assigned = [
+      ...new Map(
+        (assignmentsRes.data ?? [])
+          .map(a => a.projects as unknown as ChromeProject)
+          .filter(Boolean)
+          .map(p => [p.id, p] as const),
+      ).values(),
+    ];
     // Prefer live work; fall back to everything assigned rather than handing
     // someone whose projects have all finished an empty selector.
     const active = assigned.filter(p => p.status === "active");
@@ -145,6 +153,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <Suspense fallback={null}>
             <SiteEngineerChrome
               fullName={profile?.full_name ?? ""}
+              userId={user.id}
               projects={engineerProjects}
               canSuperviseTeam={canSuperviseTeam}
               officeTabs={officeTabs}

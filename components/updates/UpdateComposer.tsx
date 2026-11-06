@@ -23,9 +23,13 @@ interface UpdateComposerProps {
   onPosted?: () => void;
   /** Compact layout for the mobile site-engineer dashboard. */
   compact?: boolean;
+  /** Green-mesh skin used on the site-engineer dashboard. */
+  green?: boolean;
 }
 
-export function UpdateComposer({ projectId, onPosted, compact = false }: UpdateComposerProps) {
+const GREEN_BG = "radial-gradient(60% 120% at 0 0,#3d8a65 0,#0000 70%),radial-gradient(50% 120% at 100% 100%,#8fe0b8 0,#0000 70%),#1e5b47";
+
+export function UpdateComposer({ projectId, onPosted, compact = false, green = false }: UpdateComposerProps) {
   const [updateType, setUpdateType] = useState<string>("note");
   const [body, setBody] = useState("");
   const [images, setImages] = useState<PendingImage[]>([]);
@@ -112,6 +116,10 @@ export function UpdateComposer({ projectId, onPosted, compact = false }: UpdateC
   };
 
   const thumb = compact ? 56 : 64;
+  // Colours swap on the green skin; layout is identical.
+  const c = green
+    ? { field: "rgba(255,255,255,.95)", fieldBorder: "transparent", chip: "rgba(255,255,255,.14)", chipBorder: "rgba(255,255,255,.4)", chipText: "#FFF", chipOn: "#FFF", chipOnText: "#1e5b47", postBg: "#FFF", postText: "#1e5b47", err: "#FFD6CC" }
+    : { field: "var(--bg-2)", fieldBorder: "var(--color-line)", chip: "var(--bg-2)", chipBorder: "var(--color-line)", chipText: "var(--color-ink)", chipOn: "var(--color-forest)", chipOnText: "#FFF", postBg: "var(--color-ink)", postText: "#F3EFE7", err: "var(--color-rust)" };
 
   return (
     <div
@@ -119,11 +127,12 @@ export function UpdateComposer({ projectId, onPosted, compact = false }: UpdateC
       // which mismatches this parent's children — suppress the benign warning.
       suppressHydrationWarning
       style={{
-        padding: compact ? 14 : 18,
-        borderRadius: 16,
-        background: "var(--color-paper-light)",
-        boxShadow: "0 1px 0 #FFF inset",
-        border: "1px solid var(--color-line)",
+        padding: compact ? 14 : green ? 22 : 18,
+        borderRadius: green ? 28 : 16,
+        background: green ? GREEN_BG : "var(--color-paper-light)",
+        color: green ? "#FFF" : undefined,
+        boxShadow: green ? "0 20px 40px -24px rgba(15,53,39,.6)" : "0 1px 0 #FFF inset",
+        border: green ? "none" : "1px solid var(--color-line)",
         display: "flex",
         flexDirection: "column",
         gap: 10,
@@ -156,7 +165,8 @@ export function UpdateComposer({ projectId, onPosted, compact = false }: UpdateC
           </select>
         </div>
       ) : (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          {green && <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 22, marginRight: "auto" }}>Post update</div>}
           {UPDATE_TYPES.map((t) => (
             <button
               key={t.id}
@@ -166,9 +176,9 @@ export function UpdateComposer({ projectId, onPosted, compact = false }: UpdateC
                 borderRadius: 8,
                 fontSize: 12,
                 fontWeight: 600,
-                border: "1px solid var(--color-line)",
-                background: updateType === t.id ? "var(--color-forest)" : "var(--bg-2)",
-                color: updateType === t.id ? "#FFF" : "var(--color-ink)",
+                border: `1px solid ${updateType === t.id && green ? c.chipOn : c.chipBorder}`,
+                background: updateType === t.id ? c.chipOn : c.chip,
+                color: updateType === t.id ? c.chipOnText : c.chipText,
                 cursor: "pointer",
               }}
             >
@@ -191,8 +201,9 @@ export function UpdateComposer({ projectId, onPosted, compact = false }: UpdateC
           width: "100%",
           padding: "10px 12px",
           borderRadius: 10,
-          border: "1px solid var(--color-line)",
-          background: "var(--bg-2)",
+          border: `1px solid ${c.fieldBorder}`,
+          background: c.field,
+          color: "var(--color-ink)",
           fontSize: 13,
           fontFamily: "inherit",
           outline: "none",
@@ -278,7 +289,7 @@ export function UpdateComposer({ projectId, onPosted, compact = false }: UpdateC
         </div>
       )}
 
-      {error && <div style={{ color: "var(--color-rust)", fontSize: 12 }}>{error}</div>}
+      {error && <div style={{ color: c.err, fontSize: 12 }}>{error}</div>}
 
       <div style={{ display: "flex", gap: 8 }}>
         <input
@@ -295,11 +306,11 @@ export function UpdateComposer({ projectId, onPosted, compact = false }: UpdateC
           style={{
             padding: "9px 14px",
             borderRadius: 10,
-            border: "1px solid var(--color-line)",
-            background: "var(--bg-2)",
+            border: `1px solid ${c.chipBorder}`,
+            background: c.chip,
             fontSize: 13,
             fontWeight: 600,
-            color: "var(--color-ink)",
+            color: c.chipText,
             cursor: images.length >= 10 ? "default" : "pointer",
             opacity: images.length >= 10 ? 0.5 : 1,
           }}
@@ -313,8 +324,8 @@ export function UpdateComposer({ projectId, onPosted, compact = false }: UpdateC
             flex: 1,
             padding: "9px 14px",
             borderRadius: 10,
-            background: "var(--color-ink)",
-            color: "#F3EFE7",
+            background: c.postBg,
+            color: c.postText,
             fontSize: 13,
             fontWeight: 700,
             border: "none",

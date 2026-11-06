@@ -285,7 +285,7 @@ export default function NewProjectModal() {
             className="modal-mobile-full"
             style={{
               background: "var(--color-paper-light)",
-              borderRadius: 22,
+              borderRadius: 28,
               padding: "32px",
               width: "100%",
               maxWidth: 560,

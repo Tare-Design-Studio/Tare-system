@@ -83,7 +83,7 @@ export default async function TeamPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = supabase as any;
   // Fetch team members, broadcasts, daily tasks, and attendance in parallel
-  const [membersRes, broadcastsRes, dailyTasksRes, attendanceRes, memberTasksRes, tagRowsRes, siteCheckInsRes, projectAssignmentsRes, assignableProjectsRes] = await Promise.all([
+  const [membersRes, broadcastsRes, dailyTasksRes, attendanceRes, memberTasksRes, tagRowsRes, siteCheckInsRes, assignableProjectsRes, teamAssignmentsRes, kpiRes] = await Promise.all([
     // Pay and personal details are selected only for a manager. A coordinator's
     // response body must not carry salary_inr at all — hiding it in the client
     // would still ship it over the wire. Two literal selects rather than one
@@ -158,12 +158,6 @@ export default async function TeamPage() {
         .gte("checked_in_at", `${currentMonthStart}T00:00:00.000Z`)
       : Promise.resolve({ data: null, error: null }),
 
-    // Project → assigned members, for broadcast-by-project targeting (owner compose).
-    canBroadcast
-      ? db
-        .from("project_assignments")
-        .select("user_id, projects:project_id(id, name, status)")
-      : Promise.resolve({ data: null, error: null }),
 
     // Active projects, used by BOTH the "add to a project" panel and the assign-task
     // modal's project select. RLS (013 + 089's category restriction) already
@@ -176,6 +170,21 @@ export default async function TeamPage() {
         .is("deleted_at", null)
         .not("status", "in", "(completed,cancelled)")
         .order("name")
+      : Promise.resolve({ data: null, error: null }),
+
+    // Current project teams, for the "Set project teams" popover.
+    canAssignToProject
+      ? db
+        .from("project_assignments")
+        .select("id, project_id, user_id")
+      : Promise.resolve({ data: null, error: null }),
+
+    // Monthly KPI score — same source as /performance, so points match there.
+    canManage
+      ? supabase
+        .from("v_kpi_scores")
+        .select("user_id, overall_kpi_score")
+        .eq("period_month", currentMonthStart)
       : Promise.resolve({ data: null, error: null }),
   ]);
 
@@ -283,61 +292,22 @@ export default async function TeamPage() {
     siteCheckInsByUser.set(row.user_id, (siteCheckInsByUser.get(row.user_id) ?? 0) + 1);
   }
 
-  // Group project assignments → { id, name, memberIds[] } for broadcast targeting.
-  // Self (owner) is excluded so the recipient list matches the compose pills.
-  type AssignmentRow = { user_id: string; projects: { id: string; name: string; status: string } | null };
-  const projectMembersMap = new Map<string, { id: string; name: string; memberIds: string[] }>();
-  for (const row of (projectAssignmentsRes.data ?? []) as AssignmentRow[]) {
-    const p = row.projects;
-    if (!p || p.status === "completed" || row.user_id === user.id) continue;
-    const existing = projectMembersMap.get(p.id) ?? { id: p.id, name: p.name, memberIds: [] };
-    if (!existing.memberIds.includes(row.user_id)) existing.memberIds.push(row.user_id);
-    projectMembersMap.set(p.id, existing);
-  }
-  const broadcastProjects = [...projectMembersMap.values()]
-    .filter((p) => p.memberIds.length > 0)
-    .sort((a, b) => a.name.localeCompare(b.name));
-
   const assignableProjects = (assignableProjectsRes.data ?? []) as { id: string; name: string }[];
+  const projectAssignments = ((teamAssignmentsRes.data ?? []) as { id: string; project_id: string; user_id: string }[])
+    .map((a) => ({ id: a.id, projectId: a.project_id, userId: a.user_id }));
 
-  // ── Derived scores ──────────────────────────────────────────────────────
-  // This deployment has NOT ported v_kpi_scores (upstream 087) or login_streaks
-  // (088), so the score is computed here from what migrations 083/084 do give
-  // us: task quality + on-time delivery, blended with attendance consistency.
-  // Nothing is fabricated — a member with no completed tasks scores on
-  // consistency alone.
+  // ── Scores ──────────────────────────────────────────────────────────────
+  // Points come from v_kpi_scores for the current month — the same figures the
+  // /performance leaderboard shows. No row yet scores 0.
   const ownerRow = rows.find((m) => m.role === "owner");
   const nonOwnerRows = rows.filter((m) => m.role !== "owner");
+  const kpiByUser = new Map(
+    ((kpiRes.data ?? []) as { user_id: string; overall_kpi_score: number | null }[])
+      .map((k) => [k.user_id, Number(k.overall_kpi_score ?? 0)]),
+  );
 
-  // Consistency (0–100): presence + check-ins, capped. Office-based only — a
-  // member working from site simply has no attendance rows and isn't penalised.
-  function consistencyScore(id: string): number {
-    const att = attendanceByUser.get(id);
-    const checkIns = siteCheckInsByUser.get(id) ?? 0;
-    const days = att?.days ?? 0;
-    const raw = days * 4 + Math.round((att?.total_minutes ?? 0) / 60) + checkIns * 2;
-    return Math.max(0, Math.min(100, raw));
-  }
-
-  // Delivery (0–100) from completed work: volume credit, on-time bonus, and
-  // penalties for owner-flagged revisions and errors. Mirrors the weighting in
-  // v_task_performance_monthly (084).
-  function deliveryScore(id: string): number | null {
-    const t = tasksByUser.get(id);
-    if (!t || t.completedCount === 0) return null;
-    const volume = Math.min(60, t.completedCount * 6);
-    const onTime = t.onTimePct != null ? Math.round((t.onTimePct / 100) * 30) : 20;
-    const penalty = (t.errorCount ?? 0) * 8 + (t.revisionCount ?? 0) * 4;
-    return Math.max(0, Math.min(100, volume + onTime + 10 - penalty));
-  }
-
-  // No completed work scores as delivery 0, not "delivery omitted" — falling back
-  // to bare consistency let a member with zero tasks reach 100 (attendance alone
-  // saturates consistencyScore) and outrank everyone who actually delivered.
   function memberScore(id: string): number {
-    const consistency = consistencyScore(id);
-    const delivery = deliveryScore(id) ?? 0;
-    return Math.max(0, Math.min(100, Math.round(delivery * 0.85 + consistency * 0.15)));
+    return Math.round(kpiByUser.get(id) ?? 0);
   }
 
   const emptyMetrics: MemberTaskMetrics = {
@@ -470,30 +440,31 @@ export default async function TeamPage() {
         canSeePerformance={!!canManage}
         canAssignToProject={canAssignToProject}
         projects={assignableProjects}
+        projectAssignments={projectAssignments}
         currentUserId={user.id}
         nowMs={serverNowMs()}
-      >
-        <div className={styles.card}>
-          <div className={styles.cardTitle}>
-            <div className={styles.cardTitleText}>
-              <h2 className="font-serif">Broadcasts</h2>
-              <p>{canBroadcast ? "Compose & latest update" : "Latest owner update"}</p>
+        broadcast={
+          <div className={styles.card}>
+            <div className={styles.cardTitle}>
+              <div className={styles.cardTitleText}>
+                <h2 className="font-serif">Broadcasts</h2>
+                <p>{canBroadcast ? "Compose & latest update" : "Latest owner update"}</p>
+              </div>
+              <Link href="/broadcasts" className={styles.cornerButton} aria-label="Open broadcasts">
+                <Icon name="arrowUR" size={15} />
+              </Link>
             </div>
-            <Link href="/broadcasts" className={styles.cornerButton} aria-label="Open broadcasts">
-              <Icon name="arrowUR" size={15} />
-            </Link>
+            <BroadcastsPanel
+              broadcasts={broadcasts as Parameters<typeof BroadcastsPanel>[0]["broadcasts"]}
+              teamMembers={rows.filter((m) => m.id !== user.id).map((m) => ({ id: m.id, full_name: m.full_name, role: m.role }))}
+              canCompose={!!canBroadcast}
+              currentUserId={user.id}
+              refreshLimit={1}
+              nowMs={serverNowMs()}
+            />
           </div>
-          <BroadcastsPanel
-            broadcasts={broadcasts as Parameters<typeof BroadcastsPanel>[0]["broadcasts"]}
-            teamMembers={rows.filter((m) => m.id !== user.id).map((m) => ({ id: m.id, full_name: m.full_name }))}
-            projects={broadcastProjects}
-            canCompose={!!canBroadcast}
-            currentUserId={user.id}
-            refreshLimit={1}
-            nowMs={serverNowMs()}
-          />
-        </div>
-
+        }
+      >
         {/* The owner's own daily log does not belong on the board they use to
             watch everyone else — their tasks live on /tasks. Members keep it:
             it is where they self-report the day. */}

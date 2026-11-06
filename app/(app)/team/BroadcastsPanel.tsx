@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Chip } from "@/components/atoms";
-import VoiceRecorder from "@/components/broadcasts/VoiceRecorder";
 import VoiceNote from "@/components/broadcasts/VoiceNote";
 
 type Recipient = {
@@ -22,13 +21,11 @@ type Broadcast = {
   owner_broadcast_recipients: Recipient[];
 };
 
-type TeamMember = { id: string; full_name: string };
-type BroadcastProject = { id: string; name: string; memberIds: string[] };
+type TeamMember = { id: string; full_name: string; role: string };
 
 interface Props {
   broadcasts: Broadcast[];
   teamMembers: TeamMember[];
-  projects?: BroadcastProject[];
   canCompose: boolean;
   currentUserId: string;
   refreshLimit?: number;
@@ -47,7 +44,7 @@ function timeAgo(iso: string, nowMs: number) {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-export function BroadcastsPanel({ broadcasts: initial, teamMembers, projects = [], canCompose, currentUserId, refreshLimit = 10, nowMs }: Props) {
+export function BroadcastsPanel({ broadcasts: initial, teamMembers, canCompose, currentUserId, refreshLimit = 10, nowMs }: Props) {
   const [broadcasts, setBroadcasts] = useState(initial);
   const [body, setBody] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
@@ -57,6 +54,7 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, projects = [
   const [editDraft, setEditDraft] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   const [namesOpen, setNamesOpen] = useState(false);
+  const [audience, setAudience] = useState<"team" | "site" | "specific" | null>(null);
   const namesRef = useRef<HTMLDivElement>(null);
 
   // Close the names dropdown on outside click / Escape.
@@ -102,22 +100,24 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, projects = [
     setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   }
 
-  // Picking a project preselects only its assigned members (that exist in the pill
-  // list), so the owner can broadcast straight to a project team.
-  function selectProject(projectId: string) {
-    if (!projectId) { setSelected([]); return; }
-    const proj = projects.find(p => p.id === projectId);
-    if (!proj) return;
-    const known = new Set(teamMembers.map(m => m.id));
-    setSelected(proj.memberIds.filter(id => known.has(id)));
-  }
-
-  async function refreshList() {
-    const listRes = await fetch(`/api/broadcasts?limit=${refreshLimit}`);
-    if (listRes.ok) {
-      const { broadcasts: fresh } = await listRes.json();
-      setBroadcasts(fresh);
+  // Audience pills: the two role groups select everyone in that role; "Select
+  // specific" opens the name picker for a hand-picked list.
+  function pickAudience(next: "team" | "site" | "specific") {
+    if (audience === next) {
+      setAudience(null);
+      setSelected([]);
+      setNamesOpen(false);
+      return;
     }
+    setAudience(next);
+    if (next === "specific") {
+      setSelected([]);
+      setNamesOpen(true);
+      return;
+    }
+    setNamesOpen(false);
+    const role = next === "site" ? "site_engineer" : "team_member";
+    setSelected(teamMembers.filter(m => m.role === role).map(m => m.id));
   }
 
   async function sendBroadcast() {
@@ -132,6 +132,7 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, projects = [
       setSent(true);
       setBody("");
       setSelected([]);
+      setAudience(null);
       setTimeout(() => setSent(false), 3000);
       // Refresh list
       const listRes = await fetch(`/api/broadcasts?limit=${refreshLimit}`);
@@ -161,8 +162,8 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, projects = [
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {/* Compose (Owner only) */}
       {canCompose && (
-        <div style={{ padding: "14px", borderRadius: 12, background: "#cce5e0", display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 1 }}>Compose Broadcast</div>
+        <div style={{ padding: "14px", borderRadius: 12, background: "linear-gradient(135deg, var(--color-forest) 0%, var(--color-teal) 100%)", display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ fontSize: 11, color: "rgba(243,239,231,.8)", textTransform: "uppercase", letterSpacing: 1 }}>Compose Broadcast</div>
           <textarea
             value={body}
             onChange={e => setBody(e.target.value)}
@@ -174,41 +175,32 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, projects = [
               resize: "none", lineHeight: 1.5, boxSizing: "border-box", color: "#000",
             }}
           />
-          {projects.length > 0 && (
-            <select
-              defaultValue=""
-              onChange={e => selectProject(e.target.value)}
-              style={{
-                width: "100%", padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-line)",
-                background: "var(--color-paper-light)", fontSize: 12, fontFamily: "inherit", color: "#000",
-              }}
-            >
-              <option value="">Send to a project team…</option>
-              {projects.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-          )}
-          {/* Recipients dropdown — multi-select by name instead of a long pill row */}
           <div ref={namesRef} style={{ position: "relative" }}>
-            <button
-              type="button"
-              onClick={() => setNamesOpen(v => !v)}
-              style={{
-                width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
-                padding: "7px 10px", borderRadius: 8, border: "1px solid var(--color-line)",
-                background: "var(--color-paper-light)", fontSize: 12, fontFamily: "inherit", color: "#000", cursor: "pointer",
-              }}
-            >
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {selected.length === 0
-                  ? "Select recipients…"
-                  : selected.length === teamMembers.length
-                    ? "Everyone"
-                    : `${selected.length} selected`}
-              </span>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
-            </button>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {([
+                { key: "team" as const, label: "Team members" },
+                { key: "site" as const, label: "Site engineers" },
+                { key: "specific" as const, label: audience === "specific" && selected.length > 0 ? `Select specific · ${selected.length}` : "Select specific" },
+              ]).map(o => {
+                const on = audience === o.key;
+                return (
+                  <button
+                    key={o.key}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => o.key === "specific" && on ? setNamesOpen(v => !v) : pickAudience(o.key)}
+                    style={{
+                      padding: "7px 13px", borderRadius: 999, fontSize: 12, fontWeight: 600, fontFamily: "inherit", cursor: "pointer",
+                      border: on ? "1px solid var(--color-ink)" : "1px solid var(--color-line)",
+                      background: on ? "var(--color-ink)" : "var(--color-paper-light)",
+                      color: on ? "#F3EFE7" : "#000",
+                    }}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
             {namesOpen && (
               <div
                 style={{
@@ -222,7 +214,7 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, projects = [
                   type="button"
                   onClick={() => setSelected(selected.length === teamMembers.length ? [] : teamMembers.map(m => m.id))}
                   style={{
-                    display: "block", width: "100%", textAlign: "left", padding: "7px 8px", borderRadius: 7,
+                    display: "block", width: "100%", textAlign: "left", padding: "7px 10px", borderRadius: 999,
                     border: "none", background: "transparent", fontSize: 12, fontWeight: 600, fontFamily: "inherit",
                     color: "var(--color-forest)", cursor: "pointer",
                   }}
@@ -238,7 +230,7 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, projects = [
                       onClick={() => toggleMember(m.id)}
                       style={{
                         display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left",
-                        padding: "7px 8px", borderRadius: 7, border: "none", background: "transparent",
+                        padding: "7px 10px", borderRadius: 999, border: "none", background: "transparent",
                         fontSize: 12, fontFamily: "inherit", color: "#000", cursor: "pointer",
                       }}
                     >
@@ -261,20 +253,15 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, projects = [
             onClick={sendBroadcast}
             disabled={sending || !body.trim() || selected.length === 0}
             style={{
-              alignSelf: "flex-start", padding: "7px 14px", borderRadius: 9, background: "var(--color-ink)",
+              alignSelf: "flex-start", padding: "7px 16px", borderRadius: 999, background: "var(--color-ink)",
               color: "#F3EFE7", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer",
               opacity: (sending || !body.trim() || selected.length === 0) ? 0.5 : 1,
             }}
           >
             {sending ? "Sending…" : "Send Broadcast"}
           </button>
-          {sent && <div style={{ fontSize: 12, color: "var(--color-forest)" }}>Broadcast sent.</div>}
+          {sent && <div style={{ fontSize: 12, color: "#F3EFE7" }}>Broadcast sent.</div>}
 
-          {/* Voice broadcast — separate send path (multipart), so it does not
-              share the text composer's recipient selection. */}
-          <div style={{ borderTop: "1px solid var(--color-line)", paddingTop: 12, marginTop: 4 }}>
-            <VoiceRecorder onSent={refreshList} />
-          </div>
         </div>
       )}
 
@@ -287,7 +274,7 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, projects = [
               <div style={{ fontSize: 13, marginBottom: 8 }}>{b.body}</div>
               <button
                 onClick={() => ack(b.id)}
-                style={{ padding: "10px 16px", minHeight: 44, borderRadius: 7, background: "var(--color-ink)", color: "#F3EFE7", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer" }}
+                style={{ padding: "10px 18px", minHeight: 44, borderRadius: 999, background: "var(--color-ink)", color: "#F3EFE7", fontSize: 11, fontWeight: 600, border: "none", cursor: "pointer" }}
               >
                 Acknowledge
               </button>
@@ -325,14 +312,14 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, projects = [
                     <button
                       onClick={() => setEditingId(null)}
                       disabled={savingEdit}
-                      style={{ padding: "4px 10px", borderRadius: 7, border: "1px solid var(--color-line)", background: "transparent", fontSize: 11, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}
+                      style={{ padding: "4px 12px", borderRadius: 999, border: "1px solid var(--color-line)", background: "transparent", fontSize: 11, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}
                     >
                       Cancel
                     </button>
                     <button
                       onClick={() => saveEdit(b.id)}
                       disabled={savingEdit}
-                      style={{ padding: "4px 10px", borderRadius: 7, border: "none", background: "var(--color-ink)", color: "#F3EFE7", fontSize: 11, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}
+                      style={{ padding: "4px 12px", borderRadius: 999, border: "none", background: "var(--color-ink)", color: "#F3EFE7", fontSize: 11, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}
                     >
                       {savingEdit ? "…" : "Save"}
                     </button>
@@ -349,7 +336,7 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, projects = [
                   {isMine && !isEditing && (
                     <button
                       onClick={() => startEdit(b)}
-                      style={{ padding: "3px 8px", borderRadius: 7, border: "1px solid var(--color-line)", background: "transparent", fontSize: 10, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", color: "var(--color-tan)" }}
+                      style={{ padding: "3px 10px", borderRadius: 999, border: "1px solid var(--color-line)", background: "transparent", fontSize: 10, fontWeight: 600, fontFamily: "inherit", cursor: "pointer", color: "var(--color-tan)" }}
                     >
                       Edit
                     </button>
@@ -357,7 +344,7 @@ export function BroadcastsPanel({ broadcasts: initial, teamMembers, projects = [
                   {myRow && !myRow.is_acknowledged && !canCompose && (
                     <button
                       onClick={() => ack(b.id)}
-                      style={{ padding: "8px 12px", minHeight: 44, borderRadius: 7, background: "var(--color-amber)", color: "#FFF", fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer" }}
+                      style={{ padding: "8px 14px", minHeight: 44, borderRadius: 999, background: "var(--color-amber)", color: "#FFF", fontSize: 10, fontWeight: 600, border: "none", cursor: "pointer" }}
                     >
                       Ack
                     </button>

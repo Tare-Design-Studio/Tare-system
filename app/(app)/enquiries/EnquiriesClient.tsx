@@ -87,7 +87,7 @@ function EnquiryCard({
         borderRadius: "var(--radius-card)",
         background: selected ? "var(--color-ink)" : "var(--color-paper-light)",
         color: selected ? "#F3EFE7" : "var(--color-ink)",
-        border: selected ? "1px solid var(--color-ink)" : "1px solid var(--color-line)",
+        border: selected ? "1px solid var(--color-ink)" : "1px solid var(--line-2)",
         boxShadow: selected ? "none" : "var(--shadow-card)",
         width: "100%",
         cursor: "pointer",

@@ -8,9 +8,9 @@
   --font-mono: var(--font-geist-mono), "Courier New", monospace;
 
   /* Palette — warm earthy base */
-  --color-paper: #F3EFE7;
+  --color-paper: #F7F3EE;
   /* page background */
-  --color-paper-light: #FBF8F2;
+  --color-paper-light: #F5F5F5;
   /* card/surface background */
   --color-ink: #1B1A17;
   /* primary text */
@@ -42,10 +42,12 @@
   --color-slate-deep: #1E2530;
 
   /* Radius */
-  --radius-card: 22px;
+  /* Customers-list card gradient, lighter and warmer — overview subcards. */
+  --subcard-bg: linear-gradient(135deg, #FDFEF5 0%, #FFFEF8 100%);
+  --radius-card: 28px;
   --radius-input: 12px;
   --radius-chip: 999px;
-  --radius-btn: 12px;
+  --radius-btn: 999px;
 
   /* Shadows — soft paper lift */
   --shadow-card: inset 0 1px 0 rgba(255, 255, 255, 0.6), 0 4px 24px rgba(27, 26, 23, 0.06);
@@ -269,4 +271,11 @@ body {
     /* Clear the notch at the top; the composer handles the bottom inset. */
     padding-top: env(safe-area-inset-top, 0px);
   }
+}
+
+/* Every button is a pill — or a circle when it is square. !important beats the
+   inline radii scattered through client components. Opt out with .shape-free
+   (e.g. an overlay that must follow its image's corners). */
+button:not(.shape-free) {
+  border-radius: 999px !important;
 }

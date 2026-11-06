@@ -82,6 +82,7 @@ function fmt(iso: string | null) {
 }
 
 function fmtAmount(n: number) {
+  if (n >= 10000000) return `₹${(n / 10000000).toFixed(2)} Cr`
   if (n >= 100000) return `₹${(n / 100000).toFixed(1)} L`
   return `₹${n.toLocaleString('en-IN')}`
 }
@@ -123,7 +124,7 @@ function CheckpointTimeline({ checkpoints }: { checkpoints: Checkpoint[] }) {
           </div>
         )}
       </div>
-      <div style={{ background: 'var(--paper)', borderRadius: 20, padding: 24, boxShadow: '0 1px 0 #FFF inset, 0 8px 24px -16px rgba(30,28,24,.14)', border: '1px solid rgba(30,28,24,.04)' }}>
+      <div style={{ background: 'var(--paper)', borderRadius: 26, padding: 24, boxShadow: '0 1px 0 #FFF inset, 0 8px 24px -16px rgba(30,28,24,.14)', border: '1px solid rgba(30,28,24,.04)' }}>
         {checkpoints.map((cp, i) => {
           const isActive = cp.status !== 'complete' && (i === 0 || checkpoints[i - 1].status === 'complete')
           const chip = chipStyle(cp, isActive)
@@ -187,7 +188,7 @@ function PaymentSchedule({ payments }: { payments: Payment[] }) {
   return (
     <div style={{ marginBottom: 32 }}>
       <div className="serif" style={{ fontSize: 28, letterSpacing: -.5, marginBottom: 18 }}>Payment Schedule</div>
-      <div style={{ background: 'var(--paper)', borderRadius: 20, boxShadow: '0 1px 0 #FFF inset, 0 8px 24px -16px rgba(30,28,24,.14)', border: '1px solid rgba(30,28,24,.04)', overflow: 'hidden' }}>
+      <div style={{ background: 'var(--paper)', borderRadius: 26, boxShadow: '0 1px 0 #FFF inset, 0 8px 24px -16px rgba(30,28,24,.14)', border: '1px solid rgba(30,28,24,.04)', overflow: 'hidden' }}>
         {payments.map((p, i) => {
           const chip = chipStyle(p)
           return (
@@ -267,7 +268,7 @@ function ProjectTableView({ table }: { table: ProjectTable }) {
   return (
     <div style={{ marginBottom: 32 }}>
       <div className="serif" style={{ fontSize: 28, letterSpacing: -.5, marginBottom: 18 }}>{table.name}</div>
-      <div style={{ background: 'var(--paper)', borderRadius: 20, boxShadow: '0 1px 0 #FFF inset, 0 8px 24px -16px rgba(30,28,24,.14)', border: '1px solid rgba(30,28,24,.04)', overflow: 'hidden' }}>
+      <div style={{ background: 'var(--paper)', borderRadius: 26, boxShadow: '0 1px 0 #FFF inset, 0 8px 24px -16px rgba(30,28,24,.14)', border: '1px solid rgba(30,28,24,.04)', overflow: 'hidden' }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <div style={{ fontSize: 13, color: 'var(--muted)' }}>{total} rows</div>
           {total > 0 && (

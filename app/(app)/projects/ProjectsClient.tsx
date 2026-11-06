@@ -90,11 +90,11 @@ function ProjectCard({ p, nowMs }: { p: ProjectRow; nowMs: number }) {
         className="project-card"
         style={{
           padding: 20,
-          borderRadius: 20,
-          border: "1px solid rgba(30,28,24,.04)",
+          borderRadius: 26,
+          border: "1px solid var(--line-2)",
           background: "var(--color-paper-light)",
           cursor: "pointer",
-          boxShadow: "0 1px 0 #FFF inset, 0 8px 24px -16px rgba(30,28,24,.16)",
+          boxShadow: "var(--shadow-card)",
           height: "100%",
           display: "flex",
           flexDirection: "column",
@@ -102,11 +102,11 @@ function ProjectCard({ p, nowMs }: { p: ProjectRow; nowMs: number }) {
         }}
         onMouseEnter={(e) => {
           e.currentTarget.style.transform = "translateY(-2px)";
-          e.currentTarget.style.boxShadow = "0 12px 32px -16px rgba(30,28,24,.22)";
+          e.currentTarget.style.boxShadow = "var(--shadow-hover)";
         }}
         onMouseLeave={(e) => {
           e.currentTarget.style.transform = "none";
-          e.currentTarget.style.boxShadow = "0 1px 0 #FFF inset, 0 8px 24px -16px rgba(30,28,24,.16)";
+          e.currentTarget.style.boxShadow = "var(--shadow-card)";
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>

@@ -109,8 +109,8 @@ export default function TeamStreamCard({ assignments, updates: initialUpdates, p
     if (res.ok) setUpdates(prev => prev.filter(u => u.id !== id));
   }
 
-  const [tab, setTab] = useState<"Team Member" | "Site Engineer">("Team Member");
-  const displayed = tab === "Team Member" ? teamMembers : siteEngineers;
+  const [tab, setTab] = useState<"All" | "Team Members" | "Site Engineers">("All");
+  const displayed = tab === "All" ? assignments : tab === "Team Members" ? teamMembers : siteEngineers;
 
   // "all" = show all members in the tab, or a specific user id
   const [filterUserId, setFilterUserId] = useState<string>("all");
@@ -125,22 +125,22 @@ export default function TeamStreamCard({ assignments, updates: initialUpdates, p
 
   const toggleStyle = (active: boolean): React.CSSProperties => ({
     padding: "6px 12px",
-    borderRadius: 8,
+    borderRadius: 999,
     fontSize: 12,
     fontWeight: 600,
-    background: active ? "var(--color-paper-light)" : "transparent",
-    boxShadow: active ? "0 1px 3px rgba(0,0,0,.1)" : "none",
-    border: "none",
+    background: active ? "var(--color-forest)" : "transparent",
+    border: "1px solid var(--color-forest)",
     cursor: "pointer",
-    color: "var(--color-ink)",
+    color: active ? "#FBF8F2" : "var(--color-forest)",
+    fontFamily: "inherit",
   });
 
   return (
-    <div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <div style={{ fontSize: 16, fontWeight: 600 }}>Team Stream</div>
-        <div style={{ display: "flex", background: "var(--color-bg)", borderRadius: 10, padding: 4 }}>
-          {(["Team Member", "Site Engineer"] as const).map(t => (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 16 }}>
+        <div style={{ fontSize: 16, fontWeight: 600 }}>Tasks</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {(["All", "Team Members", "Site Engineers"] as const).map(t => (
             <button key={t} onClick={() => { setTab(t); setFilterUserId("all"); }} style={toggleStyle(tab === t)}>
               {t}
             </button>
@@ -150,7 +150,7 @@ export default function TeamStreamCard({ assignments, updates: initialUpdates, p
 
       {displayed.length === 0 ? (
         <p style={{ color: "var(--color-tan)", fontSize: 13, fontStyle: "italic" }}>
-          No {tab.toLowerCase()}s assigned to this project.
+          No {tab === "All" ? "members" : tab.toLowerCase()} assigned to this project.
         </p>
       ) : (
         <>
@@ -160,7 +160,7 @@ export default function TeamStreamCard({ assignments, updates: initialUpdates, p
               value={filterUserId}
               onChange={(e) => setFilterUserId(e.target.value)}
               style={{
-                padding: "6px 10px", borderRadius: 8, fontSize: 12, fontWeight: 500,
+                padding: "6px 12px", borderRadius: 999, fontSize: 12, fontWeight: 500,
                 border: "1px solid var(--color-line)", background: "var(--color-paper-light)",
                 color: "var(--color-ink)", fontFamily: "inherit", cursor: "pointer", outline: "none",
               }}
@@ -238,8 +238,8 @@ export default function TeamStreamCard({ assignments, updates: initialUpdates, p
                             }}
                           />
                           <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", marginTop: 5 }}>
-                            <button onClick={() => setEditingId(null)} disabled={busy} style={{ padding: "3px 8px", borderRadius: 7, border: "1px solid var(--color-line)", background: "transparent", fontSize: 10, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}>Cancel</button>
-                            <button onClick={() => saveEdit(u.id)} disabled={busy} style={{ padding: "3px 8px", borderRadius: 7, border: "none", background: "var(--color-ink)", color: "#F3EFE7", fontSize: 10, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}>{busy ? "…" : "Save"}</button>
+                            <button onClick={() => setEditingId(null)} disabled={busy} style={{ padding: "3px 10px", borderRadius: 999, border: "1px solid var(--color-line)", background: "transparent", fontSize: 10, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}>Cancel</button>
+                            <button onClick={() => saveEdit(u.id)} disabled={busy} style={{ padding: "3px 10px", borderRadius: 999, border: "none", background: "var(--color-ink)", color: "#F3EFE7", fontSize: 10, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}>{busy ? "…" : "Save"}</button>
                           </div>
                         </div>
                       ) : u.body && (
@@ -266,7 +266,7 @@ export default function TeamStreamCard({ assignments, updates: initialUpdates, p
                             <button
                               onClick={() => setOpenMenuId(openMenuId === u.id ? null : u.id)}
                               aria-label="Update actions"
-                              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, borderRadius: 6, border: "1px solid var(--color-line)", background: openMenuId === u.id ? "rgba(30,28,24,.06)" : "transparent", cursor: "pointer", color: "var(--color-tan)" }}
+                              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, borderRadius: 999, border: "1px solid var(--color-line)", background: openMenuId === u.id ? "rgba(30,28,24,.06)" : "transparent", cursor: "pointer", color: "var(--color-tan)" }}
                             >
                               <Icon name="pencil" size={12} />
                             </button>

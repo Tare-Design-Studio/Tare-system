@@ -40,10 +40,12 @@ export async function GET(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { data: cap } = await supabase.rpc("has_capability", { p_capability: "office_attendance:view_all" });
-  if (!cap) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
   const { memberId } = await params;
+  // Anyone may export their own record; anyone else needs view_all.
+  if (memberId !== user.id) {
+    const { data: cap } = await supabase.rpc("has_capability", { p_capability: "office_attendance:view_all" });
+    if (!cap) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   const { searchParams } = new URL(req.url);
   const range = searchParams.get("range") ?? "month";
   const section = searchParams.get("section") ?? "all";
@@ -62,22 +64,27 @@ export async function GET(
   const isSiteEngineer = member.role === "site_engineer";
   const lines: string[] = [];
 
-  if (isSiteEngineer) {
+  // Site engineers' Tasks export takes the shared tasks path below.
+  if (isSiteEngineer && section !== "tasks") {
     const { data: checkIns } = await supabase
       .from("site_check_ins")
-      .select("checked_in_at, within_geofence, projects:project_id(name)")
+      .select("checked_in_at, checked_out_at, duration_minutes, within_geofence, projects:project_id(name)")
       .eq("user_id", memberId)
       .gte("checked_in_at", `${start}T00:00:00.000Z`)
       .lte("checked_in_at", `${today}T23:59:59.999Z`)
       .order("checked_in_at", { ascending: false });
 
-    lines.push(csvRow(["Date", "Time", "Project", "Within Geofence"]));
+    lines.push(csvRow(["Date", "Check In", "Check Out", "Minutes On Site", "Project", "Within Geofence"]));
     for (const row of checkIns ?? []) {
       const dt = new Date(row.checked_in_at);
       const project = (row.projects as { name: string } | null)?.name ?? "";
       lines.push(csvRow([
         dt.toISOString().slice(0, 10),
-        dt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }),
+        dt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }),
+        row.checked_out_at
+          ? new Date(row.checked_out_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })
+          : "",
+        row.duration_minutes ?? "",
         project,
         row.within_geofence ? "Yes" : "No",
       ]));

@@ -3,12 +3,11 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import { Avatar, Chip, Icon } from "@/components/atoms";
-import { TagsPanel } from "./TagsPanel";
 import { MemberManageMenu } from "./MemberManageMenu";
 import { MemberEditModeProvider } from "./MemberEditMode";
 import { ReviewQueue } from "./ReviewQueue";
 import { MemberDetailModal, type MemberDetail } from "./MemberDetailModal";
-import { AssignToProjectPanel, type AssignableProject } from "./AssignToProjectPanel";
+import { SetProjectTeamsButton, type TeamProject, type ProjectAssignment } from "./ProjectTeamsModal";
 import styles from "./team-access.module.css";
 
 export interface BoardMember extends MemberDetail {
@@ -48,13 +47,17 @@ interface TeamBoardProps {
    * the chrome around data that is already absent — it is not the access control.
    */
   canSeePerformance: boolean;
-  /** Shows the "Add to a project" panel — gated on team:assign_to_project. */
+  /** Shows the "Set project teams" button — gated on team:assign_to_project. */
   canAssignToProject: boolean;
   /** Active projects the caller may add people to. Empty unless canAssignToProject. */
-  projects: AssignableProject[];
+  projects: TeamProject[];
+  /** Current project_assignments rows for those projects. */
+  projectAssignments: ProjectAssignment[];
   currentUserId: string;
   /** Server-pinned clock, passed to the modal so elapsed labels don't drift. */
   nowMs: number;
+  /** Broadcast card, rendered in the side column beneath the review queue. */
+  broadcast: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -70,6 +73,22 @@ function attentionReason(m: BoardMember): string | null {
   return null;
 }
 
+function activeLabel(n: number): string {
+  if (n === 0) return "No active tasks";
+  return `${n} active task${n === 1 ? "" : "s"}`;
+}
+
+/** Newest active task, else the most recently completed one. */
+function latestTask(m: BoardMember): { label: string; title: string } | null {
+  const active = m.tasks.activeTasks;
+  if (active.length > 0) {
+    const newest = active.reduce((a, b) => (b.createdAt > a.createdAt ? b : a));
+    return { label: "Now", title: newest.title };
+  }
+  const done = m.tasks.completedTasks[0];
+  return done ? { label: "Last", title: done.title } : null;
+}
+
 /**
  * Team & Access board — members list plus a sidebar of performance, broadcasts,
  * review queue and daily tasks. Structure follows the sibling PlanWise repo;
@@ -81,7 +100,7 @@ function attentionReason(m: BoardMember): string | null {
 export function TeamBoard({
   ownerName, ownerInitials, members, leaders,
   canManage, canManageTags, canAssign, canSeePerformance,
-  canAssignToProject, projects, currentUserId, nowMs, children,
+  canAssignToProject, projects, projectAssignments, currentUserId, nowMs, broadcast, children,
 }: TeamBoardProps) {
   const [detail, setDetail] = useState<BoardMember | null>(null);
 
@@ -92,11 +111,6 @@ export function TeamBoard({
   // Roster filters. "Needs attention" is the reason this page gets opened, so it
   // is a first-class view rather than something to be spotted by scanning.
   const [rosterTab, setRosterTab] = useState<"all" | "attention" | "idle">("all");
-
-  const busiest = useMemo(
-    () => Math.max(1, ...members.map((m) => m.tasks.activeTasks.length)),
-    [members]
-  );
 
   const attentionCount = useMemo(
     () => members.filter((m) => attentionReason(m) !== null).length,
@@ -113,60 +127,8 @@ export function TeamBoard({
     return members;
   }, [members, rosterTab]);
 
-  // ── Headline figures ──────────────────────────────────────────────────────
-  // What an owner opens this page to learn: who is here, how much work is in
-  // flight, how much came back flagged.
-  const activeMembers = members.filter((m) => m.isActive).length;
-  const inFlight = members.reduce((s, m) => s + m.tasks.activeTasks.length, 0);
-  const completedThisMonth = members.reduce((s, m) => s + m.tasks.completedCount, 0);
-  const flagged = members.reduce(
-    (s, m) => s + (m.tasks.errorCount ?? 0) + (m.tasks.revisionCount ?? 0),
-    0
-  );
-
   return (
     <>
-      <div className={styles.headline}>
-        <div className={styles.headlineCell}>
-          <div className={styles.headlineLabel}>On the team</div>
-          <div className={styles.headlineValue}>{activeMembers}</div>
-          <div className={styles.headlineFoot}>
-            {members.length - activeMembers > 0
-              ? `${members.length - activeMembers} yet to join`
-              : "everyone has joined"}
-          </div>
-        </div>
-        <div className={styles.headlineCell}>
-          <div className={styles.headlineLabel}>Work in flight</div>
-          <div className={styles.headlineValue}>{inFlight}</div>
-          <div className={styles.headlineFoot}>
-            {idleCount > 0 ? `${idleCount} with nothing on` : "spread across the team"}
-          </div>
-        </div>
-        <div className={styles.headlineCell}>
-          <div className={styles.headlineLabel}>Completed</div>
-          <div className={styles.headlineValue}>{completedThisMonth}</div>
-          <div className={styles.headlineFoot}>tasks closed this month</div>
-        </div>
-        <div className={styles.headlineCell}>
-          <div className={styles.headlineLabel}>Needs attention</div>
-          <div
-            className={`${styles.headlineValue} ${
-              attentionCount === 0 ? styles.headlineClear : styles.headlineRaised
-            }`}
-          >
-            {attentionCount}
-          </div>
-          <div className={styles.headlineFoot}>
-            {attentionCount === 0
-              ? "nothing waiting on you"
-              : flagged > 0
-                ? `${flagged} flagged in review`
-                : "awaiting your review"}
-          </div>
-        </div>
-      </div>
-
       <div className={styles.teamGrid}>
         {/* Left column: members, then broadcasts directly beneath it at the same
             width. Broadcasts used to live in the right-hand sideStack; it reads
@@ -179,8 +141,8 @@ export function TeamBoard({
           <div className={styles.rosterFilters}>
             {([
               { key: "all" as const, label: "Everyone", count: members.length },
-              { key: "attention" as const, label: "Needs attention", count: attentionCount },
-              { key: "idle" as const, label: "Nothing on", count: idleCount },
+              { key: "attention" as const, label: "Review", count: attentionCount },
+              { key: "idle" as const, label: "No active tasks", count: idleCount },
             ]).map((t) => (
               <button
                 key={t.key}
@@ -221,6 +183,7 @@ export function TeamBoard({
             ) : visibleMembers.map((m) => {
               const active = m.tasks.activeTasks.length;
               const reason = attentionReason(m);
+              const latest = latestTask(m);
               return (
               <div
                 key={m.id}
@@ -241,43 +204,41 @@ export function TeamBoard({
               >
                 <Avatar initials={m.initials} tone={m.tone} />
                 <div style={{ minWidth: 0 }}>
-                  <div className={styles.memberName}>{m.name}</div>
+                  <div className={styles.memberNameRow}>
+                    <span className={styles.memberName}>{m.name}</span>
+                    {reason && <span className={styles.flagDot}>{reason}</span>}
+                  </div>
                   <div className={styles.memberMeta}>{m.roleLabel}</div>
                 </div>
 
-                {/* Workload as a length, so the busiest and the idle read down
-                    the column without comparing numbers. Hidden on phone in
-                    favour of rosterRowSummary below. */}
-                <div className={styles.loadWrap}>
-                  <span className={styles.loadBar}>
-                    <span
-                      className={`${styles.loadFill} ${
-                        active === 0
-                          ? styles.loadFillIdle
-                          : active >= busiest && busiest > 1
-                            ? styles.loadFillHeavy
-                            : ""
-                      }`}
-                      style={{ width: active === 0 ? "100%" : `${(active / busiest) * 100}%` }}
-                    />
-                  </span>
-                  <span className={styles.loadLabel}>
-                    {active === 0 ? "nothing on" : `${active} active`}
-                  </span>
+                {/* Current task by name — newest active one, else the most
+                    recently completed, labelled so the two never read alike.
+                    Hidden on phone in favour of rosterRowSummary below. */}
+                <div className={styles.taskNow}>
+                  <span className={styles.loadLabel}>{activeLabel(active)}</span>
+                  {latest && (
+                    <span className={styles.taskNowName} title={latest.title}>
+                      <span className={styles.taskNowTag}>{latest.label}</span>
+                      {latest.title}
+                    </span>
+                  )}
                 </div>
 
                 {canSeePerformance ? (
                   <div className={styles.presence}>
+                    Worked{" "}
+                    <span className={styles.presenceStrong}>
+                      {m.presentDays} day{m.presentDays === 1 ? "" : "s"}
+                    </span>
+                    {" / "}
                     <span className={styles.presenceStrong}>{m.hours}</span>
-                    {" · "}
-                    {m.presentDays}d
                   </div>
                 ) : (
                   <div />
                 )}
 
                 {/* Phone-only collapsed second line: present-today dot + check-in
-                    time, active count as text, grade — replaces the load bar and
+                    time, active count as text, grade — replaces the task name and
                     the separate presence line above (hidden ≤820px). */}
                 <div className={styles.rosterRowSummary}>
                   {m.todayCheckInAt && (
@@ -285,23 +246,17 @@ export function TeamBoard({
                       {new Date(m.todayCheckInAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
                     </span>
                   )}
-                  <span className={styles.loadLabel}>
-                    {active === 0 ? "nothing on" : `${active} active`}
-                  </span>
+                  <span className={styles.loadLabel}>{activeLabel(active)}</span>
                   {canSeePerformance && <span className={styles.grade}>{m.grade}</span>}
                 </div>
 
                 <div className={styles.rosterRowActions}>
-                  {reason && <span className={styles.flagDot}>{reason}</span>}
                   {canSeePerformance && <span className={styles.grade}>{m.grade}</span>}
                   <div
                     className={styles.inlineChips}
                     onClick={(e) => e.stopPropagation()}
                     role="presentation"
                   >
-                    {canManageTags && (
-                      <TagsPanel userId={m.id} userName={m.name} currentTags={m.tags} />
-                    )}
                     {canManage && !m.isSelf && (
                       <MemberManageMenu
                         member={{
@@ -312,6 +267,7 @@ export function TeamBoard({
                           phone: m.phone,
                           experience_years: m.experience_years,
                           salary_inr: m.salary_inr,
+                          tags: canManageTags ? m.tags : undefined,
                         }}
                       />
                     )}
@@ -371,17 +327,20 @@ export function TeamBoard({
           )}
 
           {canAssignToProject && (
-            <AssignToProjectPanel
+            <SetProjectTeamsButton
               projects={projects}
-              // Self is included here, unlike task assignment: putting yourself
-              // on a project team is legitimate.
-              members={members
+              assignments={projectAssignments}
+              // Self is included, unlike task assignment: putting yourself on a
+              // project team is legitimate.
+              people={members
                 .filter((m) => m.isActive)
-                .map((m) => ({ id: m.id, name: m.name, initials: m.initials }))}
+                .map((m) => ({ id: m.id, name: m.name, initials: m.initials, role: m.role }))}
             />
           )}
 
           {canAssign && <ReviewQueue members={memberLookup} currentUserId={currentUserId} />}
+
+          {broadcast}
         </div>
       </div>
 

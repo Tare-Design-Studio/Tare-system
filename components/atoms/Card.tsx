@@ -16,7 +16,7 @@ export function Card({ children, style, className, onClick }: CardProps) {
         background: "var(--color-paper-light)",
         borderRadius: "var(--radius-card)",
         boxShadow: "var(--shadow-card)",
-        border: "1px solid var(--color-line)",
+        border: "1px solid var(--line-2)",
         overflow: "hidden",
         // A grid/flex child defaults to min-width:auto and will not shrink below
         // its content, so a wide child (a many-column table) pushed the card past

@@ -92,8 +92,16 @@ export async function POST(req: NextRequest, { params }: Ctx) {
 
   const { data, error } = await service
     .from("expenses")
+    .insert({
+      project_id,
+      recorded_by: user.id,
+      ...parsed.data,
+      // Material purchases are recorded as approved — no sign-off step.
+      ...(parsed.data.category === "materials"
+        ? { approval_status: "approved", approved_by: user.id, approved_at: new Date().toISOString() }
+        : {}),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .insert({ project_id, recorded_by: user.id, ...parsed.data } as any)
+    } as any)
     .select()
     .single();
 

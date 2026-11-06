@@ -1,5 +1,40 @@
 # SCHEMA.md
-(Updated: 2026-10-13 — migration 126: site check-in methods, end-of-day close, morning reminder)
+(Updated: 2026-11-06)
+
+### 129 · KPI remarks — manual ± points (applied 2026-11-06)
+**`kpi_remarks`** (`id, tenant_id, user_id, period_month, points numeric(6,2), grade, note, created_by, created_at`).
+- `points` ≠ 0, between −1000 and 1000. `period_month` must be the 1st. `note` 1–500 chars (trimmed).
+- `grade` nullable, one of `A++, A+, A, B+, B, C, D` — a tag on the remark, does not override the month grade.
+- RLS ENABLE + FORCE. SELECT: same tenant AND (`finance:view_dashboard` OR `team:edit_user` OR own row).
+  INSERT: `team:edit_user`, `created_by = auth.uid()`, and **`user_id <> auth.uid()`** (no self-scoring).
+  DELETE: `team:edit_user`. No UPDATE (delete + re-add).
+- **`v_kpi_scores` CREATE OR REPLACE'd** (existing columns unchanged; two appended):
+  `base_kpi_score` = formula score (090/102), `remark_points` = SUM(kpi_remarks.points) for the month,
+  **`overall_kpi_score` = base + remark_points** — every reader (Team, Performance, profile) ranks on the
+  adjusted score. Can exceed 100 or go below 0. A month with remarks but no `team_performance_monthly`
+  row has no view row.
+- App grade bands: `scoreToGrade()` adds **A++ for ≥ 100**.
+
+### 128 · Site engineers never get customer capabilities (2026-11-05)
+`has_capability()` (005) redefined: after the active-user check, returns **false** for any
+`customer:%` or `customer\_payments:%` capability when `users.role = 'site_engineer'`, regardless of
+`user_capabilities` rows (tag `project_manager` still writes `customer:view` rows — they are inert for
+this role). Blocks `customers_*` RLS and every API/RPC gate. Signature unchanged.
+
+(Updated: 2026-11-05 — migration 127: portal staff preview flag)
+
+### Migration 127 — customer portal staff preview (applied 2026-11-05)
+
+**`get_customer_portal_summary`** gains a 6th arg `p_preview boolean DEFAULT false`; old 5-arg
+signature dropped. The `customer_portal_views` INSERT is skipped only when `p_preview` AND
+`auth.uid()` is set AND `auth_tenant_id() = customer.tenant_id` AND
+`has_capability('images:select_for_customer')` — the flag alone (anon, other tenant) still logs.
+EXECUTE now granted to **authenticated** as well as anon (before, a signed-in browser got
+permission denied and the portal 404'd). Body otherwise identical to 122.
+Verified in a rolled-back transaction: anon + flag → logged; holder + flag → not logged; holder
+without flag → logged. Apply with `scripts/migrate.ts`.
+
+(Previous: 2026-10-13 — migration 126: site check-in methods, end-of-day close, morning reminder)
 
 ### Migration 126 — site check-in: geofence auto, end-of-day close, reminder (applied 2026-10-13)
 

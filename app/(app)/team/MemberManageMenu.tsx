@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/atoms";
 import { useMemberEditMode } from "./MemberEditMode";
+import { TagToggles } from "./TagsPanel";
 
 const DELETE_PHRASE = "delete-employee-data";
 
@@ -16,6 +17,8 @@ export type ManageMember = {
   phone: string | null;
   experience_years: number | null;
   salary_inr: number | null;
+  /** Present only when the caller may manage tags (team_member_tags:manage). */
+  tags?: string[];
 };
 
 const overlay: React.CSSProperties = {
@@ -143,7 +146,7 @@ export function MemberManageMenu({ member }: { member: ManageMember }) {
 }
 
 const menuItem: React.CSSProperties = {
-  display: "block", width: "100%", textAlign: "left", padding: "8px 10px", borderRadius: 8,
+  display: "block", width: "100%", textAlign: "left", padding: "8px 12px", borderRadius: 999,
   border: "none", background: "transparent", color: "var(--color-ink)", fontSize: 13,
   fontFamily: "inherit", cursor: "pointer",
 };
@@ -187,7 +190,7 @@ function EditMemberModal({ member, onClose, onSaved }: { member: ManageMember; o
 
   return (
     <div style={overlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal-mobile-full" style={{ background: "var(--color-paper-light)", borderRadius: 22, padding: 28, width: "100%", maxWidth: 440, boxShadow: "0 32px 80px -20px rgba(27,26,23,.3)" }}>
+      <div className="modal-mobile-full" style={{ background: "var(--color-paper-light)", borderRadius: 28, padding: 28, width: "100%", maxWidth: 440, boxShadow: "0 32px 80px -20px rgba(27,26,23,.3)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 22 }}>
           <h2 className="font-serif" style={{ fontSize: 26, fontWeight: 400, margin: 0, letterSpacing: -0.5 }}>Edit Member</h2>
           <button onClick={onClose} aria-label="Close" style={closeBtn}>
@@ -217,6 +220,12 @@ function EditMemberModal({ member, onClose, onSaved }: { member: ManageMember; o
             <label style={fieldLabel}>Salary (₹/yr)</label>
             <input style={field} type="number" min={0} value={form.salary_inr} onChange={(e) => set("salary_inr", e.target.value)} />
           </div>
+          {member.tags && (
+            <div>
+              <label style={fieldLabel}>Tags</label>
+              <TagToggles userId={member.id} currentTags={member.tags} />
+            </div>
+          )}
           {error && <div style={errBox}>{error}</div>}
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
             <button type="button" onClick={onClose} style={cancelBtn}>Cancel</button>
@@ -256,7 +265,7 @@ function ResetLinkModal({ member, onClose }: { member: ManageMember; onClose: ()
 
   return (
     <div style={overlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal-mobile-full" style={{ background: "var(--color-paper-light)", borderRadius: 22, padding: 28, width: "100%", maxWidth: 440, boxShadow: "0 32px 80px -20px rgba(27,26,23,.3)" }}>
+      <div className="modal-mobile-full" style={{ background: "var(--color-paper-light)", borderRadius: 28, padding: 28, width: "100%", maxWidth: 440, boxShadow: "0 32px 80px -20px rgba(27,26,23,.3)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
           <h2 className="font-serif" style={{ fontSize: 26, fontWeight: 400, margin: 0, letterSpacing: -0.5 }}>Password Reset Link</h2>
           <button onClick={onClose} aria-label="Close" style={closeBtn}>
@@ -320,7 +329,7 @@ function DeleteMemberModal({ member, onClose, onDeleted }: { member: ManageMembe
 
   return (
     <div style={overlay} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal-mobile-full" style={{ background: "var(--color-paper-light)", borderRadius: 22, padding: 28, width: "100%", maxWidth: 440, boxShadow: "0 32px 80px -20px rgba(27,26,23,.3)" }}>
+      <div className="modal-mobile-full" style={{ background: "var(--color-paper-light)", borderRadius: 28, padding: 28, width: "100%", maxWidth: 440, boxShadow: "0 32px 80px -20px rgba(27,26,23,.3)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
           <h2 className="font-serif" style={{ fontSize: 26, fontWeight: 400, margin: 0, letterSpacing: -0.5, color: "var(--color-rust)" }}>Remove Access</h2>
           <button onClick={onClose} aria-label="Close" style={closeBtn}>
@@ -362,15 +371,15 @@ function DeleteMemberModal({ member, onClose, onDeleted }: { member: ManageMembe
 }
 
 const closeBtn: React.CSSProperties = {
-  width: 32, height: 32, borderRadius: 8, background: "var(--color-bg)", border: "none", cursor: "pointer",
+  width: 32, height: 32, borderRadius: "50%", background: "var(--color-bg)", border: "none", cursor: "pointer",
   color: "var(--color-tan)", display: "flex", alignItems: "center", justifyContent: "center",
 };
 const cancelBtn: React.CSSProperties = {
-  padding: "9px 18px", borderRadius: 10, border: "1px solid var(--color-line)", background: "transparent",
+  padding: "9px 18px", borderRadius: 999, border: "1px solid var(--color-line)", background: "transparent",
   fontSize: 13, fontFamily: "inherit", cursor: "pointer", color: "var(--color-ink)",
 };
 const primaryBtn: React.CSSProperties = {
-  padding: "9px 20px", borderRadius: 10, background: "var(--color-ink)", color: "#FBF8F2",
+  padding: "9px 20px", borderRadius: 999, background: "var(--color-ink)", color: "#FBF8F2",
   fontSize: 13, fontWeight: 600, fontFamily: "inherit", border: "none", cursor: "pointer",
 };
 const errBox: React.CSSProperties = {

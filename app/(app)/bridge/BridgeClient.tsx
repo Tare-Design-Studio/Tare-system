@@ -154,7 +154,24 @@ interface Props {
   currentUserId: string;
 }
 
-export function BridgeClient({ projects, currentUserId }: Props) {
+// The app layout renders each page twice (a .desktop-only and a .mobile-only
+// copy, one hidden by CSS). Two live Bridges share realtime channel topics, and
+// supabase-js hands the second one the already-subscribed channel, so its
+// .on("postgres_changes") throws and the page crashes. Only the visible copy
+// mounts the real client.
+export function BridgeClient(props: Props) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const check = () => setVisible(!!ref.current && ref.current.getClientRects().length > 0);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+  return <div ref={ref}>{visible && <BridgeThreads {...props} />}</div>;
+}
+
+function BridgeThreads({ projects, currentUserId }: Props) {
   const { conversations, markRead, refresh } = useChatBadge();
 
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -418,6 +435,7 @@ export function BridgeClient({ projects, currentUserId }: Props) {
     const isActive = c.conversation_id === activeId;
     return (
       <button
+        className="shape-free"
         onClick={() => setActiveId(c.conversation_id)}
         style={{
           display: "flex", alignItems: "center", gap: 8, width: "100%",

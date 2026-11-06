@@ -2,12 +2,10 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { serverNowMs } from "@/lib/serverNow";
-import { localDate } from "@/lib/attendance/day";
-import AttendanceCard from "../team-member/AttendanceCard";
 import SiteEngineerDashboard from "./SiteEngineerDashboard";
 import type { SiteVisit } from "./components/shared";
 
-const PANEL_TABS = ["today", "updates", "materials", "progress", "expenses"];
+const PANEL_TABS = ["today", "updates", "expenses"];
 
 export default async function SitePage({ searchParams }: {
   searchParams: Promise<{ tab?: string; project?: string }>;
@@ -123,22 +121,7 @@ export default async function SitePage({ searchParams }: {
     ? (projectParam as string)
     : projects[0]?.id ?? "";
 
-  // Office attendance for site engineers. They already hold
-  // office_attendance:write_own (capabilities.ts), but no surface ever rendered
-  // the card, so an engineer who spent the morning in the studio had no way to
-  // record it — site check-ins are per-project visits, a different table.
-  const { data: todayAttendance } = await supabase
-    .from("attendance_logs")
-    .select("id, work_date, check_in_at, check_out_at, total_minutes, accumulated_minutes, last_check_in_at, check_in_count")
-    .eq("user_id", user.id)
-    .eq("work_date", localDate())
-    .maybeSingle();
-
   return (
-    <>
-      <div style={{ marginBottom: 16 }}>
-        <AttendanceCard todayAttendance={todayAttendance ?? null} layout="wide" />
-      </div>
     <SiteEngineerDashboard
       engineer={{ id: profile.id, name: profile.full_name, role: profile.role }}
       projects={projects}
@@ -147,6 +130,5 @@ export default async function SitePage({ searchParams }: {
       tab={tab}
       projectId={projectId}
     />
-    </>
   );
 }

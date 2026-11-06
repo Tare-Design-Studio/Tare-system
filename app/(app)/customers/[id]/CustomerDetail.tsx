@@ -2,7 +2,10 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import PaymentsCard from "@/components/payments/PaymentsCard";
+import PaymentsBoard from "@/components/payments/PaymentsBoard";
+import LinkProjectModal from "@/components/customers/LinkProjectModal";
 import PortalContentCard from "./PortalContentCard";
 import { ConfirmPopover, Icon } from "@/components/atoms";
 
@@ -15,10 +18,10 @@ function toLocalInput(iso: string): string {
 
 const CARD: React.CSSProperties = {
   background: "var(--color-paper-light)",
-  borderRadius: 22,
+  borderRadius: 28,
   padding: 24,
-  boxShadow: "0 1px 0 #FFF inset, 0 2px 0 rgba(30,28,24,.02), 0 20px 40px -30px rgba(30,28,24,.2)",
-  border: "1px solid rgba(30,28,24,.04)",
+  boxShadow: "var(--shadow-card)",
+  border: "1px solid var(--line-2)",
 };
 
 const CATEGORIES = [
@@ -123,6 +126,7 @@ function fmtDate(iso: string) {
 }
 
 function fmtAmount(n: number) {
+  if (n >= 10000000) return `₹${(n / 10000000).toFixed(2)} Cr`;
   if (n >= 100000) return `₹${(n / 100000).toFixed(1)} L`;
   return `₹${n.toLocaleString("en-IN")}`;
 }
@@ -132,6 +136,18 @@ const miniBtn: React.CSSProperties = {
   borderRadius: 6,
   border: "1px solid var(--color-line)",
   background: "transparent",
+  fontSize: 11,
+  cursor: "pointer",
+};
+
+const PORTAL_MUTED = "#FFFFFF";
+
+const portalBtn: React.CSSProperties = {
+  padding: "5px 10px",
+  borderRadius: 7,
+  border: "1px solid rgba(255,255,255,.28)",
+  background: "rgba(255,255,255,.08)",
+  color: "#FFFFFF",
   fontSize: 11,
   cursor: "pointer",
 };
@@ -151,7 +167,14 @@ export default function CustomerDetail({
   portalViews?: PortalView[];
   members?: { id: string; full_name: string }[];
 }) {
+  const router = useRouter();
   const [customer, setCustomer] = useState<Customer>(initial);
+  const [showLink, setShowLink] = useState(false);
+  const [showProjects, setShowProjects] = useState(false);
+  const [showBoard, setShowBoard] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewKey, setPreviewKey] = useState(0);
+  const [showPortalContent, setShowPortalContent] = useState(false);
   const [portalHash, setPortalHash] = useState<string | null>(initial.customer_portal_hash);
   const [portalEnabled, setPortalEnabled] = useState<boolean>(initial.customer_portal_enabled === true);
   const [portalBusy, setPortalBusy] = useState(false);
@@ -395,43 +418,90 @@ export default function CustomerDetail({
 
       {/* Profile card */}
       <div style={{ ...CARD, marginBottom: 18 }}>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--color-forest)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>
-              Customer
-            </div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "var(--color-forest)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>
+          Customer
+        </div>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", position: "relative" }}>
             <div style={{ fontSize: 28, fontFamily: "'Instrument Serif', serif", fontWeight: 400, letterSpacing: -0.3 }}>
               {customer.name}
             </div>
-            <div style={{ display: "flex", gap: 16, marginTop: 8, flexWrap: "wrap" }}>
-              {customer.phone && (
-                <a href={`tel:${customer.phone}`} style={{ fontSize: 13, color: "var(--color-ink)", textDecoration: "none" }}>
-                  📞 {customer.phone}
-                </a>
-              )}
-              {customer.email && (
-                <a href={`mailto:${customer.email}`} style={{ fontSize: 13, color: "var(--color-ink)", textDecoration: "none" }}>
-                  ✉ {customer.email}
-                </a>
-              )}
+            {projects.length === 0 ? (
+              <button onClick={() => setShowLink(true)} style={{
+                fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, cursor: "pointer",
+                border: "1px dashed var(--color-tan)", background: "transparent", color: "var(--color-tan)",
+              }}>
+                + Link
+              </button>
+            ) : projects.length === 1 ? (
+              <Link href={`/projects/${projects[0].id}`} title={projects[0].name} style={{
+                fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, textDecoration: "none",
+                background: "rgba(45,106,79,.12)", color: "var(--color-forest)",
+              }}>
+                Linked
+              </Link>
+            ) : (
+              <>
+                <button onClick={() => setShowProjects((v) => !v)} style={{
+                  fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 999, cursor: "pointer", border: "none",
+                  background: "rgba(45,106,79,.12)", color: "var(--color-forest)",
+                }}>
+                  Linked · {projects.length}
+                </button>
+                {showProjects && (
+                  <div style={{
+                    position: "absolute", top: "100%", left: 0, marginTop: 6, zIndex: 20, minWidth: 240,
+                    background: "var(--color-paper-light)", borderRadius: 12, padding: 6,
+                    border: "1px solid var(--color-line)", boxShadow: "0 12px 30px -12px rgba(30,28,24,.3)",
+                  }}>
+                    {projects.map((proj) => (
+                      <Link key={proj.id} href={`/projects/${proj.id}`} style={{
+                        display: "flex", justifyContent: "space-between", gap: 10, padding: "8px 10px",
+                        borderRadius: 8, textDecoration: "none", fontSize: 13, color: "var(--color-ink)",
+                      }}>
+                        <span style={{ fontWeight: 600 }}>{proj.name}</span>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: STATUS_COLOR[proj.status] ?? "var(--color-tan)" }}>
+                          {proj.status.replace(/_/g, " ")}
+                        </span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+            {customer.email && (
+              <a href={`mailto:${customer.email}`} style={{ fontSize: 13, color: "var(--color-ink)", textDecoration: "none" }}>
+                ✉ {customer.email}
+              </a>
+            )}
+            <div style={{ fontSize: 11, color: "var(--color-tan)" }}>
+              Customer since {fmtDate(customer.created_at)}
             </div>
+            {customer.created_from_enquiry_id && (
+              <Link href={`/enquiries/${customer.created_from_enquiry_id}`} style={{
+                fontSize: 11, padding: "4px 10px", borderRadius: 10, marginTop: 2,
+                background: "rgba(30,28,24,.05)", color: "var(--color-tan)",
+                textDecoration: "none", fontWeight: 600,
+              }}>
+                View Enquiry
+              </Link>
+            )}
+          </div>
+        </div>
+        {(customer.phone || customer.address) && (
+          <div style={{ marginTop: 8 }}>
+            {customer.phone && (
+              <a href={`tel:${customer.phone}`} style={{ fontSize: 13, color: "var(--color-ink)", textDecoration: "none" }}>
+                📞 {customer.phone}
+              </a>
+            )}
             {customer.address && (
               <div style={{ fontSize: 13, color: "var(--color-tan)", marginTop: 4 }}>{customer.address}</div>
             )}
-            <div style={{ fontSize: 11, color: "var(--color-tan)", marginTop: 8 }}>
-              Customer since {fmtDate(customer.created_at)}
-            </div>
           </div>
-          {customer.created_from_enquiry_id && (
-            <Link href={`/enquiries/${customer.created_from_enquiry_id}`} style={{
-              fontSize: 11, padding: "6px 12px", borderRadius: 10,
-              background: "rgba(30,28,24,.05)", color: "var(--color-tan)",
-              textDecoration: "none", fontWeight: 600,
-            }}>
-              View Enquiry
-            </Link>
-          )}
-        </div>
+        )}
 
         {/* Financial summary — only when a project with milestones is linked */}
         {paymentSchedule.length > 0 && (
@@ -445,7 +515,7 @@ export default function CustomerDetail({
                 <div style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>
                   {s.label}
                 </div>
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: 20, fontWeight: 600, color: s.color }}>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 20, fontWeight: 600, color: s.color, whiteSpace: "nowrap" }}>
                   {s.value}
                 </div>
               </div>
@@ -453,61 +523,39 @@ export default function CustomerDetail({
           </div>
         )}
 
-        {/* All linked projects */}
-        {projects.length > 0 && (
-          <div style={{ marginTop: 18 }}>
-            <div style={{ fontSize: 12, color: "var(--color-tan)", marginBottom: 8 }}>
-              {projects.length === 1 ? "Linked Project" : `${projects.length} Linked Projects`}
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {projects.map((proj) => (
-                <Link key={proj.id} href={`/projects/${proj.id}`} style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
-                  padding: "12px 14px", borderRadius: 14,
-                  background: "var(--color-bg)", textDecoration: "none",
-                }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: "var(--color-ink)" }}>{proj.name}</div>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span style={{
-                      fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 999,
-                      background: (STATUS_COLOR[proj.status] ?? "var(--color-tan)") + "18",
-                      color: STATUS_COLOR[proj.status] ?? "var(--color-tan)",
-                    }}>
-                      {proj.status.replace(/_/g, " ")}
-                    </span>
-                    <span style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "capitalize" }}>
-                      {proj.current_stage}
-                    </span>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Customer Portal */}
-        <div style={{ marginTop: 18, padding: "14px 16px", borderRadius: 14, background: "var(--color-bg)" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-            <div style={{ fontSize: 12, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 1 }}>Customer Portal</div>
-            {portalEnabled && portalHash && (
-              <div style={{ display: "flex", gap: 6 }}>
-                <button onClick={() => portalAction("regenerate")} disabled={portalBusy} style={miniBtn}>Regenerate</button>
-                <button onClick={() => portalAction("revoke")} disabled={portalBusy} style={miniBtn}>Revoke</button>
-              </div>
+        {/* Customer Portal — green mesh card (Planwise style). Text on it uses
+            the light tokens below; the shared miniBtn/--color-tan read poorly. */}
+        <div style={{
+          marginTop: 18, padding: "18px 20px", borderRadius: 18, color: "#FFFFFF",
+          background: "radial-gradient(60% 80% at 0 0,#3d8a65 0,#0000 70%),radial-gradient(50% 70% at 100% 100%,#8fe0b8 0,#0000 70%),#1e5b47",
+          boxShadow: "0 20px 40px -24px rgba(15,53,39,.6)",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: PORTAL_MUTED, textTransform: "uppercase", letterSpacing: 1 }}>Client Portal</div>
+            {portalEnabled && portalHash && canManagePortal && (
+              <button onClick={() => setShowPreview(true)} style={{
+                padding: "6px 14px", borderRadius: 999, cursor: "pointer",
+                border: "1px solid rgba(255,255,255,.6)", background: "rgba(255,255,255,.14)",
+                color: "#FFFFFF", fontSize: 12, fontWeight: 600,
+              }}>
+                Preview
+              </button>
             )}
           </div>
           {portalEnabled && portalUrl ? (
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
               <input
                 readOnly
                 value={portalUrl}
                 onClick={(e) => (e.target as HTMLInputElement).select()}
-                style={{ flex: 1, fontSize: 11, padding: "6px 8px", borderRadius: 8, border: "1px solid var(--color-line)", background: "var(--color-paper-light)", fontFamily: "var(--font-mono)" }}
+                style={{ flex: "1 1 200px", minWidth: 0, fontSize: 11, padding: "6px 8px", borderRadius: 8, border: "1px solid rgba(255,255,255,.22)", background: "rgba(10,19,13,.25)", color: "#FFFFFF", fontFamily: "var(--font-mono)" }}
               />
-              <button onClick={() => { if (portalUrl) navigator.clipboard.writeText(portalUrl); }} style={miniBtn}>Copy</button>
+              <button onClick={() => { if (portalUrl) navigator.clipboard.writeText(portalUrl); }} style={portalBtn}>Copy</button>
+              <button onClick={() => portalAction("regenerate")} disabled={portalBusy} style={portalBtn}>Regenerate</button>
+              <button onClick={() => portalAction("revoke")} disabled={portalBusy} style={portalBtn}>Revoke</button>
             </div>
           ) : (
-            <button onClick={() => portalAction("generate")} disabled={portalBusy} style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: "var(--color-ink)", color: "#FBF8F2", fontSize: 12, fontWeight: 600, cursor: portalBusy ? "wait" : "pointer" }}>
+            <button onClick={() => portalAction("generate")} disabled={portalBusy} style={{ padding: "8px 14px", borderRadius: 8, background: "rgba(255,255,255,.14)", border: "1px solid rgba(255,255,255,.6)", color: "#FFFFFF", fontSize: 12, fontWeight: 600, cursor: portalBusy ? "wait" : "pointer" }}>
               {portalBusy ? "Generating…" : "Generate Customer Portal Link"}
             </button>
           )}
@@ -516,43 +564,43 @@ export default function CustomerDetail({
               counter is not reset by regenerate — history is of the customer,
               not of a particular hash. */}
           {portalEnabled && portalHash && (
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid var(--color-line)" }}>
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid rgba(255,255,255,.18)" }}>
               {portalAccess && Number(portalAccess.view_count) > 0 ? (
                 <>
                   <div style={{ display: "flex", gap: 18, flexWrap: "wrap", alignItems: "baseline" }}>
                     <div>
                       <span style={{ fontSize: 17, fontWeight: 600, fontFamily: "var(--font-mono)" }}>{Number(portalAccess.view_count)}</span>
-                      <span style={{ fontSize: 11, color: "var(--color-tan)", marginLeft: 5 }}>
+                      <span style={{ fontSize: 11, color: PORTAL_MUTED, marginLeft: 5 }}>
                         {Number(portalAccess.view_count) === 1 ? "open" : "opens"}
                       </span>
                     </div>
                     <div>
                       <span style={{ fontSize: 17, fontWeight: 600, fontFamily: "var(--font-mono)" }}>{Number(portalAccess.distinct_ips)}</span>
-                      <span style={{ fontSize: 11, color: "var(--color-tan)", marginLeft: 5 }}>
+                      <span style={{ fontSize: 11, color: PORTAL_MUTED, marginLeft: 5 }}>
                         {Number(portalAccess.distinct_ips) === 1 ? "device/network" : "devices/networks"}
                       </span>
                     </div>
-                    <div style={{ fontSize: 11, color: "var(--color-tan)" }}>
+                    <div style={{ fontSize: 11, color: PORTAL_MUTED }}>
                       Last opened {fmtDateTime(portalAccess.last_viewed_at)}
                     </div>
                   </div>
 
                   {portalViews.length > 0 && (
                     <details style={{ marginTop: 10 }}>
-                      <summary style={{ fontSize: 11, color: "var(--color-tan)", cursor: "pointer" }}>
+                      <summary style={{ fontSize: 11, color: PORTAL_MUTED, cursor: "pointer" }}>
                         Recent opens
                       </summary>
                       <div style={{ marginTop: 8 }}>
                         {portalViews.map((v) => (
-                          <div key={v.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "5px 0", fontSize: 11, borderBottom: "1px solid var(--color-line)" }}>
+                          <div key={v.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "5px 0", fontSize: 11, borderBottom: "1px solid rgba(255,255,255,.14)" }}>
                             <span>{deviceLabel(v.user_agent)}</span>
-                            <span style={{ color: "var(--color-tan)", fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
+                            <span style={{ color: PORTAL_MUTED, fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>
                               {fmtDateTime(v.viewed_at)}
                             </span>
                           </div>
                         ))}
                       </div>
-                      <div style={{ fontSize: 10, color: "var(--color-tan)", marginTop: 8, lineHeight: 1.5 }}>
+                      <div style={{ fontSize: 10, color: PORTAL_MUTED, marginTop: 8, lineHeight: 1.5 }}>
                         The portal link needs no login, so these show the device and
                         network a link was opened from — not a verified identity.
                         Anyone the link is forwarded to appears here too.
@@ -561,7 +609,7 @@ export default function CustomerDetail({
                   )}
                 </>
               ) : (
-                <div style={{ fontSize: 11, color: "var(--color-tan)" }}>
+                <div style={{ fontSize: 11, color: PORTAL_MUTED }}>
                   Not opened yet — no one has visited this link.
                 </div>
               )}
@@ -573,42 +621,90 @@ export default function CustomerDetail({
       {/* Payments — only shown when a project is linked */}
       {project && (
         <div style={{ ...CARD, marginBottom: 18 }}>
-          <div style={{ fontSize: 16, fontFamily: "'Instrument Serif', serif", fontWeight: 400, marginBottom: 16 }}>
-            Payments
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ fontSize: 16, fontFamily: "'Instrument Serif', serif", fontWeight: 400 }}>
+              Payments
+            </div>
+            {paymentSchedule.length > 0 && (
+              <button onClick={() => setShowBoard(true)} style={miniBtn}>Show all</button>
+            )}
           </div>
           <PaymentsCard
+            layout="rail"
             projectId={project.id}
             schedule={paymentSchedule}
             records={paymentRecords}
             scope={projects.find(p => p.id === project.id)?.scope === "design_only"
               ? "design_only" : "design_and_execution"}
           />
+          {showBoard && (
+            <PaymentsBoard
+              projectId={project.id}
+              canReorder
+              schedule={paymentSchedule}
+              scope={projects.find(p => p.id === project.id)?.scope === "design_only"
+                ? "design_only" : "design_and_execution"}
+              onClose={() => setShowBoard(false)}
+            />
+          )}
         </div>
       )}
 
       {/* Client portal content — capability-gated; the API routes re-check. */}
       {canManagePortal && (
         <div style={{ marginBottom: 18 }}>
-          <PortalContentCard
-            customerId={customer.id}
-            projects={projects.map(p => ({ id: p.id, name: p.name }))}
-            members={members}
-          />
+          <button
+            type="button"
+            onClick={() => setShowPortalContent((v) => !v)}
+            aria-expanded={showPortalContent}
+            style={{
+              display: "flex", alignItems: "center", gap: 10, width: "100%", padding: "4px 4px",
+              background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "var(--color-ink)",
+              fontFamily: "inherit",
+            }}
+          >
+            Make changes to client portal
+            <span style={{ flex: 1, height: 1, background: "var(--color-line)" }} />
+            <span style={{
+              width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              background: "#1e5b47", color: "#FFFFFF",
+              transform: showPortalContent ? "rotate(180deg)" : "none", transition: "transform .2s",
+            }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/>
+              </svg>
+            </span>
+          </button>
+          {showPortalContent && (
+            <PortalContentCard
+              customerId={customer.id}
+              projects={projects.map(p => ({ id: p.id, name: p.name }))}
+              members={members}
+            />
+          )}
         </div>
       )}
 
       {/* Reminders */}
       <div style={{ ...CARD, marginBottom: 18 }}>
-        <div style={{ fontSize: 16, fontFamily: "'Instrument Serif', serif", fontWeight: 400, marginBottom: 16 }}>
-          Reminders
-          {pending.length > 0 && (
-            <span style={{
-              marginLeft: 8, fontSize: 11, fontWeight: 700, padding: "2px 7px",
-              borderRadius: 999, background: "var(--color-rust)", color: "#FFF",
-            }}>
-              {pending.length}
-            </span>
-          )}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ fontSize: 16, fontFamily: "'Instrument Serif', serif", fontWeight: 400 }}>
+            Reminders
+            {pending.length > 0 && (
+              <span style={{
+                marginLeft: 8, fontSize: 11, fontWeight: 700, padding: "2px 7px",
+                borderRadius: 999, background: "var(--color-rust)", color: "#FFF",
+              }}>
+                {pending.length}
+              </span>
+            )}
+          </div>
+          <button onClick={() => setShowRemind(true)} aria-label="New reminder" title="New reminder" style={{
+            width: 30, height: 30, borderRadius: "50%", border: "none", cursor: "pointer",
+            background: "var(--color-forest)", color: "#FFF", fontSize: 18, lineHeight: 1,
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+          }}>+</button>
         </div>
 
         {pending.length === 0 && done.length === 0 ? (
@@ -624,10 +720,23 @@ export default function CustomerDetail({
         )}
       </div>
 
-      {/* Add reminder */}
-      <div style={{ ...CARD }}>
-        <div style={{ fontSize: 16, fontFamily: "'Instrument Serif', serif", fontWeight: 400, marginBottom: 16 }}>
-          New Reminder
+      {/* New reminder — opened from the + on the Reminders card */}
+      {showRemind && (
+      <div
+        onClick={(e) => e.target === e.currentTarget && setShowRemind(false)}
+        style={{
+          position: "fixed", inset: 0, zIndex: 1000, background: "rgba(27,26,23,0.55)", backdropFilter: "blur(4px)",
+          display: "flex", alignItems: "center", justifyContent: "center", padding: 16,
+        }}
+      >
+      <div className="modal-mobile-full" style={{ ...CARD, width: "100%", maxWidth: 480 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ fontSize: 16, fontFamily: "'Instrument Serif', serif", fontWeight: 400 }}>
+            New Reminder
+          </div>
+          <button onClick={() => setShowRemind(false)} aria-label="Close" style={{
+            background: "none", border: "none", cursor: "pointer", color: "var(--color-tan)", fontSize: 18, padding: 4,
+          }}>✕</button>
         </div>
 
         <textarea
@@ -682,6 +791,56 @@ export default function CustomerDetail({
           </button>
         </div>
       </div>
+      </div>
+      )}
+
+      {showLink && (
+        <LinkProjectModal
+          customerId={customer.id}
+          onClose={() => setShowLink(false)}
+          onLinked={() => { setShowLink(false); router.refresh(); }}
+        />
+      )}
+
+      {/* Portal preview: the real portal page in an iframe (?preview=1 skips the
+          name gate and the open log for capability holders — see 127), beside
+          the same visibility controls as Client Portal Content. Every change
+          reloads the frame. */}
+      {showPreview && portalHash && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 1000, background: "rgba(27,26,23,0.55)", backdropFilter: "blur(4px)",
+          display: "flex", alignItems: "stretch", justifyContent: "center", padding: 16,
+        }}>
+          <div style={{
+            background: "var(--color-paper)", borderRadius: 28, width: "100%", maxWidth: 1280,
+            display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.18)",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 20px", borderBottom: "1px solid var(--color-line)" }}>
+              <span style={{ fontFamily: "'Instrument Serif', serif", fontSize: 20 }}>Client portal preview</span>
+              <span style={{ fontSize: 11, color: "var(--color-tan)" }}>Changes on the left apply to the live portal.</span>
+              <button onClick={() => setShowPreview(false)} aria-label="Close" style={{
+                marginLeft: "auto", background: "none", border: "none", cursor: "pointer", color: "var(--color-tan)", fontSize: 18, padding: 4,
+              }}>✕</button>
+            </div>
+            <div style={{ flex: 1, minHeight: 0, display: "flex", flexWrap: "wrap", overflow: "auto" }}>
+              <div style={{ flex: "1 1 360px", maxWidth: 480, minWidth: 0, overflowY: "auto", padding: 16, borderRight: "1px solid var(--color-line)" }}>
+                <PortalContentCard
+                  customerId={customer.id}
+                  projects={projects.map(p => ({ id: p.id, name: p.name }))}
+                  members={members}
+                  onChange={() => setPreviewKey((k) => k + 1)}
+                />
+              </div>
+              <iframe
+                key={previewKey}
+                src={`/c/customer/${portalHash}?preview=1`}
+                title="Client portal preview"
+                style={{ flex: "2 1 420px", minHeight: 560, border: "none", background: "#F3EFE7" }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

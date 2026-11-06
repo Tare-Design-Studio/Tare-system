@@ -38,7 +38,7 @@
 .card {
   background: var(--color-paper-light);
   border: 1px solid var(--color-line);
-  border-radius: 22px;
+  border-radius: 28px;
   padding: 24px 28px;
   box-shadow: 0 2px 0 #fff inset;
 }
@@ -127,7 +127,7 @@
 
 .btn {
   padding: 10px 20px;
-  border-radius: 12px;
+  border-radius: 999px;
   font-size: 13px;
   font-weight: 500;
   font-family: inherit;
@@ -162,7 +162,7 @@
 .btnSm {
   padding: 7px 14px;
   font-size: 12px;
-  border-radius: 10px;
+  border-radius: 999px;
 }
 
 /* ── Security rows ─────────────────────────────────────────── */

@@ -2,19 +2,27 @@
 
 import { useCallback, useState } from "react";
 
+// Planwise-style green mesh, matching the Client Portal box on the profile card.
 const CARD: React.CSSProperties = {
-  background: "var(--color-paper-light)",
-  borderRadius: 22,
+  background: "radial-gradient(60% 80% at 0 0,#3d8a65 0,#0000 70%),radial-gradient(50% 70% at 100% 100%,#8fe0b8 0,#0000 70%),#1e5b47",
+  color: "#FFFFFF",
+  borderRadius: 28,
   padding: 24,
-  boxShadow: "0 1px 0 #FFF inset, 0 2px 0 rgba(30,28,24,.02), 0 20px 40px -30px rgba(30,28,24,.2)",
-  border: "1px solid rgba(30,28,24,.04)",
+  boxShadow: "0 20px 40px -24px rgba(15,53,39,.6)",
 };
+
+// All text on the green is white; "selected" is a darker fill, not a light pill.
+const LIGHT = "#FFFFFF";
+const ON = "rgba(10,19,13,.38)";
+const MUTED = "#FFFFFF";
+const RULE = "1px solid rgba(255,255,255,.18)";
 
 const miniBtn: React.CSSProperties = {
   padding: "4px 10px",
   borderRadius: 6,
-  border: "1px solid var(--color-line)",
-  background: "transparent",
+  border: "1px solid rgba(255,255,255,.28)",
+  background: "rgba(255,255,255,.08)",
+  color: LIGHT,
   fontSize: 11,
   cursor: "pointer",
 };
@@ -23,8 +31,10 @@ const input: React.CSSProperties = {
   width: "100%",
   padding: "8px 10px",
   borderRadius: 8,
-  border: "1px solid var(--color-line)",
-  background: "var(--color-paper)",
+  border: "1px solid rgba(255,255,255,.35)",
+  background: "rgba(10,19,13,.22)",
+  color: "#FFFFFF",
+  colorScheme: "dark",
   fontSize: 13,
   fontFamily: "inherit",
 };
@@ -57,11 +67,13 @@ function fmtDate(iso: string) {
 }
 
 export default function PortalContentCard({
-  customerId, projects, members,
+  customerId, projects, members, onChange,
 }: {
   customerId: string;
   projects: Project[];
   members: Member[];
+  /** Called after any successful write — the portal preview reloads on it. */
+  onChange?: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("updates");
   const [loading, setLoading] = useState(false);
@@ -132,6 +144,7 @@ export default function PortalContentCard({
       if (!res.ok) throw new Error(await res.text() || "Failed to post");
       setDraft("");
       setDraftProject("");
+      onChange?.();
       await load("updates");
     } catch (e) {
       alert((e as Error).message);
@@ -147,6 +160,7 @@ export default function PortalContentCard({
       body: JSON.stringify(patch),
     });
     if (!res.ok) { alert(await res.text() || "Failed"); return; }
+    onChange?.();
     await load("updates");
   }
 
@@ -154,6 +168,7 @@ export default function PortalContentCard({
     if (!confirm("Delete this update? The client will no longer see it.")) return;
     const res = await fetch(`/api/customers/${customerId}/updates/${id}`, { method: "DELETE" });
     if (!res.ok) { alert(await res.text() || "Failed"); return; }
+    onChange?.();
     await load("updates");
   }
 
@@ -164,6 +179,7 @@ export default function PortalContentCard({
       body: JSON.stringify({ asset_id: assetId, ...patch }),
     });
     if (!res.ok) { alert(await res.text() || "Failed"); return; }
+    onChange?.();
     await load("images");
   }
 
@@ -174,6 +190,7 @@ export default function PortalContentCard({
       body: JSON.stringify({ visit_id: visitId, ...patch }),
     });
     if (!res.ok) { alert(await res.text() || "Failed"); return; }
+    onChange?.();
     await load("visits");
   }
 
@@ -194,6 +211,7 @@ export default function PortalContentCard({
       if (!res.ok) throw new Error(await res.text() || "Failed to log visit");
       setShowLogVisit(false);
       setVisitProject(""); setVisitUser(""); setVisitDate(""); setVisitNote("");
+      onChange?.();
       await load("visits");
     } catch (e) {
       alert((e as Error).message);
@@ -213,7 +231,7 @@ export default function PortalContentCard({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12, marginBottom: 4 }}>
         <h2 style={{ margin: 0, fontSize: 17, fontWeight: 600 }}>Client Portal Content</h2>
       </div>
-      <p style={{ margin: "6px 0 16px", fontSize: 12, color: "var(--color-tan)" }}>
+      <p style={{ margin: "6px 0 16px", fontSize: 12, color: MUTED }}>
         Only what you publish here is visible on the client&apos;s portal.
       </p>
 
@@ -225,9 +243,9 @@ export default function PortalContentCard({
             style={{
               ...miniBtn,
               fontWeight: tab === t.key ? 600 : 400,
-              background: tab === t.key ? "var(--color-forest)" : "transparent",
-              color: tab === t.key ? "#FFF" : "inherit",
-              borderColor: tab === t.key ? "var(--color-forest)" : "var(--color-line)",
+              background: tab === t.key ? ON : "transparent",
+              color: LIGHT,
+              borderColor: tab === t.key ? LIGHT : "rgba(255,255,255,.28)",
             }}
           >
             {t.label}
@@ -235,8 +253,8 @@ export default function PortalContentCard({
         ))}
       </div>
 
-      {err && <div style={{ fontSize: 12, color: "var(--color-rust)", marginBottom: 12 }}>{err}</div>}
-      {loading && <div style={{ fontSize: 13, color: "var(--color-tan)" }}>Loading…</div>}
+      {err && <div style={{ fontSize: 12, color: "#FFFFFF", marginBottom: 12 }}>{err}</div>}
+      {loading && <div style={{ fontSize: 13, color: MUTED }}>Loading…</div>}
 
       {/* ── Updates ─────────────────────────────────────────────── */}
       {!loading && tab === "updates" && (
@@ -261,7 +279,7 @@ export default function PortalContentCard({
                 style={{
                   ...miniBtn,
                   padding: "8px 16px", fontSize: 12, fontWeight: 600,
-                  background: "var(--color-forest)", color: "#FFF", borderColor: "var(--color-forest)",
+                  background: ON, color: LIGHT, borderColor: LIGHT,
                   opacity: busy || !draft.trim() ? .5 : 1,
                 }}
               >
@@ -271,11 +289,11 @@ export default function PortalContentCard({
           </div>
 
           {updates.length === 0 && (
-            <div style={{ fontSize: 13, color: "var(--color-tan)" }}>No updates yet.</div>
+            <div style={{ fontSize: 13, color: MUTED }}>No updates yet.</div>
           )}
 
           {updates.map(u => (
-            <div key={u.id} style={{ padding: "12px 0", borderTop: "1px solid var(--color-line)" }}>
+            <div key={u.id} style={{ padding: "12px 0", borderTop: RULE }}>
               {editingId === u.id ? (
                 <>
                   <textarea
@@ -302,7 +320,7 @@ export default function PortalContentCard({
               ) : (
                 <>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
-                    <span style={{ fontSize: 11, color: "var(--color-tan)" }}>
+                    <span style={{ fontSize: 11, color: MUTED }}>
                       {fmtDate(u.created_at)}{u.edited_at ? " · edited" : ""}
                       {!u.is_visible && " · hidden"}
                     </span>
@@ -331,13 +349,13 @@ export default function PortalContentCard({
       {!loading && tab === "images" && (
         <>
           {images.length === 0 && (
-            <div style={{ fontSize: 13, color: "var(--color-tan)" }}>
+            <div style={{ fontSize: 13, color: MUTED }}>
               No images uploaded on this customer&apos;s projects yet.
             </div>
           )}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12 }}>
             {images.map(img => (
-              <div key={img.id} style={{ border: "1px solid var(--color-line)", borderRadius: 12, overflow: "hidden" }}>
+              <div key={img.id} style={{ border: RULE, borderRadius: 12, overflow: "hidden" }}>
                 {img.url && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -351,7 +369,7 @@ export default function PortalContentCard({
                   />
                 )}
                 <div style={{ padding: 8 }}>
-                  <div style={{ fontSize: 10, color: "var(--color-tan)", marginBottom: 6 }}>
+                  <div style={{ fontSize: 10, color: MUTED, marginBottom: 6 }}>
                     {[img.project_name, img.kind === "drawing" ? "Drawing" : "Site photo"].filter(Boolean).join(" · ")}
                   </div>
                   <input
@@ -369,9 +387,9 @@ export default function PortalContentCard({
                     style={{
                       ...miniBtn,
                       width: "100%",
-                      background: img.visible_to_customer ? "var(--color-forest)" : "transparent",
-                      color: img.visible_to_customer ? "#FFF" : "inherit",
-                      borderColor: img.visible_to_customer ? "var(--color-forest)" : "var(--color-line)",
+                      background: img.visible_to_customer ? ON : "rgba(255,255,255,.08)",
+                      color: LIGHT,
+                      borderColor: img.visible_to_customer ? LIGHT : "rgba(255,255,255,.28)",
                     }}
                   >
                     {img.visible_to_customer ? "Visible to client" : "Hidden"}
@@ -393,7 +411,7 @@ export default function PortalContentCard({
           </div>
 
           {showLogVisit && (
-            <div style={{ border: "1px solid var(--color-line)", borderRadius: 12, padding: 14, marginBottom: 16, display: "grid", gap: 8 }}>
+            <div style={{ border: RULE, borderRadius: 12, padding: 14, marginBottom: 16, display: "grid", gap: 8 }}>
               <select value={visitProject} onChange={e => setVisitProject(e.target.value)} style={input}>
                 <option value="">Select project…</option>
                 {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -415,7 +433,7 @@ export default function PortalContentCard({
                 disabled={busy || !visitProject || !visitUser || !visitDate}
                 style={{
                   ...miniBtn, padding: "8px 16px", fontSize: 12, fontWeight: 600,
-                  background: "var(--color-forest)", color: "#FFF", borderColor: "var(--color-forest)",
+                  background: ON, color: LIGHT, borderColor: LIGHT,
                   opacity: busy || !visitProject || !visitUser || !visitDate ? .5 : 1,
                 }}
               >
@@ -425,24 +443,24 @@ export default function PortalContentCard({
           )}
 
           {visits.length === 0 && (
-            <div style={{ fontSize: 13, color: "var(--color-tan)" }}>No site visits recorded yet.</div>
+            <div style={{ fontSize: 13, color: MUTED }}>No site visits recorded yet.</div>
           )}
 
           {visits.map(v => (
             <div key={v.id} style={{
               display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start",
-              padding: "12px 0", borderTop: "1px solid var(--color-line)",
+              padding: "12px 0", borderTop: RULE,
             }}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 600 }}>
                   {v.visitor_name ?? "Unknown"}
                   {v.source === "manual" && (
-                    <span style={{ fontSize: 10, fontWeight: 400, color: "var(--color-tan)", marginLeft: 6 }}>
+                    <span style={{ fontSize: 10, fontWeight: 400, color: MUTED, marginLeft: 6 }}>
                       logged manually
                     </span>
                   )}
                 </div>
-                <div style={{ fontSize: 11, color: "var(--color-tan)", marginTop: 2 }}>
+                <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>
                   {[v.project_name, fmtDate(v.checked_in_at)].filter(Boolean).join(" · ")}
                 </div>
                 <input
@@ -460,9 +478,9 @@ export default function PortalContentCard({
                 onClick={() => patchVisit(v.id, { visible_to_customer: !v.visible_to_customer })}
                 style={{
                   ...miniBtn, flexShrink: 0,
-                  background: v.visible_to_customer ? "var(--color-forest)" : "transparent",
-                  color: v.visible_to_customer ? "#FFF" : "inherit",
-                  borderColor: v.visible_to_customer ? "var(--color-forest)" : "var(--color-line)",
+                  background: v.visible_to_customer ? ON : "rgba(255,255,255,.08)",
+                  color: LIGHT,
+                  borderColor: v.visible_to_customer ? LIGHT : "rgba(255,255,255,.28)",
                 }}
               >
                 {v.visible_to_customer ? "Visible to client" : "Hidden"}

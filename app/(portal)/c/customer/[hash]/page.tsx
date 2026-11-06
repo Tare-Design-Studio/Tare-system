@@ -87,13 +87,14 @@ function fmtDate(iso: string | null): string {
 }
 
 function fmtAmount(n: number): string {
+  if (n >= 10000000) return `₹${(n / 10000000).toFixed(2)} Cr`;
   if (n >= 100000) return `₹${(n / 100000).toFixed(1)} L`;
   return `₹${n.toLocaleString("en-IN")}`;
 }
 
 const CARD: React.CSSProperties = {
   background: "var(--paper)",
-  borderRadius: 20,
+  borderRadius: 26,
   boxShadow: "0 1px 0 #FFF inset, 0 8px 24px -16px rgba(30,28,24,.14)",
   border: "1px solid rgba(30,28,24,.04)",
 };
@@ -143,8 +144,14 @@ function PortalStyles() {
   );
 }
 
-export default async function CustomerPortalPage({ params }: { params: Promise<{ hash: string }> }) {
+export default async function CustomerPortalPage({
+  params, searchParams,
+}: {
+  params: Promise<{ hash: string }>;
+  searchParams: Promise<{ preview?: string }>;
+}) {
   const { hash } = await params;
+  const { preview } = await searchParams;
   if (!hash || hash.length !== 16) notFound();
 
   const supabase = await createClient();
@@ -160,12 +167,29 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
   const jar = await cookies();
   const viewerName = jar.get("portal_viewer")?.value?.trim() || null;
 
+  // Staff preview (customer page → Preview client portal). Honoured only for a
+  // signed-in holder of the portal-content capability; the RPC re-checks that
+  // and the tenant before skipping the open log (127).
+  let isPreview = false;
+  if (preview === "1") {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: can } = await supabase.rpc("has_capability", {
+        p_capability: "images:select_for_customer",
+      });
+      isPreview = can === true;
+    }
+  }
+
   const { data, error } = await supabase.rpc("get_customer_portal_summary", {
     p_hash: hash,
     p_ip: ip ?? undefined,
     p_user_agent: userAgent ?? undefined,
     p_request_id: reqId ?? undefined,
     p_viewer_name: viewerName ?? undefined,
+    // Sent only on a preview, so ordinary opens keep working against a DB
+    // that predates 127.
+    ...(isPreview ? { p_preview: true } : {}),
   }) as { data: Summary | null; error: unknown };
 
   if (error || !data) notFound();
@@ -175,7 +199,7 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
   // bad link still 404s rather than being asked for a name), and the view is
   // logged either way — the gate governs what is rendered, not what is
   // recorded, so a visitor who refuses to answer is still counted as an open.
-  if (!viewerName) {
+  if (!viewerName && !isPreview) {
     return (
       <>
         <PortalStyles />
@@ -247,6 +271,11 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
   return (
     <>
         <PortalStyles />
+        {isPreview && (
+          <div style={{ position: "sticky", top: 0, zIndex: 10, background: "var(--ink)", color: "var(--paper)", fontSize: 11, textAlign: "center", padding: "6px 12px", letterSpacing: .4 }}>
+            Studio preview — this is what the client sees. Not counted as an open.
+          </div>
+        )}
 
       <div style={{ maxWidth: 880, margin: "0 auto", padding: "max(env(safe-area-inset-top, 0px), 40px) 28px 60px" }}>
 
@@ -285,7 +314,7 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
               sub={nextExpected
                 ? `${nextExpected.milestone_name}${nextExpected.due_date ? ` · due ${fmtDate(nextExpected.due_date)}` : " · no date set"}`
                 : "Nothing outstanding"}
-              color="var(--amber)"
+              tone="orange"
             />
             <SummaryCard
               label="Received"
@@ -293,7 +322,7 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
               sub={lastReceived
                 ? `${lastReceived.milestone_name} · ${fmtDate(lastReceived.last_paid_on)}`
                 : "No payments yet"}
-              color="var(--mint)"
+              tone="green"
             />
           </div>
         )}
@@ -412,12 +441,21 @@ export default async function CustomerPortalPage({ params }: { params: Promise<{
   );
 }
 
-function SummaryCard({ label, value, sub, color }: { label: string; value: string; sub: string; color: string }) {
+// Mesh gradients in the studio's Planwise style: deep base + two soft glows.
+const SUMMARY_BG = {
+  orange: "radial-gradient(60% 80% at 0 0,#e2a64b 0,#0000 70%),radial-gradient(50% 70% at 100% 100%,#f6c98a 0,#0000 70%),#b8642a",
+  green:  "radial-gradient(60% 80% at 0 0,#3d8a65 0,#0000 70%),radial-gradient(50% 70% at 100% 100%,#8fe0b8 0,#0000 70%),#1e5b47",
+} as const;
+
+function SummaryCard({ label, value, sub, tone }: { label: string; value: string; sub: string; tone: keyof typeof SUMMARY_BG }) {
   return (
-    <div style={{ ...CARD, borderRadius: 18, padding: "18px 20px" }}>
-      <div style={{ fontSize: 11, color: "var(--muted)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>{label}</div>
-      <div className="mono" style={{ fontSize: 26, fontWeight: 600, color, lineHeight: 1 }}>{value}</div>
-      <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 6 }}>{sub}</div>
+    <div style={{
+      borderRadius: 18, padding: "18px 20px", color: "#FFFFFF", background: SUMMARY_BG[tone],
+      boxShadow: "0 16px 32px -20px rgba(30,28,24,.45)",
+    }}>
+      <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8, opacity: .9 }}>{label}</div>
+      <div className="mono" style={{ fontSize: 26, fontWeight: 600, lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 11, marginTop: 6, opacity: .9 }}>{sub}</div>
     </div>
   );
 }

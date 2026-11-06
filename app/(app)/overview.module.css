@@ -1,0 +1,37 @@
+/* Owner overview — one grid for desktop and phone. Phones get the same cards
+   in the same order, stacked in a single column. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 18px;
+}
+
+/* Projects + Updates share the first row at an 11 / 13 split. */
+.topRow {
+  grid-column: span 12;
+  display: grid;
+  grid-template-columns: minmax(0, 11fr) minmax(0, 13fr);
+  gap: 18px;
+}
+
+.half { grid-column: span 6; min-width: 0; }
+.full { grid-column: span 12; min-width: 0; }
+
+.card {
+  background: var(--color-paper-light);
+  border-radius: 28px;
+  padding: 24px;
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--line-2);
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+@media (max-width: 767px) {
+  .grid, .topRow { gap: 14px; }
+  .topRow { grid-template-columns: minmax(0, 1fr); }
+  /* Phones lead with Updates (the top row's second card), then Projects. */
+  .topRow > :last-child { order: -1; }
+  .half { grid-column: span 12; }
+  .card { border-radius: 24px; padding: 18px; }
+}

@@ -29,6 +29,10 @@ export default async function ProjectsPage() {
 
   if (!user) redirect("/login");
 
+  // Site engineers use their own project's Details page only — no projects list.
+  const { data: me } = await supabase.from("users").select("role").eq("id", user.id).single();
+  if (me?.role === "site_engineer") redirect("/site");
+
   const { data: canViewAll } = await supabase.rpc("has_capability", {
     p_capability: "project:view_all",
   });

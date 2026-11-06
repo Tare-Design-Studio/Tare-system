@@ -1,5 +1,166 @@
 # PROJECT_STATE.md
-(Updated: 2026-10-29 — password reset via owner/admin link only; email flow removed)
+(Updated: 2026-11-06 — KPI remarks (migration 129 applied), profile leave card, sticky top bar)
+
+### KPI remarks + Edit KPI fix + profile/top bar (2026-11-06, migration 129 applied)
+- **Performance leaderboard:** Revenue column → **Remarks**. Popover (`RemarksPopover` in
+  `performance/PerformanceClient.tsx`) lists remarks, and `team:edit_user` (principal/admin) adds ± points with
+  an optional grade tag (A++…D) + reason, or deletes. Not on own row. API `app/api/performance/remarks`
+  (GET ?month, POST, DELETE ?id). Points fold into `overall_kpi_score` (129).
+- **Scores uncapped in UI:** `scoreToGrade()` gains **A++ ≥ 100**; score cells sized for 3 digits.
+- **Edit KPI modal:** used undefined CSS vars (`--paper/--muted/--ink/--line/--rust`) → transparent card. Now
+  `--color-*` tokens, uncapped pillar breakdown (efficiency/quality/delivery/remarks), Esc/backdrop close,
+  scrolls on short screens, shows save errors.
+- **My profile:** LeaveCard replaces the Flags tile when `isSelf` (`team/[memberId]/MemberDetailClient.tsx`).
+  Attendance ribbon tooltip now anchored to the hovered column; Bars/Trend toggle no longer full-width.
+- **TopBar:** sticky, never wraps; nav strip scrolls horizontally (hidden scrollbar), active item centred on navigate.
+- **Site engineer expenses:** migration **130 written, NOT YET APPLIED** — BEFORE INSERT trigger auto-approves any
+  expense recorded by a site engineer (+ backfills pending). Site view tag reads "Recorded".
+- **Bridge crash fix:** layout renders pages twice (desktop/mobile copies); `BridgeClient` now mounts only the visible
+  copy (duplicate realtime topic made `.on()` throw). Site engineer project selector deduped (duplicate React keys).
+- **Owner overview on phones** = desktop cards in one responsive grid (`overview.module.css`), Updates first on
+  phones. `MobileHome` is now just the phone header; schedule/team-snapshot/finance queries removed.
+- **Customers on phones:** list → tap → detail with "All customers" back. Amounts ≥ ₹1 Cr show `₹x.xx Cr` in all
+  `fmtAmount` copies; customer summary tiles stay three across.
+- **Payments rail:** Edit / ✕ on a milestone only in pencil (edit) mode; normal view shows Record only.
+- **Project header (phones):** Edit Project · WhatsApp · Drive in one compact row.
+- **Project info popover:** fixed-positioned and clamped to the viewport (was cut off on phones).
+- **Progress Timeline edit mode:** pencil top-right (`project:edit`) → drag-to-reorder list + "Add circle"
+  (name, due date, position) via existing 123 RPC routes. No delete from this UI.
+
+### Site engineer: access cut + green header + card redo (2026-11-05, migration 128 applied 2026-11-06)
+- **No customer data for any site engineer** (incl. Adarsha / project_manager tag): `has_capability()` returns
+  false for `customer:%` / `customer_payments:%` when `users.role='site_engineer'` (128). Customers + Projects
+  office tabs removed from `SiteEngineerChrome` (`OfficeTab` = `finance` only, `layout.tsx`);
+  `customers/layout.tsx` + `projects/page.tsx` redirect site engineers to `/site`. Details tab = own project.
+- Header (desktop + phone) = Planwise green mesh, white text, translucent project select.
+- Office "Worked today" AttendanceCard removed from `/site`.
+- Add expense card: green header with big ₹ input, 4 category tiles, Save shows amount. Materials: "what was
+  it for" is a dropdown (project plan materials + common list + Other → text); plan pick links
+  `linked_material_plan_id`, description = material [— details].
+- `UpdateComposer` gains `green` prop (green mesh skin); only `/site` uses it.
+- Fix: `ProgressTimelineClient` U-turn used `border` shorthand + `borderLeft:none`; React re-applied the
+  shorthand after width measure → stray vertical line through labels on phone. Longhands only now.
+- `/site/team`: "Put an engineer on projects" card (`AssignEngineerCard.tsx`) deleted. Roster gets buttons
+  **+ Add to project** (`AddToProjectModal.tsx` — multi-pick engineers, then projects; skips pairs already
+  assigned; same `/api/projects/[id]/assignments`) and **+ Assign task** (existing `AssignTaskModal`, moved
+  out of Manage). Manage tab now = My projects only (shown with `team:assign_to_project`).
+- **Materials tab removed** (chrome + `/site` PANEL_TABS + `MaterialsTab`); Home quick actions = Add expense /
+  Post update. Material plans still fetched for the expense form's material dropdown.
+- Desktop site header = one row: project select · compact tab pills (scroll if needed) · avatar + name +
+  sign-out pinned right. Stage chip dropped (shown as select tooltip). New **Profile** tab → `/team/<self>`
+  (`userId` prop from `layout.tsx`).
+- Expense card on phones: `.card.expCard` padding fix (media query was re-padding it), 16px fields (no iOS
+  zoom), 4-across compact category tiles, stacked header.
+- **My Profile (`/team/[memberId]`) redo**, Performance-page shape: hero strip (range · role label, serif
+  "My *Profile*" for self / name for others), range pills + Export top right, 12-col grid — 3 stat cards,
+  site hours or attendance (7) | projects (5), check-ins (SE), tasks, performance (non-SE). Tabs removed.
+  Back link only when viewing someone else. Broadcasts card + its queries removed (page + API).
+- **Self-export:** `GET /api/team/[id]` and `/api/team/[id]/export` now allow your own id without
+  `office_attendance:view_all`. SE export: Site visits (now with check-out + minutes, IST times) and Tasks.
+- Profile hours cards (Attendance / Time on site) get a **Bars | Trend** toggle. Trend = `HoursTrend.tsx`,
+  stock-style line + area of hours per worked day (SE: site minutes per IST day), latest value, ▲/▼ % of
+  later-half avg vs earlier-half, crosshair tooltip on hover/tap. Fix: `page.tsx` SE check-in select lacked
+  `duration_minutes`/`checked_out_at`, so first load showed no site hours.
+- Build fix: `app/api/bridge/reads/route.ts` — `bridge_reads` missing from generated DB types; cast with
+  typed rows. `next build` passes.
+- [ ] Apply 128: `npx tsx scripts/migrate.ts` (only pending migration).
+
+### Site engineer dashboard redo (2026-11-05, no migration)
+- `DesktopSiteEngineer.tsx`, `MobileSiteEngineer.tsx`, `SiteVisitsCard.tsx` deleted → one responsive
+  `site/components/SiteHome.tsx` + `site/site.module.css` (owner-overview look: day label, serif "Hey, *Name*",
+  28px cards). Home: check in/out card, 3 quick actions (Add expense / Post update / Log material),
+  Progress card (absorbs old Progress tab), Spent today card, upcoming site visits (only when any).
+- Tabs now Home · Expenses · Updates · Materials · Bridge · Details (+ Team/office). `progress` tab removed
+  (`site/page.tsx` + `SiteEngineerChrome.tsx` PANEL_TABS); `?tab=progress` falls back to Home.
+- Expense form: category pills (default Materials), big amount, optional note, optional material link.
+- **Material expenses auto-approved:** `POST /api/projects/[id]/expenses` inserts `category='materials'` with
+  `approval_status='approved'`, `approved_by=recorder`, `approved_at=now()`. Other categories still pending.
+- [ ] Existing pending `materials` expenses not backfilled — still sit in approval queue.
+- [ ] Not visually verified in browser (agent-browser MCP down this session).
+
+
+(Previous: 2026-11-05 — customer profile redesign + portal preview; migration 127 applied)
+
+### Project detail page relayout (2026-11-05, no migration)
+- `app/(app)/projects/[id]/page.tsx`: Project Info card → `ProjectInfoPopover` (i button by title).
+  Order: full-width Progress Timeline card → split row (Duration & Progress | Payment Milestones) →
+  Team Stream + composer (left) | Expenses + Latest Files (right).
+- Timeline (`ProgressTimelineClient`) wraps into snake rows (alternating direction, U-turn connectors),
+  columns from container width (min 120px/cell).
+- Expenses card lists last 10 expenses where recorder role = `site_engineer`; links to `/projects/[id]/expenses`.
+- Removed from page: Material Plan, Expense Summary, Execution Tables (hidden; `ProjectTablesSection.tsx`
+  and `MaterialPlanCard.tsx` kept, now unimported). `MilestonesCard` add-milestone (+) buttons removed —
+  milestones added via Edit Project only.
+- Follow-up: Duration card gains Site Visit History (last 30 `site_check_ins` with `source='check_in'`,
+  RLS-scoped — viewers without `site_check_in:view_all` see own visits only). Team Stream renamed **Tasks**,
+  filters All / Team Members / Site Engineers (green). Cards stretch flush: split row equal height; Tasks card
+  fills left column (feed scrolls inside, min 520px), Latest Files fills right. Milestone subcards fixed 140×120.
+  Header hours-variance chip removed (`work_log` query dropped).
+- Timeline connector = green gradient (card stays paper). Page buttons/links pill-shaped (radius 999) incl.
+  Edit Project trigger; buttons inside Edit Project modal unchanged.
+
+### Team Performance page redo (2026-11-05, no migration)
+- `app/(app)/performance/PerformanceClient.tsx` + `performance.module.css`: Overview styling — hero strip
+  (month label + serif "Team *Performance*"), pill month picker, 12-col card grid: 4 stat cards (team avg,
+  top performer, members scored, revenue), Leaderboard (ranked, score bar + grade), Score Breakdown (team avg
+  per dimension), Monthly Inputs table (raw KPI + pill Edit/Add). Data/API/edit modal unchanged.
+
+### Team & Access: project-teams popover, roster text, broadcast audience pills (2026-11-05, no migration)
+
+- Headline stats band above Members removed.
+- `AssignToProjectPanel` deleted → "Set project teams" button + `team/ProjectTeamsModal.tsx`:
+  project pills (search toggle on left) are drop targets; drag a member/site engineer onto a pill or
+  the open project's zone to add; ✕ removes; tap adds on touch. Uses existing POST/DELETE
+  `/api/projects/[id]/assignments`. Role on project = `site_engineer` for site engineers, else `team_member`.
+- Roster row: "Worked N days / Xh Ym"; "No active tasks" / "N active task(s)"; desktop load bar replaced
+  by newest active task name ("Now") or most recent completed ("Last").
+- `BroadcastsPanel` compose: voice recorder and project-team select removed; audience pills
+  Team members / Site engineers / Select specific (opens name picker). `teamMembers` now needs `role`.
+  `broadcastProjects` plumbing removed from dashboard `page.tsx` + `MobileHome.tsx`.
+- App-wide shape pass: `globals.css` rule `button:not(.shape-free) { border-radius: 999px !important }`
+  (opt out with `.shape-free`); `--radius-card` 22→28, `--radius-btn` 12→999; inline/CSS card radii
+  22→28 and 20→26 across `app/` + `components/`. TopBar nav + active item pill; settings + bell circles.
+- `/team`: Broadcast card moved to side column under Review queue (`TeamBoard` `broadcast` prop).
+  Attention flag ("N awaiting review") sits beside the member name. "Needs attention" tab → "Review".
+  Row "Tags" button removed; tag toggles (`TagToggles`) live in Edit Member modal, shown only with
+  `team_member_tags:manage`.
+
+### Customer profile: header, payments rail, reminders, portal preview (2026-11-05)
+
+`app/(app)/customers/[id]/CustomerDetail.tsx`:
+- Name row: **Linked** chip (1 project → project page; 2+ → `Linked · N` dropdown) or **+ Link**
+  (opens `LinkProjectModal`, moved to `components/customers/` and shared with `/customers`).
+  Email, "Customer since", View Enquiry sit at the right end of that row. Linked-projects list removed.
+- Payments: `PaymentsCard layout="rail"` — Part A/B toggle beside each wing heading, compact tiles
+  in a sideways-scrolling row (←/→ reorder). Project page keeps the default list layout.
+  **Show all** → `components/payments/PaymentsBoard.tsx`: read-only snakes-and-ladders board per
+  wing; Part A and Part B are separate boxed boards (own colour, numbering, totals), coloured by
+  status, ring on the next unpaid milestone.
+- Reminders: **+** in the card header opens New Reminder as a modal; fixed card removed.
+- Rail tiles copy the portal's payment card look (status circle, `01`, mono amount, status line);
+  ←/→/+ removed. Part heading **pencil** = drag-to-reorder mode (+ "Add milestone" tile at rail end);
+  same pencil per Part in Show all. `components/payments/useDragReorder.ts` — pointer events
+  (mouse + touch), one `reorder` API call per drop, order held locally until refresh.
+- Client Portal Content card hidden behind "Make changes to client portal ⌄" row. Both green cards
+  use white text only (inputs dark-translucent, `colorScheme: dark`).
+- `/customers` list: cards lime→yellow gradient (selected = ink ring); right-panel top card green mesh, white text. List caps at 15 cards
+  and scrolls in place (measured from the 15th card).
+- Portal: Next Payment = orange mesh, Received = green mesh, white text.
+- [ ] Drag reorder never tried on a phone; rail horizontal scroll is disabled on tiles while reordering.
+- Client Portal box: Planwise-style green mesh (`#1e5b47` + `#3d8a65`/`#8fe0b8` glows), light text.
+  Copy/Regenerate/Revoke sit beside the link.
+  Client Portal Content card (`PortalContentCard.tsx`) uses the same mesh; inputs stay light.
+- **Preview** (top right of the Client Portal box, `images:select_for_customer` + live link):
+  modal with `PortalContentCard` (show/hide updates, images, visits) beside an iframe of
+  `/c/customer/[hash]?preview=1`; each change reloads the frame. `?preview=1` skips the name gate
+  only for a signed-in capability holder (page re-checks), shows a "Studio preview" strip.
+- Migration 127 APPLIED 2026-11-05 (6-arg RPC live; EXECUTE anon + authenticated).
+- [ ] Preview controls only per-item visibility (updates/images/visits). Payments, project
+      progress and checkpoints have no hide switch — would need new columns + RPC change.
+- [ ] Never run in a browser. `tsc` + `eslint` green on touched files (pre-existing
+      `set-state-in-effect` error in CustomerDetail and `app/api/bridge` tsc errors untouched).
+
+(Previous: 2026-10-29 — password reset via owner/admin link only; email flow removed)
 
 ### Password reset link for owners/admins (2026-10-29, no migration)
 
@@ -2162,3 +2323,17 @@ passing.
 
 **Also:** client portal now always labels each payment rail with its wing/part ("Design · Part A"),
 where the label previously appeared only when a project had more than one group.
+
+## Owner overview redesign (2026-11-05)
+
+- Desktop overview: hero pillars + "Your practice overview" removed; calendar card removed (mobile unchanged).
+- Grid: Projects (5.5) + Updates (6.5) via nested grid; Broadcasts (6) + Who's in today (6); Team performance (12). Old Team ranking card dropped from desktop.
+- Project subcards fixed 260×140, name/location ellipsis.
+- Updates card lists today's (IST) updates; first 5 shown, `ShowMoreList` toggle only when more exist. "View all updates" link removed.
+- New `GET /api/team-performance?from&to` (IST dates, ≤366 days; gated finance:view_dashboard OR team:edit_user): per non-owner member office minutes, tasks completed, updates posted, site visits. `TeamPerformanceCard` — Day/Range picker + metric switch, Compare view (one bar per member) or Graph view (line + area per IST day, hover crosshair, whole team or one member; API also returns `daily`).
+- Tokens: `--color-paper` #F7F3EE, `--color-paper-light` #F5F5F5 (global).
+- Overview Updates card: standard card bg, near-white rgba(255,255,255,.9) subcards. Calendar page: update subcards `--subcard-bg`, radius 20; "View all updates" + header "Add Event" removed; "Schedule event" button solid forest.
+- Overview cards (page C, TeamPerformanceCard, PresenceCard): border/shadow match Card atom (--color-line, --shadow-card).
+- All big cards app-wide (inline + team/member-detail CSS modules, mobile homes, projects list) use `var(--shadow-card)`; project card hover `var(--shadow-hover)`. Customer portal untouched.
+- All big cards: border `1px solid var(--line-2)` (#D6CDBA, same as TopBar logo pill), incl. Card atom.
+- Navbar: TopBar nav pill border + MobileNav top border `var(--line-2)`.

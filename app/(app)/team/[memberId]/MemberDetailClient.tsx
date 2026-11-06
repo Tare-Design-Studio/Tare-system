@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { Avatar, Chip, Icon } from "@/components/atoms";
+import { HoursTrend, ViewToggle } from "./HoursTrend";
+import LeaveCard from "../../team-member/LeaveCard";
 import styles from "./member-detail.module.css";
 
 type Range = "month" | "3m" | "6m" | "year";
@@ -110,13 +112,6 @@ type PerfRow = {
   notes: string | null;
 };
 
-type BroadcastRecipient = {
-  broadcast_id: string;
-  is_acknowledged: boolean;
-  acknowledged_at: string | null;
-  owner_broadcasts: { created_at: string; body: string } | null;
-};
-
 type CheckIn = {
   id: string;
   project_id: string | null;
@@ -138,7 +133,6 @@ type MemberData = {
   memberTasks?: MemberTask[];
   attendance?: AttendanceLog[];
   performance?: PerfRow[];
-  broadcasts?: BroadcastRecipient[];
 };
 
 const TAG_LABELS: Record<string, string> = {
@@ -226,43 +220,6 @@ function Facts({ items }: { items: { label: string; value: string | number; mute
   );
 }
 
-// ─── Headline band ───────────────────────────────────────────────────────────
-
-function Headline({ cells }: {
-  cells: {
-    label: string;
-    value: string | number;
-    unit?: string;
-    foot?: string;
-    meterPct?: number;
-    tone?: "clear" | "raised";
-  }[];
-}) {
-  return (
-    <div className={styles.headline}>
-      {cells.map((c) => (
-        <div key={c.label} className={styles.headlineCell}>
-          <div className={styles.headlineLabel}>{c.label}</div>
-          <div
-            className={`${styles.headlineValue} ${
-              c.tone === "clear" ? styles.flagClear : c.tone === "raised" ? styles.flagRaised : ""
-            }`}
-          >
-            {c.value}
-            {c.unit && <span className={styles.headlineUnit}>{c.unit}</span>}
-          </div>
-          {c.meterPct != null && (
-            <div className={styles.meter}>
-              <div className={styles.meterFill} style={{ width: `${Math.min(100, Math.max(0, c.meterPct))}%` }} />
-            </div>
-          )}
-          {c.foot && <div className={styles.headlineFoot}>{c.foot}</div>}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 // ─── Shift ribbon — the signature element ────────────────────────────────────
 // One column per worked day, ordered oldest → newest. Bar height encodes hours
 // worked against the tallest day in range, with overtime stacked on top in
@@ -277,7 +234,17 @@ function ShiftRibbon({ attendance }: { attendance: AttendanceLog[] }) {
   );
   // Which column's readout is showing. Hover and keyboard focus both set it, so
   // the ribbon is not mouse-only.
-  const [hovered, setHovered] = useState<number | null>(null);
+  // x is the column's centre relative to the wrap, measured on hover so the
+  // readout follows the column even when the ribbon is scrolled.
+  const [hovered, setHovered] = useState<{ i: number; x: number; w: number } | null>(null);
+  const show = (i: number, el: HTMLElement) => {
+    const wrap = el.closest(`.${styles.ribbonWrap}`) as HTMLElement | null;
+    if (!wrap) return;
+    const c = el.getBoundingClientRect();
+    const w = wrap.getBoundingClientRect();
+    setHovered({ i, x: c.left + c.width / 2 - w.left, w: w.width });
+  };
+  const hide = (i: number) => setHovered((h) => (h?.i === i ? null : h));
 
   if (days.length === 0) return null;
 
@@ -311,10 +278,10 @@ function ShiftRibbon({ attendance }: { attendance: AttendanceLog[] }) {
               className={styles.ribbonCol}
               title={flat}
               tabIndex={0}
-              onMouseEnter={() => setHovered(i)}
-              onMouseLeave={() => setHovered((h) => (h === i ? null : h))}
-              onFocus={() => setHovered(i)}
-              onBlur={() => setHovered((h) => (h === i ? null : h))}
+              onMouseEnter={(e) => show(i, e.currentTarget)}
+              onMouseLeave={() => hide(i)}
+              onFocus={(e) => show(i, e.currentTarget)}
+              onBlur={() => hide(i)}
             >
               {open ? (
                 <div
@@ -335,15 +302,15 @@ function ShiftRibbon({ attendance }: { attendance: AttendanceLog[] }) {
                   />
                 </>
               )}
-              {hovered === i && (
+              {hovered?.i === i && (
                 <div
                   className={styles.ribbonTip}
                   style={{
-                    // Keep the card inside the ribbon at both ends instead of
-                    // letting it hang off the edge.
-                    left: i < 2 ? 0 : i > days.length - 3 ? "auto" : "50%",
-                    right: i > days.length - 3 ? 0 : "auto",
-                    transform: i < 2 || i > days.length - 3 ? "none" : "translateX(-50%)",
+                    // Centred on the column; pinned to an edge near either end
+                    // so the card stays inside the ribbon.
+                    left: hovered.x < 90 ? 0 : hovered.x > hovered.w - 90 ? "auto" : hovered.x,
+                    right: hovered.x > hovered.w - 90 ? 0 : "auto",
+                    transform: hovered.x < 90 || hovered.x > hovered.w - 90 ? "none" : "translateX(-50%)",
                   }}
                 >
                   <div className={styles.ribbonTipDay}>{fmtDayLong(d.work_date)}</div>
@@ -432,6 +399,7 @@ function AttendancePanel({ attendance, range, onWiden }: {
   const geofenceViolations = attendance.filter(
     (r) => r.check_in_within_geofence === false || r.check_out_within_geofence === false
   ).length;
+  const [view, setView] = useState<"bars" | "trend">("bars");
 
   return (
     <Card
@@ -447,7 +415,12 @@ function AttendancePanel({ attendance, range, onWiden }: {
         />
       ) : (
         <>
-          <ShiftRibbon attendance={attendance} />
+          <ViewToggle value={view} onChange={setView} />
+          {view === "bars" ? (
+            <ShiftRibbon attendance={attendance} />
+          ) : (
+            <HoursTrend points={attendance.map((r) => ({ date: r.work_date, minutes: r.total_minutes ?? 0 }))} />
+          )}
           <Facts
             items={[
               { label: "Total", value: fmtHours(totalMinutes) },
@@ -638,6 +611,18 @@ function SiteHoursCard({ checkIns, range, onWiden }: {
   }, [checkIns]);
 
   const peak = Math.max(...rows.map((r) => r.minutes), 1);
+  const [view, setView] = useState<"bars" | "trend">("bars");
+
+  // Site minutes per IST calendar day, for the trend view.
+  const daily = useMemo(() => {
+    const byDay = new Map<string, number>();
+    for (const c of checkIns) {
+      if (c.duration_minutes == null) continue;
+      const day = new Date(c.checked_in_at).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+      byDay.set(day, (byDay.get(day) ?? 0) + c.duration_minutes);
+    }
+    return [...byDay].map(([date, minutes]) => ({ date, minutes }));
+  }, [checkIns]);
 
   return (
     <Card title="Time on site" subtitle="Hours split across sites">
@@ -648,6 +633,13 @@ function SiteHoursCard({ checkIns, range, onWiden }: {
           onAction={onWiden}
         />
       ) : (
+        <>
+        <ViewToggle value={view} onChange={setView} />
+        {view === "trend" ? (
+          daily.length > 0
+            ? <HoursTrend points={daily} />
+            : <div className={styles.trendSub}>No completed site visits to chart yet.</div>
+        ) : (
         <div className={styles.rows}>
           {rows.map((r) => (
             <div key={r.name} className={styles.row}>
@@ -665,6 +657,8 @@ function SiteHoursCard({ checkIns, range, onWiden }: {
             </div>
           ))}
         </div>
+        )}
+        </>
       )}
     </Card>
   );
@@ -727,32 +721,6 @@ function CheckInsPanel({ checkIns, range, onWiden }: {
   );
 }
 
-function BroadcastsCard({ broadcasts }: { broadcasts: BroadcastRecipient[] }) {
-  const total = broadcasts.length;
-  const acked = broadcasts.filter((b) => b.is_acknowledged).length;
-  const ackRate = total > 0 ? Math.round((acked / total) * 100) : 0;
-
-  return (
-    <Card title="Broadcasts" subtitle="Owner announcements read">
-      {total === 0 ? (
-        <EmptyState message="No broadcasts sent to this person." actionLabel="Send a broadcast" href="/team" />
-      ) : (
-        <>
-          <div className={styles.meter} style={{ marginTop: 4 }}>
-            <div className={styles.meterFill} style={{ width: `${ackRate}%` }} />
-          </div>
-          <Facts
-            items={[
-              { label: "Acknowledged", value: `${acked}/${total}` },
-              { label: "Read rate", value: `${ackRate}%`, muted: ackRate === 0 },
-            ]}
-          />
-        </>
-      )}
-    </Card>
-  );
-}
-
 // ─── Export menu ─────────────────────────────────────────────────────────────
 
 function ExportMenu({ memberId, range, isSiteEngineer }: {
@@ -782,7 +750,10 @@ function ExportMenu({ memberId, range, isSiteEngineer }: {
   const base = `/api/team/${memberId}/export?range=${range}`;
 
   const items = isSiteEngineer
-    ? [{ label: "Check-ins", href: `${base}&section=all` }]
+    ? [
+        { label: "Site visits", href: `${base}&section=all` },
+        { label: "Tasks", href: `${base}&section=tasks` },
+      ]
     : [
         { label: "Everything", href: `${base}&section=all` },
         { label: "Attendance", href: `${base}&section=attendance` },
@@ -825,21 +796,21 @@ function ExportMenu({ memberId, range, isSiteEngineer }: {
 
 // ─── Main client component ───────────────────────────────────────────────────
 
-type TabKey = "overview" | "attendance" | "tasks" | "record";
-
 export default function MemberDetailClient({
   memberId,
   initialData,
   initialRange,
+  isSelf = false,
 }: {
   memberId: string;
   initialData: MemberData;
   initialRange: Range;
+  /** Viewer is looking at their own record (My Profile). */
+  isSelf?: boolean;
 }) {
   const [range, setRange] = useState<Range>(initialRange);
   const [data, setData] = useState<MemberData>(initialData);
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState<TabKey>("overview");
 
   const fetchData = useCallback(async (r: Range) => {
     setLoading(true);
@@ -924,57 +895,50 @@ export default function MemberDetailClient({
     },
   ];
 
-  const tabs: { key: TabKey; label: string; count?: number }[] = [
-    { key: "overview", label: "Overview" },
-    { key: "attendance", label: isSiteEngineer ? "Site visits" : "Attendance", count: isSiteEngineer ? checkIns.length : attendance.length },
-    { key: "tasks", label: "Tasks", count: totalTasks },
-    ...(isSiteEngineer ? [] : [{ key: "record" as TabKey, label: "Performance", count: performance.length }]),
-  ];
+  const [firstName, ...restName] = member.full_name.split(" ");
 
   return (
-    <div className={styles.surface}>
-      <Link href="/team" className={styles.backLink}>
-        <Icon name="arrowLeft" size={13} />
-        Team
-      </Link>
+    <div className={`${styles.surface} ${styles.profile}`}>
+      {!isSelf && (
+        <Link href="/team" className={styles.backLink}>
+          <Icon name="arrowLeft" size={13} />
+          Team
+        </Link>
+      )}
 
-      <header className={styles.masthead}>
-        <div className={styles.headerLeft}>
-          <Avatar initials={initials(member.full_name)} tone={roleTone(member.role)} size={60} />
-          <div className={styles.headerInfo}>
-            <div className={styles.eyebrow}>
-              <Chip label={member.role_label ?? chip.label} tone={chip.tone} size="sm" />
-              {tags.map((t) => (
-                <Chip key={t.tag} label={TAG_LABELS[t.tag] ?? t.tag} tone="indigo" size="sm" />
-              ))}
-              {!member.is_active && <Chip label="Inactive" tone="sand" size="sm" />}
-            </div>
-            <h1 className={`font-serif ${styles.title}`}>{member.full_name}</h1>
-            <div className={styles.metaRow}>
-              {member.phone && (
-                <span className={styles.metaItem}>
-                  <Icon name="phone" size={11} />
-                  <a href={`tel:${member.phone}`} className={styles.metaLink}>{member.phone}</a>
-                </span>
-              )}
-              {member.experience_years != null && (
-                <span className={styles.metaItem}>
-                  <Icon name="star" size={11} />
-                  <span className={styles.metaValue}>{member.experience_years} yrs</span>&nbsp;experience
-                </span>
-              )}
-              {member.skill_score != null && (
-                <span className={styles.metaItem}>
-                  Skill&nbsp;<span className={styles.metaValue}>{member.skill_score}</span>
-                </span>
-              )}
-              {member.last_login_at && (
-                <span className={styles.metaItem}>
-                  <Icon name="clock" size={11} />
-                  Last seen&nbsp;<span className={styles.metaValue}>{fmtDate(member.last_login_at)}</span>
-                </span>
-              )}
-            </div>
+      {/* Hero strip — same shape as the Performance page */}
+      <header className={styles.hero}>
+        <div className={styles.heroMain}>
+          <div className={styles.heroLabel}>
+            {RANGE_LABELS[range]} · {member.role_label ?? chip.label}
+          </div>
+          <h1 className={styles.heroTitle}>
+            {isSelf ? <>My <em>Profile</em></> : <>{firstName} {restName.length > 0 && <em>{restName.join(" ")}</em>}</>}
+          </h1>
+          <div className={styles.heroMeta}>
+            <Avatar initials={initials(member.full_name)} tone={roleTone(member.role)} size={28} />
+            {isSelf && <span className={styles.metaValue}>{member.full_name}</span>}
+            {tags.map((t) => (
+              <Chip key={t.tag} label={TAG_LABELS[t.tag] ?? t.tag} tone="indigo" size="sm" />
+            ))}
+            {!member.is_active && <Chip label="Inactive" tone="sand" size="sm" />}
+            {member.phone && (
+              <span className={styles.metaItem}>
+                <Icon name="phone" size={11} />
+                <a href={`tel:${member.phone}`} className={styles.metaLink}>{member.phone}</a>
+              </span>
+            )}
+            {member.experience_years != null && (
+              <span className={styles.metaItem}>
+                <span className={styles.metaValue}>{member.experience_years} yrs</span>&nbsp;experience
+              </span>
+            )}
+            {member.last_login_at && (
+              <span className={styles.metaItem}>
+                <Icon name="clock" size={11} />
+                Last seen&nbsp;<span className={styles.metaValue}>{fmtDate(member.last_login_at)}</span>
+              </span>
+            )}
           </div>
         </div>
 
@@ -999,65 +963,57 @@ export default function MemberDetailClient({
       {loading ? (
         <div className={styles.loading}>Loading…</div>
       ) : (
-        <>
-          <Headline cells={headlineCells} />
-
-          <nav className={styles.tabs}>
-            {tabs.map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                className={`${styles.tab} ${tab === t.key ? styles.tabActive : ""}`}
-                onClick={() => setTab(t.key)}
-                aria-pressed={tab === t.key}
-              >
-                {t.label}
-                {t.count != null && t.count > 0 && <span className={styles.tabCount}>{t.count}</span>}
-              </button>
-            ))}
-          </nav>
-
-          {tab === "overview" && (
-            <div className={`${styles.panel} ${styles.panelSplit}`}>
-              <div className={styles.panel}>
-                {isSiteEngineer ? (
-                  <SiteHoursCard checkIns={checkIns} range={range} onWiden={widenRange} />
-                ) : (
-                  <AttendancePanel attendance={attendance} range={range} onWiden={widenRange} />
-                )}
+        <div className={styles.grid12}>
+          {/* My profile: Leave takes the Flags slot. /api/leave is scoped to the
+              signed-in user, so it can't stand in on someone else's page. */}
+          {(isSelf ? headlineCells.filter((c) => c.label !== "Flags") : headlineCells).map((c) => (
+            <div key={c.label} className={`${styles.statCard} ${styles.span4}`}>
+              <div className={styles.headlineLabel}>{c.label}</div>
+              <div className={`${styles.headlineValue} ${
+                c.tone === "clear" ? styles.flagClear : c.tone === "raised" ? styles.flagRaised : ""
+              }`}>
+                {c.value}
+                {c.unit && <span className={styles.headlineUnit}>{c.unit}</span>}
               </div>
-              <div className={styles.panel}>
-                <ProjectsCard projects={data.projects ?? []} />
-                <BroadcastsCard broadcasts={data.broadcasts ?? []} />
-              </div>
-            </div>
-          )}
-
-          {tab === "attendance" && (
-            <div className={styles.panel}>
-              {isSiteEngineer ? (
-                <>
-                  <SiteHoursCard checkIns={checkIns} range={range} onWiden={widenRange} />
-                  <CheckInsPanel checkIns={checkIns} range={range} onWiden={widenRange} />
-                </>
-              ) : (
-                <AttendancePanel attendance={attendance} range={range} onWiden={widenRange} />
+              {c.meterPct != null && (
+                <div className={styles.meter}>
+                  <div className={styles.meterFill} style={{ width: `${Math.min(100, Math.max(0, c.meterPct))}%` }} />
+                </div>
               )}
+              {c.foot && <div className={styles.headlineFoot}>{c.foot}</div>}
+            </div>
+          ))}
+          {isSelf && (
+            <div className={styles.span4}>
+              <LeaveCard />
             </div>
           )}
 
-          {tab === "tasks" && (
-            <div className={styles.panel}>
-              <TasksPanel dailyTasks={dailyTasks} memberTasks={memberTasks} range={range} onWiden={widenRange} />
+          <div className={`${styles.stack} ${styles.span7}`}>
+            {isSiteEngineer ? (
+              <SiteHoursCard checkIns={checkIns} range={range} onWiden={widenRange} />
+            ) : (
+              <AttendancePanel attendance={attendance} range={range} onWiden={widenRange} />
+            )}
+          </div>
+          <div className={`${styles.stack} ${styles.span5}`}>
+            <ProjectsCard projects={data.projects ?? []} />
+          </div>
+
+          {isSiteEngineer && (
+            <div className={`${styles.stack} ${styles.span12}`}>
+              <CheckInsPanel checkIns={checkIns} range={range} onWiden={widenRange} />
             </div>
           )}
-
-          {tab === "record" && (
-            <div className={styles.panel}>
+          <div className={`${styles.stack} ${styles.span12}`}>
+            <TasksPanel dailyTasks={dailyTasks} memberTasks={memberTasks} range={range} onWiden={widenRange} />
+          </div>
+          {!isSiteEngineer && (
+            <div className={`${styles.stack} ${styles.span12}`}>
               <PerformancePanel performance={performance} range={range} onWiden={widenRange} />
             </div>
           )}
-        </>
+        </div>
       )}
     </div>
   );

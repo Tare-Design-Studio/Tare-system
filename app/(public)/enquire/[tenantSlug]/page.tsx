@@ -115,7 +115,7 @@ export default function PublicEnquiryPage({ params }: { params: Promise<{ tenant
 
         <form onSubmit={submit} style={{
           background: "#FBF8F2",
-          borderRadius: 22,
+          borderRadius: 28,
           padding: "32px 28px",
           boxShadow: "0 1px 0 #FFF inset, 0 20px 60px -20px rgba(27,26,23,.18)",
           border: "1px solid rgba(27,26,23,.04)",

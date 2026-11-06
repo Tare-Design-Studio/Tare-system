@@ -70,6 +70,7 @@ export function FeedImageTile({
       />
       {failed && projectId && (
         <button
+          className="shape-free"
           onClick={retry}
           disabled={busy}
           style={{

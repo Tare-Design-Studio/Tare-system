@@ -67,8 +67,10 @@ export interface MemberTaskMetrics {
   revisionCount?: number;
 }
 
-/** 0–100 score → letter grade. Same bands the Performance page reads. */
+/** Score → letter grade. Scores are uncapped (102/129), so 100+ gets its own
+ *  band above A+. Same bands the Performance page reads. */
 export function scoreToGrade(score: number): string {
+  if (score >= 100) return "A++";
   if (score >= 90) return "A+";
   if (score >= 80) return "A";
   if (score >= 70) return "B+";

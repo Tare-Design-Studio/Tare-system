@@ -64,7 +64,7 @@ export function MyProjectsCard({
   return (
     <div style={{
       background: "var(--color-paper-light)", borderRadius: 18,
-      border: "1px solid rgba(30,28,24,.05)", boxShadow: "var(--shadow-card)", padding: 20,
+      border: "1px solid var(--line-2)", boxShadow: "var(--shadow-card)", padding: 20,
     }}>
       <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>My projects</div>
       <div style={{ fontSize: 13, color: "var(--color-tan)", marginBottom: 14 }}>

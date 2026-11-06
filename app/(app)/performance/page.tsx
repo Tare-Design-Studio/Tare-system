@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Chip, Avatar } from "@/components/atoms";
-import PerformanceClient from "./PerformanceClient";
+import PerformanceClient, { type Remark } from "./PerformanceClient";
 
 export default async function PerformancePage() {
   const supabase = await createClient();
@@ -33,21 +33,21 @@ export default async function PerformancePage() {
     .eq("period_month", currentMonth)
     .order("overall_kpi_score", { ascending: false });
 
-  // Revenue contribution
-  const { data: revenueRows } = await supabase
-    .from("v_employee_revenue_contribution")
-    .select("user_id, revenue_contribution, active_project_count");
-
-  const revenueMap = Object.fromEntries(
-    (revenueRows ?? []).map((r) => [r.user_id, r])
-  );
+  // Remarks (manual +/- points) for the current month — 129.
+  const { data: remarks } = await supabase
+    .from("kpi_remarks")
+    .select("id, user_id, period_month, points, grade, note, created_at, author:users!kpi_remarks_created_by_fkey(full_name)")
+    .eq("period_month", currentMonth)
+    .order("created_at", { ascending: true });
 
   return (
     <PerformanceClient
       members={members ?? []}
       kpiRows={(kpiRows ?? []) as Parameters<typeof PerformanceClient>[0]["kpiRows"]}
-      revenueMap={revenueMap}
+      initialRemarks={(remarks ?? []) as Remark[]}
       currentMonth={currentMonth}
+      canEdit={!!capTeam}
+      currentUserId={user.id}
     />
   );
 }

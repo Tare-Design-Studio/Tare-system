@@ -102,11 +102,11 @@ export default async function MemberDetailPage({
 
   if (isSiteEngineer) {
     // Site engineers get the same panels as team members minus drawing-centric
-    // performance: assignments, office attendance, tasks, site check-ins, broadcasts.
-    const [checkInsRes, projectsRes, dailyTasksRes, memberTasksRes, attendanceRes, broadcastsRes] = await Promise.all([
+    // performance: assignments, office attendance, tasks, site check-ins.
+    const [checkInsRes, projectsRes, dailyTasksRes, memberTasksRes, attendanceRes] = await Promise.all([
       db
         .from("site_check_ins")
-        .select("id, project_id, checked_in_at, gps_lat, gps_lng, within_geofence, projects:project_id(name)")
+        .select("id, project_id, checked_in_at, checked_out_at, duration_minutes, gps_lat, gps_lng, within_geofence, projects:project_id(name)")
         .eq("user_id", memberId)
         .gte("checked_in_at", `${start}T00:00:00.000Z`)
         .lte("checked_in_at", `${today}T23:59:59.999Z`)
@@ -138,17 +138,12 @@ export default async function MemberDetailPage({
         .gte("work_date", start)
         .lte("work_date", today)
         .order("work_date", { ascending: false }),
-
-      supabase
-        .from("owner_broadcast_recipients")
-        .select("broadcast_id, is_acknowledged, acknowledged_at, owner_broadcasts:broadcast_id(created_at, body)")
-        .eq("user_id", memberId)
-        .order("broadcast_id", { ascending: false }),
     ]);
 
     return (
       <MemberDetailClient
         memberId={memberId}
+        isSelf={isSelf}
         initialRange={range}
         initialData={{
           member,
@@ -158,7 +153,6 @@ export default async function MemberDetailPage({
           dailyTasks: dailyTasksRes.data ?? [],
           memberTasks: memberTasksRes.data ?? [],
           attendance: attendanceRes.data ?? [],
-          broadcasts: broadcastsRes.data ?? [],
         }}
       />
     );
@@ -173,7 +167,6 @@ export default async function MemberDetailPage({
     memberTasksRes,
     attendanceRes,
     perfRes,
-    broadcastsRes,
   ] = await Promise.all([
     supabase
       .from("project_assignments")
@@ -208,17 +201,12 @@ export default async function MemberDetailPage({
       .eq("user_id", memberId)
       .gte("period_month", perfMonthStart)
       .order("period_month", { ascending: false }),
-
-    supabase
-      .from("owner_broadcast_recipients")
-      .select("broadcast_id, is_acknowledged, acknowledged_at, owner_broadcasts:broadcast_id(created_at, body)")
-      .eq("user_id", memberId)
-      .order("broadcast_id", { ascending: false }),
   ]);
 
   return (
     <MemberDetailClient
       memberId={memberId}
+      isSelf={isSelf}
       initialRange={range}
       initialData={{
         member,
@@ -228,7 +216,6 @@ export default async function MemberDetailPage({
         memberTasks: memberTasksRes.data ?? [],
         attendance: attendanceRes.data ?? [],
         performance: perfRes.data ?? [],
-        broadcasts: broadcastsRes.data ?? [],
       }}
     />
   );

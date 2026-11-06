@@ -236,9 +236,9 @@ export default function TeamMemberMobileHome({
       {/* Bridge */}
       <div style={{ padding: "0 16px" }}>
         <div style={{
-          background: "var(--color-paper-light)", borderRadius: 22, padding: 20,
-          boxShadow: "0 1px 0 #FFF inset, 0 8px 20px -10px rgba(30,28,24,.1)",
-          border: "1px solid rgba(30,28,24,.04)",
+          background: "var(--color-paper-light)", borderRadius: 28, padding: 20,
+          boxShadow: "var(--shadow-card)",
+          border: "1px solid var(--line-2)",
         }}>
           <div style={{ fontSize: 20, fontFamily: "'Instrument Serif', serif", fontWeight: 400, letterSpacing: -0.3, marginBottom: 8 }}>Bridge</div>
           <div style={{ fontSize: 13, color: "var(--color-tan)" }}>

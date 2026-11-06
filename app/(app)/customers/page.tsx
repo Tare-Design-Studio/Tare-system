@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useLayoutEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar, Chip } from "@/components/atoms";
 import { PageHeader } from "../PageHeader";
+import LinkProjectModal from "@/components/customers/LinkProjectModal";
 
 type PaymentRow = { is_paid: boolean; amount_due: number; amount_received: number };
 
@@ -25,14 +26,8 @@ type Customer = {
   projects: Project[];
 };
 
-const AVATAR_TONES = ["forest", "teal", "indigo", "amber", "rust", "mint"] as const;
-type AvatarTone = typeof AVATAR_TONES[number];
-
-function avatarTone(idx: number): AvatarTone {
-  return AVATAR_TONES[idx % AVATAR_TONES.length];
-}
-
 function fmtAmount(n: number) {
+  if (n >= 10000000) return `₹${(n / 10000000).toFixed(2)} Cr`;
   if (n >= 100000) return `₹${(n / 100000).toFixed(1)} L`;
   return `₹${n.toLocaleString("en-IN")}`;
 }
@@ -60,10 +55,10 @@ function cap(s: string) {
 
 const CARD: React.CSSProperties = {
   background: "var(--color-paper-light)",
-  borderRadius: 22,
+  borderRadius: 28,
   padding: 24,
-  boxShadow: "0 1px 0 #FFF inset, 0 2px 0 rgba(30,28,24,.02), 0 20px 40px -30px rgba(30,28,24,.2)",
-  border: "1px solid rgba(30,28,24,.04)",
+  boxShadow: "var(--shadow-card)",
+  border: "1px solid var(--line-2)",
 };
 
 const inputStyle: React.CSSProperties = {
@@ -95,6 +90,8 @@ export default function CustomersPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Phones show one pane at a time: the list, or the tapped customer's detail.
+  const [mobileDetail, setMobileDetail] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
 
   const reqRef = useRef<AbortController | null>(null);
@@ -138,6 +135,24 @@ export default function CustomersPage() {
   // no-op pass-through so the rendered list matches the loaded set.
   const filtered = customers;
 
+  // Show 15 cards, scroll the rest inside the same box. Cards are not a fixed
+  // height (names wrap), so the cap is measured from the 15th card and written
+  // straight to the DOM — no state, no extra render.
+  const listRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const fit = () => {
+      const cards = el.children;
+      if (cards.length <= 15) { el.style.maxHeight = ""; return; }
+      const last = cards[14] as HTMLElement;
+      el.style.maxHeight = `${last.offsetTop - el.offsetTop + last.offsetHeight + 4}px`;
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [filtered]);
+
   const selected = customers.find(c => c.id === selectedId) ?? null;
 
   return (
@@ -178,8 +193,15 @@ export default function CustomersPage() {
         </div>
       ) : (
         <div className="stack-mobile" style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 20, alignItems: "start" }}>
+          <style>{`
+            .cust-back { display: none; }
+            @media (max-width: 767px) {
+              .cust-pane-hidden { display: none !important; }
+              .cust-back { display: inline-flex; }
+            }
+          `}</style>
           {/* Left: list */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+          <div className={mobileDetail ? "cust-pane-hidden" : undefined} style={{ display: "flex", flexDirection: "column", gap: 0 }}>
             {/* Search */}
             <div style={{ position: "relative", marginBottom: 14 }}>
               <svg style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--color-tan)", pointerEvents: "none" }}
@@ -195,8 +217,8 @@ export default function CustomersPage() {
               />
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {filtered.map((c, idx) => {
+            <div ref={listRef} style={{ display: "flex", flexDirection: "column", gap: 8, overflowY: "auto", paddingRight: 4, paddingTop: 2 }}>
+              {filtered.map((c) => {
                 const project = c.projects?.[0] ?? null;
                 const schedule = project?.v_payment_status ?? [];
                 const outstanding = schedule.reduce((n, r) => n + Math.max(0, r.amount_due - (r.amount_received ?? 0)), 0);
@@ -205,20 +227,27 @@ export default function CustomersPage() {
                 return (
                   <button
                     key={c.id}
-                    onClick={() => setSelectedId(c.id)}
+                    className="shape-free"
+                    onClick={() => {
+                      setSelectedId(c.id);
+                      setMobileDetail(true);
+                      if (window.matchMedia("(max-width: 767px)").matches) window.scrollTo({ top: 0 });
+                    }}
                     style={{
                       textAlign: "left", padding: "16px 18px", borderRadius: 18,
-                      background: isSelected ? "var(--color-ink)" : "var(--color-paper-light)",
-                      color: isSelected ? "#F3EFE7" : "var(--color-ink)",
-                      border: isSelected ? "none" : "1px solid rgba(30,28,24,.04)",
-                      boxShadow: isSelected ? "none" : "0 1px 0 #FFF inset, 0 8px 20px -14px rgba(30,28,24,.14)",
+                      // White with a hairline border; the selected card gets a dark ring.
+                      background: "#FFFFFF",
+                      color: "var(--color-ink)",
+                      border: "1px solid var(--color-line)",
+                      boxShadow: isSelected ? "0 0 0 2px var(--color-ink) inset" : "0 8px 20px -14px rgba(30,28,24,.25)",
+                      flexShrink: 0,
                       cursor: "pointer", transition: "all .15s",
                     }}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
                       <Avatar
                         initials={initials(c.name)}
-                        tone={isSelected ? "sand" : avatarTone(idx)}
+                        tone="sand"
                         size={36}
                       />
                       <div>
@@ -246,17 +275,32 @@ export default function CustomersPage() {
           </div>
 
           {/* Right: detail panel */}
-          {selected ? (
-            <CustomerDetailPanel
-              customer={selected}
-              onNavigate={() => router.push(`/customers/${selected.id}`)}
-              onUpdated={load}
-            />
-          ) : (
-            <div style={{ ...CARD, textAlign: "center", padding: "40px", color: "var(--color-tan)", fontSize: 13 }}>
-              Select a customer to view details
-            </div>
-          )}
+          <div className={mobileDetail ? undefined : "cust-pane-hidden"} style={{ minWidth: 0 }}>
+            <button
+              type="button"
+              className="cust-back"
+              onClick={() => setMobileDetail(false)}
+              style={{
+                alignItems: "center", gap: 6, marginBottom: 12, padding: "8px 14px", borderRadius: 999,
+                border: "1px solid var(--line-2)", background: "var(--color-paper-light)",
+                fontSize: 13, fontWeight: 500, color: "var(--color-ink)", cursor: "pointer", fontFamily: "inherit",
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
+              All customers
+            </button>
+            {selected ? (
+              <CustomerDetailPanel
+                customer={selected}
+                onNavigate={() => router.push(`/customers/${selected.id}`)}
+                onUpdated={load}
+              />
+            ) : (
+              <div style={{ ...CARD, textAlign: "center", padding: "40px", color: "var(--color-tan)", fontSize: 13 }}>
+                Select a customer to view details
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -266,6 +310,7 @@ export default function CustomersPage() {
           onCreated={(c) => {
             setCustomers(prev => [c, ...prev]);
             setSelectedId(c.id);
+            setMobileDetail(true);
             setShowAddModal(false);
           }}
         />
@@ -312,13 +357,18 @@ function CustomerDetailPanel({
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       {/* Contact card */}
-      <div style={CARD}>
+      {/* Green mesh, white text — matches the Client Portal box on the full profile. */}
+      <div style={{
+        ...CARD, color: "#FFFFFF", border: "none",
+        background: "radial-gradient(60% 80% at 0 0,#3d8a65 0,#0000 70%),radial-gradient(50% 70% at 100% 100%,#8fe0b8 0,#0000 70%),#1e5b47",
+        boxShadow: "0 20px 40px -24px rgba(15,53,39,.6)",
+      }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 14 }}>
           <div style={{ display: "flex", gap: 14, alignItems: "center", minWidth: 0 }}>
-            <Avatar initials={initials(customer.name)} tone="forest" size={52} />
+            <Avatar initials={initials(customer.name)} tone="sand" size={52} />
             <div style={{ minWidth: 0 }}>
               <div className="font-serif" style={{ fontSize: 30, letterSpacing: -0.5, lineHeight: 1, fontWeight: 400, overflowWrap: "anywhere" }}>{customer.name}</div>
-              <div style={{ display: "flex", gap: 14, marginTop: 8, color: "var(--color-tan)", fontSize: 12, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 14, marginTop: 8, color: "#FFFFFF", fontSize: 12, flexWrap: "wrap" }}>
                 {customer.phone && (
                   <span style={{ display: "flex", gap: 6, alignItems: "center", minWidth: 0, overflowWrap: "anywhere" }}>
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -336,7 +386,7 @@ function CustomerDetailPanel({
                   </span>
                 )}
               </div>
-              <div style={{ fontSize: 11, color: "var(--color-tan)", marginTop: 6 }}>
+              <div style={{ fontSize: 11, color: "#FFFFFF", marginTop: 6 }}>
                 Since {fmtDate(customer.created_at)}
               </div>
             </div>
@@ -349,7 +399,7 @@ function CustomerDetailPanel({
                 title="Manage customer"
                 style={{
                   width: 34, height: 34, borderRadius: 10, display: "inline-flex", alignItems: "center", justifyContent: "center",
-                  border: "1px solid var(--color-line)", background: "transparent", color: "var(--color-tan)", cursor: "pointer",
+                  border: "1px solid rgba(255,255,255,.5)", background: "rgba(255,255,255,.1)", color: "#FFFFFF", cursor: "pointer",
                 }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>
@@ -384,8 +434,8 @@ function CustomerDetailPanel({
               onClick={() => setShowLinkModal(true)}
               style={{
                 padding: "8px 14px", borderRadius: 10, fontSize: 12, fontWeight: 600,
-                border: "1px solid var(--color-line)", background: "transparent",
-                color: "var(--color-ink)", cursor: "pointer",
+                border: "1px solid rgba(255,255,255,.5)", background: "rgba(255,255,255,.1)",
+                color: "#FFFFFF", cursor: "pointer",
               }}
             >
               {project ? "Re-link Project" : "Link Project"}
@@ -394,7 +444,7 @@ function CustomerDetailPanel({
               onClick={onNavigate}
               style={{
                 padding: "8px 14px", borderRadius: 10, fontSize: 12, fontWeight: 600,
-                border: "none", background: "var(--color-ink)", color: "#FBF8F2", cursor: "pointer",
+                border: "none", background: "rgba(10,19,13,.4)", color: "#FFFFFF", cursor: "pointer",
               }}
             >
               Open Full Profile
@@ -403,17 +453,19 @@ function CustomerDetailPanel({
         </div>
 
         {/* Financial summary stats */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 12 }}>
+        {/* Three across at every width; the value scales down rather than
+            wrapping (₹1.80 Cr stays on one line). */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: "clamp(6px, 2vw, 12px)" }}>
           {[
-            { label: "Total Project Value", value: totalFee > 0 ? fmtAmount(totalFee) : "—", color: "var(--color-ink)" },
-            { label: "Paid to Date", value: totalPaid > 0 ? fmtAmount(totalPaid) : "—", color: "var(--color-mint)" },
-            { label: "Outstanding", value: outstanding > 0 ? fmtAmount(outstanding) : "—", color: outstanding > 0 ? "var(--color-amber)" : "var(--color-ink)" },
+            { label: "Total Project Value", value: totalFee > 0 ? fmtAmount(totalFee) : "—", color: "#FFFFFF" },
+            { label: "Paid to Date", value: totalPaid > 0 ? fmtAmount(totalPaid) : "—", color: "#FFFFFF" },
+            { label: "Outstanding", value: outstanding > 0 ? fmtAmount(outstanding) : "—", color: "#FFFFFF" },
           ].map((s, i) => (
-            <div key={i} style={{ padding: "14px 16px", borderRadius: 14, background: "var(--color-bg)" }}>
-              <div style={{ fontSize: 11, color: "var(--color-tan)", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>
+            <div key={i} style={{ padding: "clamp(10px, 2.6vw, 14px) clamp(8px, 2.6vw, 16px)", borderRadius: 14, background: "rgba(10,19,13,.22)", minWidth: 0 }}>
+              <div style={{ fontSize: "clamp(9px, 2.6vw, 11px)", color: "#FFFFFF", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 6 }}>
                 {s.label}
               </div>
-              <div style={{ fontFamily: "var(--font-mono)", fontSize: 22, fontWeight: 600, color: s.color, letterSpacing: -0.5 }}>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: "clamp(13px, 3.6vw, 22px)", fontWeight: 600, color: s.color, letterSpacing: -0.5, whiteSpace: "nowrap" }}>
                 {s.value}
               </div>
             </div>
@@ -579,7 +631,7 @@ function EditCustomerModal({
       style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(27,26,23,.5)", backdropFilter: "blur(4px)", padding: 24 }}
       onClick={e => e.target === e.currentTarget && onClose()}
     >
-      <div className="modal-mobile-full" style={{ background: "var(--color-paper-light)", borderRadius: 22, padding: 32, width: "100%", maxWidth: 480, boxShadow: "0 32px 80px -20px rgba(27,26,23,.3)" }}>
+      <div className="modal-mobile-full" style={{ background: "var(--color-paper-light)", borderRadius: 28, padding: 32, width: "100%", maxWidth: 480, boxShadow: "0 32px 80px -20px rgba(27,26,23,.3)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
           <h2 className="font-serif" style={{ fontSize: 28, fontWeight: 400, margin: 0, letterSpacing: -0.5 }}>Edit Customer</h2>
           <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 8, background: "var(--color-bg)", border: "none", cursor: "pointer", color: "var(--color-tan)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -651,7 +703,7 @@ function DeleteCustomerModal({
       style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(27,26,23,.5)", backdropFilter: "blur(4px)", padding: 24 }}
       onClick={e => e.target === e.currentTarget && onClose()}
     >
-      <div className="modal-mobile-full" style={{ background: "var(--color-paper-light)", borderRadius: 22, padding: 32, width: "100%", maxWidth: 460, boxShadow: "0 32px 80px -20px rgba(27,26,23,.3)" }}>
+      <div className="modal-mobile-full" style={{ background: "var(--color-paper-light)", borderRadius: 28, padding: 32, width: "100%", maxWidth: 460, boxShadow: "0 32px 80px -20px rgba(27,26,23,.3)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
           <h2 className="font-serif" style={{ fontSize: 26, fontWeight: 400, margin: 0, letterSpacing: -0.5, color: "var(--color-rust)" }}>Delete Customer</h2>
           <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 8, background: "var(--color-bg)", border: "none", cursor: "pointer", color: "var(--color-tan)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -735,7 +787,7 @@ function AddCustomerModal({
       style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(27,26,23,.5)", backdropFilter: "blur(4px)", padding: 24 }}
       onClick={e => e.target === e.currentTarget && onClose()}
     >
-      <div className="modal-mobile-full" style={{ background: "var(--color-paper-light)", borderRadius: 22, padding: 32, width: "100%", maxWidth: 480, boxShadow: "0 32px 80px -20px rgba(27,26,23,.3)" }}>
+      <div className="modal-mobile-full" style={{ background: "var(--color-paper-light)", borderRadius: 28, padding: 32, width: "100%", maxWidth: 480, boxShadow: "0 32px 80px -20px rgba(27,26,23,.3)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 28 }}>
           <h2 className="font-serif" style={{ fontSize: 28, fontWeight: 400, margin: 0, letterSpacing: -0.5 }}>Add Customer</h2>
           <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 8, background: "var(--color-bg)", border: "none", cursor: "pointer", color: "var(--color-tan)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -771,88 +823,6 @@ function AddCustomerModal({
             </button>
           </div>
         </form>
-      </div>
-    </div>
-  );
-}
-
-function LinkProjectModal({
-  customerId, onClose, onLinked,
-}: {
-  customerId: string;
-  onClose: () => void;
-  onLinked: () => void;
-}) {
-  const [projects, setProjects] = useState<{ id: string; name: string; status: string }[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [selected, setSelected] = useState<string>("");
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch("/api/projects")
-      .then(r => r.json())
-      .then(d => { setProjects(d.projects ?? []); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
-
-  async function handleLink() {
-    if (!selected) return;
-    setSaving(true); setError(null);
-    const res = await fetch(`/api/projects/${selected}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ customer_id: customerId }),
-    });
-    const data = await res.json();
-    if (!res.ok) { setError(data.error ?? "Failed to link"); setSaving(false); return; }
-    onLinked();
-  }
-
-  return (
-    <div
-      style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(27,26,23,.5)", backdropFilter: "blur(4px)", padding: 24 }}
-      onClick={e => e.target === e.currentTarget && onClose()}
-    >
-      <div className="modal-mobile-full" style={{ background: "var(--color-paper-light)", borderRadius: 22, padding: 32, width: "100%", maxWidth: 480, boxShadow: "0 32px 80px -20px rgba(27,26,23,.3)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
-          <h2 className="font-serif" style={{ fontSize: 28, fontWeight: 400, margin: 0, letterSpacing: -0.5 }}>Link Project</h2>
-          <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 8, background: "var(--color-bg)", border: "none", cursor: "pointer", color: "var(--color-tan)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
-          </button>
-        </div>
-        {loading ? (
-          <div style={{ fontSize: 13, color: "var(--color-tan)", textAlign: "center", padding: "20px 0" }}>Loading projects…</div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div>
-              <label style={labelStyle}>Select Project</label>
-              <select
-                value={selected}
-                onChange={e => setSelected(e.target.value)}
-                style={{ ...inputStyle, appearance: "none" as const }}
-              >
-                <option value="">— Choose a project —</option>
-                {projects.map(p => (
-                  <option key={p.id} value={p.id}>{p.name} ({cap(p.status)})</option>
-                ))}
-              </select>
-            </div>
-            {error && (
-              <div style={{ padding: "10px 14px", borderRadius: 10, background: "#C5543B18", color: "var(--color-rust)", fontSize: 13 }}>{error}</div>
-            )}
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button type="button" onClick={onClose} style={{ padding: "9px 18px", borderRadius: 10, border: "1px solid var(--color-line)", background: "transparent", fontSize: 13, cursor: "pointer" }}>Cancel</button>
-              <button
-                onClick={handleLink}
-                disabled={!selected || saving}
-                style={{ padding: "9px 20px", borderRadius: 10, background: (!selected || saving) ? "var(--color-tan)" : "var(--color-ink)", color: "#FBF8F2", fontSize: 13, fontWeight: 600, border: "none", cursor: (!selected || saving) ? "not-allowed" : "pointer" }}
-              >
-                {saving ? "Linking…" : "Link Project"}
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

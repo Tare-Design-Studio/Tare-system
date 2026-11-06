@@ -4036,6 +4036,64 @@ export type Database = {
         }
         Relationships: []
       }
+      kpi_remarks: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          grade: string | null
+          id: string
+          note: string
+          period_month: string
+          points: number
+          tenant_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          grade?: string | null
+          id?: string
+          note: string
+          period_month: string
+          points: number
+          tenant_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          grade?: string | null
+          id?: string
+          note?: string
+          period_month?: string
+          points?: number
+          tenant_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "kpi_remarks_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kpi_remarks_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "kpi_remarks_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       leave_requests: {
         Row: {
           created_at: string
@@ -4411,6 +4469,8 @@ export type Database = {
           id: string | null
           notes: string | null
           overall_kpi_score: number | null
+          base_kpi_score: number | null
+          remark_points: number | null
           period_month: string | null
           quality_score: number | null
           recorded_by: string | null

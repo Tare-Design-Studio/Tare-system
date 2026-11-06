@@ -40,6 +40,7 @@ export type Expense = {
   description: string | null;
   spent_on: string;
   approval_status: string;
+  is_corrected?: boolean;
 };
 
 export type CheckIn = {

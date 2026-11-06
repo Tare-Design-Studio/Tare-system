@@ -589,7 +589,7 @@ export default function TasksClient({
                     display: "flex", alignItems: "center", gap: 16,
                     padding: "18px 20px", borderRadius: "var(--radius-card)",
                     background: "var(--color-paper-light)",
-                    border: "1px solid var(--color-line)",
+                    border: "1px solid var(--line-2)",
                     boxShadow: "var(--shadow-card)",
                     opacity: t.completed ? 0.65 : 1,
                   }}>
@@ -1089,7 +1089,7 @@ export default function TasksClient({
           zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
         }}>
           <div className="modal-mobile-full" style={{
-            background: "var(--color-paper-light)", borderRadius: 22, padding: 28, width: "100%", maxWidth: 520,
+            background: "var(--color-paper-light)", borderRadius: 28, padding: 28, width: "100%", maxWidth: 520,
             boxShadow: "0 8px 40px -10px rgba(27,26,23,.35)", border: "1px solid var(--color-line)",
           }}>
             <h2 className="font-serif" style={{ fontSize: 22, fontWeight: 400, margin: "0 0 4px", color: "var(--color-ink)" }}>
@@ -1193,7 +1193,7 @@ export default function TasksClient({
             className="modal-mobile-full"
             onClick={(e) => e.stopPropagation()}
             style={{
-              background: "var(--color-paper-light)", borderRadius: 22, padding: 28, width: "100%", maxWidth: 420,
+              background: "var(--color-paper-light)", borderRadius: 28, padding: 28, width: "100%", maxWidth: 420,
               boxShadow: "0 8px 40px -10px rgba(27,26,23,.35)", border: "1px solid var(--color-line)",
             }}
           >

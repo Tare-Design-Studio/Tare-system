@@ -40,7 +40,7 @@ export function DailyExpensesCard({ initial, nowMs }: { initial: Row[]; nowMs: n
   const total = filtered.reduce((s, r) => s + Number(r.amount), 0);
 
   return (
-    <div style={{ background: "var(--color-paper-light)", border: "1px solid rgba(30,28,24,.04)", borderRadius: 22, padding: 24, marginTop: 28 }}>
+    <div style={{ background: "var(--color-paper-light)", border: "1px solid rgba(30,28,24,.04)", borderRadius: 28, padding: 24, marginTop: 28 }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
         <div>
           <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 22 }}>Daily Expenses</div>
